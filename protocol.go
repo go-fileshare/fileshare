@@ -5,6 +5,8 @@ package main
 import (
 	"fmt"
 	"net"
+	"slices"
+	"strings"
 )
 
 // A protocol is one way to reach a share, and what it can honestly promise.
@@ -37,27 +39,29 @@ type protocol struct {
 	defaultPort int
 }
 
-var protocols = []*protocol{
-	{
-		name:          "smb",
-		authenticates: true,
-		serve:         serveSMB,
-		defaultPort:   445,
-	},
-	{
-		name:          "webdav",
-		authenticates: true,
-		serve:         serveWebDAV,
-		defaultPort:   8080,
-	},
-	{
-		name:          "nfs",
-		authenticates: false,
-		why: "NFSv3 has no authentication at all: AUTH_UNIX is a claim the client makes " +
-			"about itself and the wire cannot disagree with it",
-		serve:       serveNFS,
-		defaultPort: 2049,
-	},
+// The protocols COMPILED INTO this binary, in the order they registered.
+//
+// Each lives in its own file behind a build tag, and registers itself here.
+// `go build -tags nonfs` leaves NFS out entirely: not disabled at runtime,
+// absent -- no listener, no code, no dependency.
+//
+// The alternative was subprocess plugins, and it was measured rather than
+// argued: hashicorp/go-plugin brings gRPC and protobuf, which cost 13.2 MB on
+// their own -- more than this entire binary with all three protocols and every
+// driver in it (13.1 MB). A plugin host would be twice the size before loading
+// anything, and each plugin would carry gRPC again. Plugins buy other things --
+// protocols nobody here wrote, crash isolation -- but not the thing they would
+// have been for.
+var protocols []*protocol
+
+// known is every protocol this program has a name for, whether or not it was
+// compiled in. A configuration that names one which was left out deserves to
+// be told THAT, rather than "there is no such protocol".
+var known = []string{"smb", "webdav", "nfs"}
+
+func register(p *protocol) {
+	protocols = append(protocols, p)
+	slices.SortFunc(protocols, func(a, b *protocol) int { return strings.Compare(a.name, b.name) })
 }
 
 func protocolByName(name string) *protocol {
@@ -75,6 +79,12 @@ func protocolNames() string {
 		names = append(names, p.name)
 	}
 	return list(names)
+}
+
+// missing says whether a name is a protocol this program knows but this
+// BINARY does not have -- the difference between a typo and a build tag.
+func missing(name string) bool {
+	return protocolByName(name) == nil && slices.Contains(known, name)
 }
 
 // exports reports what this protocol will actually serve, and what it will

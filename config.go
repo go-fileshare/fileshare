@@ -177,6 +177,10 @@ func (c *config) check() error {
 		s := &c.Serves[i]
 		p := protocolByName(s.Protocol)
 		if p == nil {
+			if missing(s.Protocol) {
+				return fmt.Errorf("this binary was built without %s: it has %s (see the build tags in the README)",
+					s.Protocol, protocolNames())
+			}
 			return fmt.Errorf("there is no %q protocol here: the ones there are are %s", s.Protocol, protocolNames())
 		}
 		if where, taken := on[s.Protocol]; taken {

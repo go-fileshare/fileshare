@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,16 +128,53 @@ func configFor(t *testing.T, dir string, shares string) string {
 	t.Helper()
 	alice := write(t, dir, "alice.pw", "hunter2\n")
 	bob := write(t, dir, "bob.pw", "swordfish\n")
-	return fmt.Sprintf(`
-name = "TESTFS"
+	users := fmt.Sprintf("user \"alice\" { password_file = %q }\nuser \"bob\"   { password_file = %q }\n",
+		hclPath(alice), hclPath(bob))
+	if !anyAuthenticates() {
+		// A binary whose only protocol cannot tell people apart is refused a
+		// configuration with users in it, and rightly: it would read as
+		// protected and not be.
+		users = ""
+	}
+	return fmt.Sprintf("name = \"TESTFS\"\n\n%s\n%s\n%s", users, shares, serveBlocks())
+}
 
-user "alice" { password_file = %q }
-user "bob"   { password_file = %q }
+// anyAuthenticates reports whether this binary has a protocol that can tell
+// who is asking. Without one, users -- and so every per-user rule -- cannot be
+// configured at all, and the tests about them have nothing to run against.
+func anyAuthenticates() bool {
+	for _, p := range protocols {
+		if p.authenticates {
+			return true
+		}
+	}
+	return false
+}
 
-%s
+// needUsers skips a test that cannot mean anything in this build.
+func needUsers(t *testing.T) {
+	t.Helper()
+	if !anyAuthenticates() {
+		t.Skip("this binary has no protocol that can authenticate, so it can have no users")
+	}
+}
 
-serve "smb"    { addr = "127.0.0.1:0" }
-serve "webdav" { addr = "127.0.0.1:0" }
-serve "nfs"    { addr = "127.0.0.1:0" }
-`, hclPath(alice), hclPath(bob), shares)
+// serveBlocks names the protocols THIS BINARY has. A build with -tags nonfs
+// has no NFS to serve, and a test that named it anyway would be testing the
+// configuration's refusal rather than the thing it came to test.
+func serveBlocks() string {
+	var b strings.Builder
+	for _, p := range protocols {
+		fmt.Fprintf(&b, "serve %q { addr = \"127.0.0.1:0\" }\n", p.name)
+	}
+	return b.String()
+}
+
+// names is what a failure message should say about a set of shares.
+func names(shares []*share) []string {
+	var out []string
+	for _, s := range shares {
+		out = append(out, s.name)
+	}
+	return out
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 // What a configuration cannot mean is refused, with the reason.
 func TestConfigurationsThatCannotWork(t *testing.T) {
 	for _, tc := range []struct{ name, body, want string }{
-		{"no shares", `serve "smb" {}`, "no shares"},
+		{"no shares", `serve "PROTO" {}`, "no shares"},
 		{"no serve block", `share "s" { image = "/i" }`, "no serve block"},
 		{
 			"a protocol nobody has",
@@ -21,21 +22,21 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 		{
 			"the same protocol twice",
 			`share "s" { image = "/i" }
-			 serve "smb" { addr = "127.0.0.1:1" }
-			 serve "smb" { addr = "127.0.0.1:2" }`,
+			 serve "PROTO" { addr = "127.0.0.1:1" }
+			 serve "PROTO" { addr = "127.0.0.1:2" }`,
 			"served twice",
 		},
 		{
 			"two shares under one name, whatever the case",
 			`share "Disk" { image = "/a" }
 			 share "disk" { image = "/b" }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			"without case",
 		},
 		{
 			"a share with a path for a name",
 			`share "a/b" { image = "/i" }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			"path separator",
 		},
 		{
@@ -45,7 +46,7 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			   image = "/i"
 			   allow = ["alise"]
 			 }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			`allows "alise"`,
 		},
 		{
@@ -57,7 +58,7 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			   allow   = ["alice"]
 			   writers = ["bob"]
 			 }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			"does not allow them to connect",
 		},
 		{
@@ -68,17 +69,10 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			   read_only = true
 			   writers   = ["alice"]
 			 }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			"say one or the other",
 		},
-		{
-			// The dangerous one: it reads as protected and is not.
-			"users, and nowhere to authenticate them",
-			`user "alice" { password = "x" }
-			 share "s" { image = "/i" }
-			 serve "nfs" {}`,
-			"can authenticate them",
-		},
+
 		{
 			// With no users at all, a name in allow belongs to nobody -- and
 			// that is the message, because it is the one that says what to fix.
@@ -87,19 +81,21 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			   image = "/i"
 			   allow = ["alice"]
 			 }
-			 serve "smb" {}`,
+			 serve "PROTO" {}`,
 			`allows "alice", who is not a user here`,
 		},
 		{
 			"an address that is not one",
 			`share "s" { image = "/i" }
-			 serve "smb" { addr = "not-an-address" }`,
+			 serve "PROTO" { addr = "not-an-address" }`,
 			"is not an address",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			p := write(t, dir, "c.hcl", tc.body)
+			// PROTO is whichever protocol this binary has: the refusals under
+			// test are about the configuration, not about which one it is.
+			p := write(t, dir, "c.hcl", strings.ReplaceAll(tc.body, "PROTO", protocols[0].name))
 			_, err := loadConfig([]string{p})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want one mentioning %q", err, tc.want)
@@ -108,40 +104,74 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 	}
 }
 
+// The dangerous configuration: it reads as protected and is not. It needs a
+// protocol that cannot authenticate, so it runs only in a binary that has one.
+func TestUsersWithNowhereToAuthenticateThem(t *testing.T) {
+	var blind *protocol
+	for _, p := range protocols {
+		if !p.authenticates {
+			blind = p
+		}
+	}
+	if blind == nil {
+		t.Skip("this binary has no protocol that cannot authenticate")
+	}
+	dir := t.TempDir()
+	p := write(t, dir, "c.hcl", fmt.Sprintf(`
+user "alice" { password = "x" }
+share "s" { image = "/i" }
+serve %q {}
+`, blind.name))
+	_, err := loadConfig([]string{p})
+	if err == nil || !strings.Contains(err.Error(), "can authenticate them") {
+		t.Errorf("error = %v, want one about nowhere to authenticate", err)
+	}
+}
+
 // A directory of small files is ONE configuration, and a protocol with no
 // address still lands where a client looks.
 func TestADirectoryOfFilesAndTheDefaultPorts(t *testing.T) {
 	dir := t.TempDir()
 	pw := write(t, dir, "alice.pw", "hunter2\n")
-	write(t, dir, "10-users.hcl", `
-name = "ATTIC"
-user "alice" { password_file = "`+hclPath(pw)+`" }
-`)
+	users := ""
+	if anyAuthenticates() {
+		users = `user "alice" { password_file = "` + hclPath(pw) + `" }`
+	}
+	write(t, dir, "10-users.hcl", "name = \"ATTIC\"\n"+users+"\n")
+	// The first protocol this binary has, with no address, and the same one
+	// again would be a duplicate -- so the second block only appears when
+	// there is a second protocol to put in it.
+	first := protocols[0]
+	blocks := fmt.Sprintf("serve %q {}\n", first.name)
+	if len(protocols) > 1 {
+		blocks += fmt.Sprintf("serve %q { addr = \"0.0.0.0:8081\" }\n", protocols[1].name)
+	}
 	write(t, dir, "20-shares.hcl", `
 share "photos" {
   image     = "/srv/photos.img"
   read_only = true
 }
-serve "smb" {}
-serve "webdav" { addr = "0.0.0.0:8081" }
-`)
+`+blocks)
 	write(t, dir, "notes.txt", `share "ignored" { image = "/nope" }`)
 
 	cfg, err := loadConfig([]string{dir})
 	if err != nil {
 		t.Fatalf("loading: %v", err)
 	}
-	if cfg.Name != "ATTIC" || len(cfg.Shares) != 1 || len(cfg.Users) != 1 {
+	if cfg.Name != "ATTIC" || len(cfg.Shares) != 1 {
 		t.Fatalf("merged into %+v", cfg)
 	}
-	if got := cfg.Serves[0].Addr; got != "127.0.0.1:445" {
-		t.Errorf("smb with no address landed on %q, want the registered port on loopback", got)
+	want := fmt.Sprintf("127.0.0.1:%d", first.defaultPort)
+	if got := cfg.Serves[0].Addr; got != want {
+		t.Errorf("%s with no address landed on %q, want %q", first.name, got, want)
 	}
-	if got := cfg.Serves[1].Addr; got != "0.0.0.0:8081" {
-		t.Errorf("webdav kept %q", got)
+	if len(protocols) > 1 && cfg.Serves[1].Addr != "0.0.0.0:8081" {
+		t.Errorf("%s kept %q", protocols[1].name, cfg.Serves[1].Addr)
 	}
-	if got, err := cfg.Users[0].password(); err != nil || got != "hunter2" {
-		t.Errorf("the password file gave %q, %v", got, err)
+	if anyAuthenticates() {
+		if got, err := cfg.Users[0].password(); err != nil || got != "hunter2" {
+			t.Errorf("the password file gave %q, %v", got, err)
+		}
 	}
 }
 

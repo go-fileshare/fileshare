@@ -84,6 +84,31 @@ jobs:
           fi
           go build ./...
 
+  tags:
+    name: build tags (${{ matrix.tags }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: [nonfs, nowebdav, "nonfs,nowebdav", "nosmb,nonfs", "nosmb,nowebdav"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+          cache: true
+      # A tag that leaves a protocol out must leave a program that still
+      # builds, still passes its tests, and is SMALLER -- the last one is the
+      # point, so it is measured rather than assumed.
+      - run: |
+          go build -tags "${{ matrix.tags }}" -o /tmp/tagged .
+          go build -o /tmp/full .
+          full=$(stat -c%s /tmp/full); cut=$(stat -c%s /tmp/tagged)
+          echo "everything: $((full/1024)) KiB   -tags ${{ matrix.tags }}: $((cut/1024)) KiB"
+          [ "$cut" -lt "$full" ] || { echo "::error::the tagged build is not smaller"; exit 1; }
+      - run: go test -tags "${{ matrix.tags }}" -count=1 ./...
+
   coverage-floor:
     name: coverage floor (70%, standard is 100%)
     runs-on: ubuntu-latest

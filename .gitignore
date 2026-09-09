@@ -5,4 +5,11 @@
 # for. (In go-filesystems/smb a 6.5 MB binary was committed by the very change
 # that renamed the command, because the new rule named the NEW name.)
 /fileshare
+/fileshare.exe
 /cover.out
+
+# ⛔ `.exe` is on that list because a `GOOS=windows go build ./...` left one
+# here and `git add -A` staged it -- the same defect, in its fourth variant,
+# and caught only because the WHOLE of `git status` was read rather than its
+# first few lines. A rule that names one artefact is a rule that has met one
+# artefact.

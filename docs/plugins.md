@@ -79,13 +79,14 @@ believed.
 
 1. **Build tags** — done. They answer size and they answer "not running it" for
    attack surface, at zero runtime cost.
-2. **A process per protocol, using this same binary**, if isolation is wanted:
-   `fileshare` execs itself once per protocol, hands each child only the shares
-   that protocol may serve, and each child opens only those images. No plugin
-   framework, no gRPC, no second binary to version-match — and the same
-   least-privilege property. It needs one rule to be honest about the
-   coherence question above: an image writable through more than one protocol
-   stays in one process, or is refused.
+2. **A process per protocol, using this same binary** — **done**: `--isolate`.
+   The parent binds the listeners and execs itself once per protocol, handing
+   each child only the shares that protocol may serve; on Unix the listener is
+   passed as a file descriptor, so a privileged port works with unprivileged
+   children. Verified with `lsof`: the writable image is open in exactly one
+   process and the other children never open it. The coherence question above
+   is answered by a refusal — an image writable through more than one protocol
+   must name one (`protocols = ["smb"]`), be read-only, or not be isolated.
 3. **go-plugin** only if third-party, out-of-tree protocols become the point.
    Then the 13.2 MB and the RPC are the price of something they buy, rather
    than a cost paid for modularity that build tags already provide.

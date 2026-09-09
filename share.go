@@ -24,6 +24,9 @@ type share struct {
 	readOnly bool
 	allow    []string
 	writers  []string
+	// protocols is which of them may carry this share; empty means all of
+	// them. See protocol.exports.
+	protocols []string
 
 	// Filled in when the image is opened.
 	fsys filesystem.Filesystem

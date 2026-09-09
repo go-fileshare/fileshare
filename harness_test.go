@@ -178,3 +178,24 @@ func names(shares []*share) []string {
 	}
 	return out
 }
+
+// onlyProtocol is a configuration that serves ONE protocol: a test about one
+// of them should not have to satisfy the others, and a share that names one
+// protocol makes every other serve block carry nothing -- which is refused,
+// correctly, and would be the thing under test rather than the thing it came
+// to test.
+func onlyProtocol(t *testing.T, dir, name, shares string) string {
+	t.Helper()
+	alice := write(t, dir, "alice.pw", "hunter2\n")
+	bob := write(t, dir, "bob.pw", "swordfish\n")
+	return fmt.Sprintf(`
+name = "TESTFS"
+
+user "alice" { password_file = %q }
+user "bob"   { password_file = %q }
+
+%s
+
+serve %q { addr = "127.0.0.1:0" }
+`, hclPath(alice), hclPath(bob), shares, name)
+}

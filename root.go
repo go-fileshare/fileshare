@@ -286,20 +286,59 @@ func report(cmd *cobra.Command, cfg *config) error {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(w, "USER\tPASSWORD FROM")
+	fmt.Fprintln(w, "USER\tAUTHENTICATES WITH")
 	for _, u := range cfg.Users {
-		from := "the configuration file"
-		if u.PasswordFile != "" {
-			// The file is named; what is IN it is never printed.
-			from = u.PasswordFile
+		// What each person proves themselves with, and WHERE it comes from --
+		// never what it is. A password is a secret; the path to it is not.
+		var with []string
+		switch {
+		case u.PasswordFile != "":
+			with = append(with, "a password from "+u.PasswordFile)
+		case u.Password != "":
+			with = append(with, "a password from the configuration file")
 		}
-		fmt.Fprintf(w, "%s\t%s\n", u.Name, from)
+		switch {
+		case u.AuthorizedKeysFile != "":
+			with = append(with, "keys from "+u.AuthorizedKeysFile)
+		case len(u.AuthorizedKeys) == 1:
+			with = append(with, "1 key in the configuration file")
+		case len(u.AuthorizedKeys) > 1:
+			with = append(with, fmt.Sprintf("%d keys in the configuration file", len(u.AuthorizedKeys)))
+		}
+		if cfg.TrustedUserCAFile != "" {
+			with = append(with, "a certificate from "+cfg.TrustedUserCAFile)
+		}
+		fmt.Fprintf(w, "%s\t%s\n", u.Name, list(with))
 	}
 	if err := w.Flush(); err != nil {
 		return err
 	}
+	// Who can actually USE sftp: it authenticates by key or certificate, so a
+	// person with only a password is a person the table above says may
+	// connect and who cannot. Said here rather than discovered by them.
+	if p := protocolByName("sftp"); p != nil && cfg.servesProtocol("sftp") && cfg.TrustedUserCAFile == "" {
+		var without []string
+		for _, u := range cfg.Users {
+			if len(u.AuthorizedKeys) == 0 && u.AuthorizedKeysFile == "" {
+				without = append(without, u.Name)
+			}
+		}
+		if len(without) > 0 {
+			fmt.Fprintf(out, "\n%s cannot use sftp: it authenticates by key or certificate, and %s no authorized_keys\n",
+				list(without), have(len(without)))
+		}
+	}
+
 	fmt.Fprintln(out, "\nthis configuration can be served")
 	return nil
+}
+
+// have keeps the sentence above grammatical without a second sentence.
+func have(n int) string {
+	if n == 1 {
+		return "has"
+	}
+	return "have"
 }
 
 // noArgs refuses a leftover argument, and says what one usually means.

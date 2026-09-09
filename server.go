@@ -11,6 +11,8 @@ import (
 	"os"
 	"sync"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/go-filesystems/detect"
 
 	filesystem_exfat "github.com/go-filesystems/exfat"
@@ -29,7 +31,29 @@ type server struct {
 	users  map[string]string // user -> password
 	out    io.Writer
 
+	// hostKeyFile is the SFTP identity, when the configuration named one, and
+	// trustedCAFile the authorities whose certificates are accepted.
+	hostKeyFile   string
+	trustedCAFile string
+	// keys are each person's SSH public keys, for SFTP.
+	keys map[string][]ssh.PublicKey
+	// stopping is closed when the server is going away, for protocols whose
+	// own Close is what stops them rather than the listener closing.
+	stopping chan struct{}
+
 	closers []io.Closer
+}
+
+// syncWriter is one writer several goroutines may use.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
 }
 
 // registerDrivers tells detect what this command can open. It is a list
@@ -52,7 +76,13 @@ func registerDrivers() {
 // the start rather than an error the first client sees.
 func open(cfg *config, out io.Writer) (*server, error) {
 	registerDrivers()
-	s := &server{name: cfg.Name, users: map[string]string{}, out: out}
+	s := &server{name: cfg.Name, users: map[string]string{}, keys: map[string][]ssh.PublicKey{},
+		// Locked, because the protocols write here from their OWN goroutines
+		// -- sftp says whether it generated a host key while the others are
+		// announcing themselves -- and two goroutines writing one io.Writer
+		// is a data race whatever the writer is.
+		out: &syncWriter{w: out}, hostKeyFile: cfg.HostKeyFile, trustedCAFile: cfg.TrustedUserCAFile,
+		stopping: make(chan struct{})}
 	if s.name == "" {
 		s.name = "FILESHARE"
 	}
@@ -62,7 +92,17 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			s.Close()
 			return nil, err
 		}
-		s.users[u.Name] = pw
+		if pw != "" {
+			s.users[u.Name] = pw
+		}
+		keys, err := u.authorizedKeys()
+		if err != nil {
+			s.Close()
+			return nil, err
+		}
+		if len(keys) > 0 {
+			s.keys[u.Name] = keys
+		}
 	}
 	for _, b := range cfg.Shares {
 		sh := &share{
@@ -117,6 +157,7 @@ var detectOpen = detect.Open
 
 // Close closes every driver, and so every image.
 func (s *server) Close() error {
+	s.stop()
 	var err error
 	for _, c := range s.closers {
 		if cerr := c.Close(); err == nil {
@@ -127,6 +168,15 @@ func (s *server) Close() error {
 }
 
 // password answers what a protocol asks when somebody authenticates.
+// stop tells the protocols that stop by their own Close, once.
+func (s *server) stop() {
+	select {
+	case <-s.stopping:
+	default:
+		close(s.stopping)
+	}
+}
+
 func (s *server) password(user string) (string, bool) {
 	pw, ok := s.users[user]
 	return pw, ok
@@ -207,10 +257,12 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	}
 	select {
 	case <-ctx.Done():
+		s.stop()
 		closeAll()
 		wg.Wait()
 		return nil
 	case err := <-errs:
+		s.stop()
 		closeAll()
 		wg.Wait()
 		return err

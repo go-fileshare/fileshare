@@ -299,12 +299,12 @@ func TestEveryMethodReachesTheDriver(t *testing.T) {
 	}
 }
 
-type readOnlyFile struct{}
+type plainReadOnlyFile struct{}
 
-func (readOnlyFile) ReadAt([]byte, int64) (int, error) { return 0, nil }
-func (readOnlyFile) Close() error                      { return nil }
-func (readOnlyFile) Size() int64                       { return 7 }
+func (plainReadOnlyFile) ReadAt([]byte, int64) (int, error) { return 0, nil }
+func (plainReadOnlyFile) Close() error                      { return nil }
+func (plainReadOnlyFile) Size() int64                       { return 7 }
 
 type readOnlyOpenerFS struct{ plainFS }
 
-func (readOnlyOpenerFS) OpenFile(string) (filesystem.File, error) { return readOnlyFile{}, nil }
+func (readOnlyOpenerFS) OpenFile(string) (filesystem.File, error) { return plainReadOnlyFile{}, nil }

@@ -109,6 +109,13 @@ jobs:
           [ "$cut" -lt "$full" ] || { echo "::error::the tagged build is not smaller"; exit 1; }
       - run: go test -tags "${{ matrix.tags }}" -count=1 ./...
 
+  # THE ORG STANDARD IS 100%, AND THIS PROGRAM DOES NOT MEET IT.
+  #
+  # What is missing is mostly a CHILD PROCESS: with --isolate, the code that
+  # matters runs in another process, and `go test -cover` counts statements in
+  # this one. The end-to-end test drives a real parent and a real child -- it
+  # is the only way to test a process boundary -- and the child's half of the
+  # work is invisible to the counter whatever it does.
   coverage-floor:
     name: coverage floor (70%, standard is 100%)
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,9 +154,14 @@ func TestAnImageIsOpenedForWhatItIsFor(t *testing.T) {
 	dir := t.TempDir()
 	rw := write(t, dir, "rw.img", "not really an image")
 	ro := write(t, dir, "ro.img", "not really an image")
-	if err := chmodReadOnly(ro); err != nil {
+	// os.Chmod with no write bit sets the read-only ATTRIBUTE on Windows, so
+	// this is the same experiment on every platform -- and it is put back
+	// afterwards, because Windows will not delete a read-only file and the
+	// temporary directory's cleanup would fail.
+	if err := os.Chmod(ro, 0o400); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { os.Chmod(ro, 0o600) })
 	for _, tc := range []struct {
 		name   string
 		path   string

@@ -9,6 +9,9 @@ func init() {
 		name:          "smb",
 		authenticates: true,
 		serve:         serveSMB,
-		defaultPort:   445,
+		// 4445, not 445: the registered port needs privilege on every operating
+		// system, and a default that requires root is a default nobody can
+		// use. `serve "smb" { addr = "0.0.0.0:445" }` says so when it is meant.
+		defaultPort: 4445,
 	})
 }

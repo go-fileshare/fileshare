@@ -5,8 +5,13 @@ pure Go.**
 
 ```sh
 go install github.com/go-fileshare/fileshare@latest
-fileshare --config /etc/fileshare.d
+
+fileshare --image disk.img --user alice --password-file pw   # one image, now
+fileshare --config /etc/fileshare.d                          # several, with users
 ```
+
+The password comes from a **file**, never a flag: an argument is visible in the
+process list to every user on the machine.
 
 ```
 smb    on 0.0.0.0:445  — photos and scratch

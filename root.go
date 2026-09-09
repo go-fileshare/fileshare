@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -17,20 +18,46 @@ import (
 )
 
 // options is what the flags say.
+//
+// The flags are the shape of the ONE-IMAGE case and they stay: a person
+// sharing a single image should not have to write a configuration file to do
+// it. When files ARE given they own the shares and the users, because a share
+// defined in two places is a question nobody wants to answer at three in the
+// morning.
 type options struct {
-	files []string
+	files    []string
+	image    string
+	share    string
+	user     string
+	pwFile   string
+	readOnly bool
+	only     []string
+	name     string
 }
 
 func (o *options) bind(f *pflag.FlagSet) {
 	f.StringArrayVarP(&o.files, "config", "c", nil,
 		"an HCL file, or a directory of .hcl files, describing shares, users and protocols (repeatable)")
+	f.StringVarP(&o.image, "image", "i", "", "a disk image to share")
+	f.StringVarP(&o.share, "share", "s", "",
+		"the name to share it under (default: the image's file name without its extension)")
+	f.StringVarP(&o.user, "user", "u", "", "the user a client authenticates as")
+	f.StringVarP(&o.pwFile, "password-file", "p", "", "a file holding that user's password")
+	f.BoolVar(&o.readOnly, "read-only", false, "refuse every write, whatever the image would allow")
+	f.StringArrayVar(&o.only, "protocol", nil,
+		"serve only this protocol (repeatable; default: every one this binary has)")
+	f.StringVar(&o.name, "name", "FILESHARE", "what the server calls itself to a client")
 }
 
 const longHelp = `fileshare serves disk images over SMB, NFS and WebDAV -- the same images, the
 same users, the same per-share access, from one configuration file.
 
+    fileshare --image disk.img --user alice --password-file pw
     fileshare --config /etc/fileshare.d
     fileshare check /etc/fileshare.d
+
+The password comes from a FILE, never a flag: an argument is visible in the
+process list to every user on the machine.
 
 The protocols do not agree about the one thing access control needs: whether
 the server can tell WHO is asking. SMB proves it with NTLMv2 and WebDAV with
@@ -116,10 +143,64 @@ nothing and serves nothing.`,
 
 func configOf(o *options, args []string) (*config, error) {
 	files := append(append([]string{}, o.files...), args...)
-	if len(files) == 0 {
-		return nil, fmt.Errorf("nothing to serve: name a configuration file or a directory of them")
+	if len(files) > 0 {
+		if o.image != "" || o.user != "" || o.pwFile != "" {
+			return nil, fmt.Errorf("--config describes the shares and the users; --image, --user and --password-file do not go with it")
+		}
+		return loadConfig(files)
 	}
-	return loadConfig(files)
+	return o.oneImage()
+}
+
+// oneImage is the flag form: one image, one user, every protocol this binary
+// has, each on a port that does not need root.
+func (o *options) oneImage() (*config, error) {
+	if o.image == "" {
+		return nil, fmt.Errorf("nothing to serve: --image, or a configuration file")
+	}
+	if o.user == "" || o.pwFile == "" {
+		// A share with no user is every stranger's. Refusing is the only
+		// answer that cannot surprise somebody.
+		return nil, fmt.Errorf("--image needs --user and --password-file: a share with nobody named on it is open to whoever can reach the port")
+	}
+	name := o.share
+	if name == "" {
+		name = defaultShareName(o.image)
+	}
+	cfg := &config{
+		Name:   o.name,
+		Users:  []userBlock{{Name: o.user, PasswordFile: o.pwFile}},
+		Shares: []shareBlock{{Name: name, Image: o.image, ReadOnly: o.readOnly}},
+	}
+	for _, p := range protocols {
+		if len(o.only) > 0 && !slices.Contains(o.only, p.name) {
+			continue
+		}
+		cfg.Serves = append(cfg.Serves, serveBlock{Protocol: p.name})
+	}
+	if len(cfg.Serves) == 0 {
+		return nil, fmt.Errorf("--protocol names none this binary has: it has %s", protocolNames())
+	}
+	if err := cfg.check(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// defaultShareName is the image's file name without its extension, which is
+// what a person would have typed.
+func defaultShareName(path string) string {
+	base := path
+	if i := strings.LastIndexAny(base, `/\`); i >= 0 {
+		base = base[i+1:]
+	}
+	if i := strings.LastIndex(base, "."); i > 0 {
+		base = base[:i]
+	}
+	if base == "" {
+		return "disk"
+	}
+	return base
 }
 
 // report prints what would be served, to whom, over what.

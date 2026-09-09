@@ -198,9 +198,15 @@ func (c *config) check() error {
 		}
 	}
 	// Users with nowhere to authenticate is a configuration that reads as
-	// protected and is not.
+	// protected and is not. The message names what THIS configuration serves,
+	// not every protocol the binary has: the reader is looking at their own
+	// serve blocks.
 	if len(c.Users) > 0 && !authenticated {
-		return fmt.Errorf("there are users, and no protocol here can authenticate them: %s cannot tell people apart", protocolNames())
+		named := make([]string, 0, len(c.Serves))
+		for _, s := range c.Serves {
+			named = append(named, s.Protocol)
+		}
+		return fmt.Errorf("there are users, and no protocol here can authenticate them: %s cannot tell people apart", list(named))
 	}
 	return nil
 }

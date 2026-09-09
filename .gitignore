@@ -1,0 +1,8 @@
+# The binary `go build` leaves next to the source, whatever it is called.
+#
+# An allow-list, not a name: a named rule protects against the binary you
+# already met, and a rename produces exactly one artefact nobody has a rule
+# for. (In go-filesystems/smb a 6.5 MB binary was committed by the very change
+# that renamed the command, because the new rule named the NEW name.)
+/fileshare
+/cover.out

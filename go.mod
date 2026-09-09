@@ -1,0 +1,58 @@
+// One binary that serves a disk image over four protocols.
+//
+// It depends on RELEASED versions of the libraries it uses and carries no
+// replace directive: `go install github.com/go-fileshare/fileshare@latest`
+// must work, and a replace makes Go refuse it outright -- which is how the
+// same command inside go-filesystems/smb was broken for as long as it existed.
+module github.com/go-fileshare/fileshare
+
+go 1.26.4
+
+require (
+	github.com/go-filesystems/detect v0.1.0
+	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
+	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
+	github.com/go-filesystems/fat32 v0.3.1-0.20260909090037-17502e127a37
+	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
+	github.com/go-filesystems/interface v0.3.0
+	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
+	github.com/go-filesystems/nfs v0.2.0
+	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
+	github.com/go-filesystems/smb v0.0.0-20260909142219-fb96db3d9dc7
+	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
+	github.com/go-filesystems/webdav v0.1.0
+	github.com/hashicorp/hcl/v2 v2.24.0
+	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
+)
+
+require (
+	github.com/agext/levenshtein v1.2.1 // indirect
+	github.com/anchore/go-lzo v0.1.1 // indirect
+	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
+	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c // indirect
+	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
+	github.com/geoffgarside/ber v1.1.0 // indirect
+	github.com/go-volumes/gpt v0.0.0-20260831115417-b3069a3ac03a // indirect
+	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
+	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
+	github.com/jcmturner/gofork v1.7.6 // indirect
+	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
+	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
+	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
+	github.com/ulikunitz/xz v0.5.16 // indirect
+	github.com/zclconf/go-cty v1.16.3 // indirect
+	golang.org/x/crypto v0.38.0 // indirect
+	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.25.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
+)

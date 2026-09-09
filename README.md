@@ -1,7 +1,7 @@
 # fileshare
 
-**Share a disk image over SMB, NFS and WebDAV — one configuration, one binary,
-pure Go.**
+**Share a disk image over SMB, NFS, WebDAV and SFTP — one configuration, one
+binary, pure Go.**
 
 ```sh
 go install github.com/go-fileshare/fileshare@latest
@@ -16,6 +16,7 @@ process list to every user on the machine.
 ```
 smb    on 0.0.0.0:445  — photos and scratch
 webdav on 0.0.0.0:8080 — photos and scratch
+sftp   on 0.0.0.0:2222 — photos and scratch
 nfs    on 0.0.0.0:2049 — scratch
        photos is not served over nfs: it is restricted to alice and bob, and
        NFSv3 has no authentication at all: AUTH_UNIX is a claim the client
@@ -42,6 +43,7 @@ the server can tell **who** is asking.
 |---|---|
 | **SMB** | NTLMv2. The password never crosses the wire, and the share tells a reader they are one — in the access mask, before they try. |
 | **WebDAV** | HTTP Basic, over whatever TLS the transport gives it. A share a person may not use answers 404, not 403: it is not confirmed to exist. |
+| **SFTP** | A **public key**, or an **SSH certificate** from an authority you trust: the server never holds the secret, and with a certificate a person's access is issued and expires elsewhere. No password: a client that prompts for one is doing the thing keys exist to avoid. |
 | **NFSv3** | **Nothing.** `AUTH_UNIX` is a claim — the client says "uid 501" and the wire cannot disagree. There is no encryption either. |
 
 So **a share that names who may use it is not exported over NFS**. Not a
@@ -70,8 +72,52 @@ share "scratch" {
 
 serve "smb"    { addr = "0.0.0.0:445" }
 serve "webdav" { addr = "0.0.0.0:8080" }
+serve "sftp"   { addr = "0.0.0.0:2222" }
 serve "nfs"    { addr = "0.0.0.0:2049" }
 ```
+
+## SFTP: keys, or certificates
+
+Every client already has it — `sftp` ships with OpenSSH, the Finder and GNOME
+mount it, editors speak it — and it is the one protocol here whose shape does
+not fit: a person logs in and lands in **one** filesystem, not a list of
+shares. So the shares become the top-level directories of a tree built for
+whoever just authenticated:
+
+```
+$ sftp -i ~/.ssh/id_ed25519 -P 2222 alice@attic
+sftp> ls
+photos  scratch
+sftp> cd photos
+sftp> get holiday.jpg
+```
+
+A share alice may not use is not a directory alice can see, and a share she may
+only read refuses her writes **in the tree**, before a driver that would have
+allowed them. A rename across two shares is refused: it would be a copy and a
+delete over two images, and that is not what rename promises anywhere.
+
+```hcl
+host_key_file        = "/etc/fileshare/ssh_host_ed25519_key"
+trusted_user_ca_file = "/etc/fileshare/ca.pub"   # optional
+
+user "alice" {
+  authorized_keys_file = "/etc/fileshare/alice.pub"
+}
+
+user "carol" {}   # nothing here: her certificate is her credential
+```
+
+With `trusted_user_ca_file`, a certificate signed by that authority and naming
+the user among its principals is enough — so a person's access is **issued and
+expires elsewhere**, and no file here is edited when somebody joins or leaves.
+The signature, the validity window and the principals are checked by
+`x/crypto/ssh`'s `CertChecker`; verified against OpenSSH's own client, which
+also refuses the same key once its certificate is moved aside.
+
+Without `host_key_file` a fresh identity is generated at every start, and the
+server says so: every client that has seen it before will warn about a changed
+key, which is the client doing its job.
 
 A directory of small files is one configuration: `--config /etc/fileshare.d`
 merges them, so a user in one file and a share in another belong together. A
@@ -111,16 +157,15 @@ Each protocol is behind a build tag, and a tag leaves it out **entirely**: no
 listener, no parser, no dependency, no code.
 
 ```sh
-go install -tags nonfs,nowebdav github.com/go-fileshare/fileshare@latest   # SMB only
-go build   -tags nosmb,nonfs .                                            # WebDAV only
+go install -tags nonfs,nowebdav,nosftp github.com/go-fileshare/fileshare@latest   # SMB only
+go build   -tags nosmb,nonfs,nosftp .                                            # WebDAV only
 ```
 
 | build | size |
 |---|---|
-| everything | 14.8 MB |
-| `-tags nonfs` | 14.5 MB |
-| `-tags nonfs,nowebdav` (SMB only) | 10.3 MB |
-| `-tags nosmb,nowebdav` (NFS only) | 10.3 MB |
+| everything | 16.1 MB |
+| `-tags nosftp` | 15.2 MB |
+| `-tags nonfs,nowebdav,nosftp` (SMB only) | 11.5 MB |
 
 A configuration naming a protocol this binary was built without is told *that*,
 rather than "there is no such protocol" — the difference between a typo and a
@@ -227,10 +272,10 @@ safety.
 
 ## Not yet
 
-SFTP — the fourth protocol this was designed for. `go-filesystems/sftp` serves
-one Filesystem per daemon and authenticates with keys only, so a per-user view
-needs a change there first, and it will be an `sftp` line in the table above
-when it lands. S3 likewise: it needs a `go-filesystems/s3` to exist.
+**S3** — the fifth protocol, and the one that would make an image reachable
+from anything that speaks object storage. It needs a `go-filesystems/s3` to
+exist first: SigV4 is stdlib arithmetic, and the union tree in `unionfs.go` is
+already the shape a bucket list wants.
 
 ## Licence
 

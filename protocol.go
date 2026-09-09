@@ -57,7 +57,7 @@ var protocols []*protocol
 // known is every protocol this program has a name for, whether or not it was
 // compiled in. A configuration that names one which was left out deserves to
 // be told THAT, rather than "there is no such protocol".
-var known = []string{"smb", "webdav", "nfs"}
+var known = []string{"smb", "webdav", "nfs", "sftp"}
 
 func register(p *protocol) {
 	protocols = append(protocols, p)

@@ -90,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tags: [nonfs, nowebdav, "nonfs,nowebdav", "nosmb,nonfs", "nosmb,nowebdav"]
+        tags: [nonfs, nowebdav, nosftp, "nonfs,nowebdav,nosftp", "nosmb,nonfs,nowebdav", "nosmb,nowebdav,nosftp"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6

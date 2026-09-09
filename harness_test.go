@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,7 +55,30 @@ type running struct {
 	srv   *server
 	cfg   *config
 	addrs map[string]string
-	out   *bytes.Buffer
+	out   *safeBuffer
+}
+
+// safeBuffer is what the server writes its announcements to during a test.
+//
+// The server locks its own writes -- the protocols announce themselves from
+// their own goroutines -- but a test that READS the buffer while one of them
+// is writing races just as surely. The lock has to cover both sides, so it
+// lives here, where both are.
+type safeBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 // start opens the configuration and serves it, on port 0 for every protocol,
@@ -67,7 +91,7 @@ func start(t *testing.T, body string) *running {
 	if err != nil {
 		t.Fatalf("loading: %v", err)
 	}
-	out := &bytes.Buffer{}
+	out := &safeBuffer{}
 	srv, err := open(cfg, out)
 	if err != nil {
 		t.Fatalf("opening: %v", err)
@@ -177,4 +201,25 @@ func names(shares []*share) []string {
 		out = append(out, s.name)
 	}
 	return out
+}
+
+// onlyProtocol is a configuration that serves ONE protocol: a test about one
+// of them should not have to satisfy the others, and a share that names one
+// protocol makes every other serve block carry nothing -- which is refused,
+// correctly, and would be the thing under test rather than the thing it came
+// to test.
+func onlyProtocol(t *testing.T, dir, name, shares string) string {
+	t.Helper()
+	alice := write(t, dir, "alice.pw", "hunter2\n")
+	bob := write(t, dir, "bob.pw", "swordfish\n")
+	return fmt.Sprintf(`
+name = "TESTFS"
+
+user "alice" { password_file = %q }
+user "bob"   { password_file = %q }
+
+%s
+
+serve %q { addr = "127.0.0.1:0" }
+`, hclPath(alice), hclPath(bob), shares, name)
 }

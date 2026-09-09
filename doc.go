@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Command fileshare serves disk images over SMB, NFS and WebDAV -- the same
+// Command fileshare serves disk images over SMB, NFS, WebDAV and SFTP -- the same
 // images, the same users, the same per-share access, from one configuration
 // file.
 //
@@ -20,6 +20,7 @@
 //
 //	SMB     NTLMv2. The server proves the password without ever seeing it.
 //	WebDAV  HTTP Basic over the transport's TLS, or a bearer token.
+//	SFTP    A public key, or an SSH certificate from an authority you trust.
 //	NFSv3   NOTHING. AUTH_UNIX is a claim -- the client says "uid 501" and
 //	        the wire cannot disagree. There is no encryption either.
 //

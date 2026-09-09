@@ -11,9 +11,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-filesystems/sftp/sshd"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"golang.org/x/crypto/ssh"
 )
 
 // A config is what the HCL files say.
@@ -34,10 +36,20 @@ import (
 //	serve "webdav" { addr = "0.0.0.0:8080" }
 //	serve "nfs"    { addr = "127.0.0.1:2049" }
 type config struct {
-	Name   string       `hcl:"name,optional"`
-	Users  []userBlock  `hcl:"user,block"`
-	Shares []shareBlock `hcl:"share,block"`
-	Serves []serveBlock `hcl:"serve,block"`
+	Name string `hcl:"name,optional"`
+	// HostKeyFile is the SFTP server's own identity. Without one a fresh key
+	// is generated at every start, and every client that has seen the server
+	// before warns about it.
+	HostKeyFile string `hcl:"host_key_file,optional"`
+	// TrustedUserCAFile holds the public keys of the certificate authorities
+	// whose user certificates are accepted, the way OpenSSH's
+	// TrustedUserCAKeys does. With one, a person's access is issued and
+	// expires elsewhere and no file here is edited when somebody joins or
+	// leaves.
+	TrustedUserCAFile string       `hcl:"trusted_user_ca_file,optional"`
+	Users             []userBlock  `hcl:"user,block"`
+	Shares            []shareBlock `hcl:"share,block"`
+	Serves            []serveBlock `hcl:"serve,block"`
 }
 
 // A userBlock is a set of credentials. The password comes from the file named
@@ -47,6 +59,15 @@ type userBlock struct {
 	Name         string `hcl:"name,label"`
 	Password     string `hcl:"password,optional"`
 	PasswordFile string `hcl:"password_file,optional"`
+	// AuthorizedKeys are this person's SSH public keys, for SFTP. They are
+	// written the way an authorized_keys file writes them ("ssh-ed25519 AAAA…
+	// alice@laptop"), either inline or in a file of their own.
+	//
+	// SFTP authenticates by KEY, not by password: a password prompt is the
+	// thing SSH clients exist to avoid, and a key proves who is asking
+	// without the server ever holding the secret.
+	AuthorizedKeys     []string `hcl:"authorized_keys,optional"`
+	AuthorizedKeysFile string   `hcl:"authorized_keys_file,optional"`
 }
 
 // A shareBlock is one image, exported under a name, to some people.
@@ -158,10 +179,16 @@ func (c *config) check() error {
 		}
 		users[u.Name] = true
 		switch {
-		case u.Password == "" && u.PasswordFile == "":
-			return fmt.Errorf("user %q has neither a password nor a password_file", u.Name)
 		case u.Password != "" && u.PasswordFile != "":
 			return fmt.Errorf("user %q has both a password and a password_file: say which one", u.Name)
+		case len(u.AuthorizedKeys) > 0 && u.AuthorizedKeysFile != "":
+			return fmt.Errorf("user %q has both authorized_keys and an authorized_keys_file: say which one", u.Name)
+		case u.Password == "" && u.PasswordFile == "" && len(u.AuthorizedKeys) == 0 &&
+			u.AuthorizedKeysFile == "" && c.TrustedUserCAFile == "":
+			// With a trusted authority there is nothing to say here: the
+			// certificate IS the credential, issued elsewhere and expiring on
+			// its own. That is the whole reason to have one.
+			return fmt.Errorf("user %q has no way to authenticate: a password, authorized keys, or a certificate from trusted_user_ca_file", u.Name)
 		}
 	}
 
@@ -252,6 +279,16 @@ func (c *config) check() error {
 	return nil
 }
 
+// servesProtocol reports whether this configuration turns one on.
+func (c *config) servesProtocol(name string) bool {
+	for _, b := range c.Serves {
+		if b.Protocol == name {
+			return true
+		}
+	}
+	return false
+}
+
 // password reads what this user authenticates with.
 func (u userBlock) password() (string, error) {
 	if u.PasswordFile != "" {
@@ -262,6 +299,30 @@ func (u userBlock) password() (string, error) {
 		return strings.TrimRight(string(b), "\r\n"), nil
 	}
 	return u.Password, nil
+}
+
+// authorizedKeys reads this person's SSH public keys, from the configuration
+// or from a file written the way authorized_keys is.
+func (u userBlock) authorizedKeys() ([]ssh.PublicKey, error) {
+	text := strings.Join(u.AuthorizedKeys, "\n")
+	if u.AuthorizedKeysFile != "" {
+		b, err := os.ReadFile(u.AuthorizedKeysFile)
+		if err != nil {
+			return nil, fmt.Errorf("user %q: %w", u.Name, err)
+		}
+		text = string(b)
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	keys, err := sshd.ParseAuthorizedKeys([]byte(text))
+	if err != nil {
+		// A line that does not parse is an error rather than a skip: silently
+		// ignoring one is how a server ends up denying the person it was
+		// configured for, with nothing to say why.
+		return nil, fmt.Errorf("user %q: %w", u.Name, err)
+	}
+	return keys, nil
 }
 
 // diagError turns HCL's diagnostics into an error that keeps what makes them

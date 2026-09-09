@@ -47,6 +47,7 @@ func TestTheDashesAreExplained(t *testing.T) {
 
 // check prints the matrix: every share against every protocol.
 func TestCheckPrintsTheWholeMatrix(t *testing.T) {
+	needUsers(t)
 	dir := t.TempDir()
 	img := image(t, dir, "photos.img", map[string]string{"/a.txt": "a"})
 	open := image(t, dir, "open.img", map[string]string{"/b.txt": "b"})
@@ -66,18 +67,23 @@ share "open" {
 	if err != nil {
 		t.Fatalf("check: %v\n%s", err, out)
 	}
-	for _, want := range []string{
-		"SMB", "WEBDAV", "NFS",
+	want := []string{
 		"fat32",
 		"alice and bob", // who may connect to photos
 		"alice",         // who may write it
-		"NO",            // photos over nfs
-		"photos is not served over nfs",
-		"AUTH_UNIX",
 		"this configuration can be served",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("check did not say %q:\n%s", want, out)
+	}
+	// One column per protocol THIS BINARY has, and the refusal only from one
+	// that cannot authenticate.
+	for _, p := range protocols {
+		want = append(want, strings.ToUpper(p.name))
+		if !p.authenticates {
+			want = append(want, "NO", "photos is not served over "+p.name, "AUTH_UNIX")
+		}
+	}
+	for _, w := range want {
+		if !strings.Contains(out, w) {
+			t.Errorf("check did not say %q:\n%s", w, out)
 		}
 	}
 	// Never the password, only where it comes from.
@@ -94,10 +100,7 @@ share "open" {
 func TestCheckRefusesAnImageNobodyCanOpen(t *testing.T) {
 	dir := t.TempDir()
 	junk := write(t, dir, "junk.img", strings.Repeat("x", 4096))
-	path := write(t, dir, "c.hcl", fmt.Sprintf(`
-share "junk" { image = %q }
-serve "smb" { addr = "127.0.0.1:0" }
-`, hclPath(junk)))
+	path := write(t, dir, "c.hcl", fmt.Sprintf("share \"junk\" { image = %q }\n%s", hclPath(junk), serveBlocks()))
 	if _, err := execute(t, "check", path); err == nil {
 		t.Error("check accepted an image no driver can open")
 	}

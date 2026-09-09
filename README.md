@@ -100,6 +100,43 @@ Every image is opened **read-only** and closed again, so this is safe to run
 against a live server's images. It prints where a password comes from and never
 what is in it.
 
+## Building only what you want
+
+Each protocol is behind a build tag, and a tag leaves it out **entirely**: no
+listener, no parser, no dependency, no code.
+
+```sh
+go install -tags nonfs,nowebdav github.com/go-fileshare/fileshare@latest   # SMB only
+go build   -tags nosmb,nonfs .                                            # WebDAV only
+```
+
+| build | size |
+|---|---|
+| everything | 14.8 MB |
+| `-tags nonfs` | 14.5 MB |
+| `-tags nonfs,nowebdav` (SMB only) | 10.3 MB |
+| `-tags nosmb,nowebdav` (NFS only) | 10.3 MB |
+
+A configuration naming a protocol this binary was built without is told *that*,
+rather than "there is no such protocol" — the difference between a typo and a
+build tag.
+
+**Why not subprocess plugins.** It was measured rather than argued:
+`hashicorp/go-plugin` brings gRPC and protobuf, which cost **13.2 MB on their
+own** — more than this entire binary with all three protocols and every driver
+in it. A plugin host would be twice the size before loading anything, and each
+plugin binary would carry gRPC again.
+
+For attack surface, a tag is also the stronger tool for anything you do not
+run: code that was never compiled cannot be reached, sandboxed or not. What
+tags do *not* give is isolation between the protocols you **do** run — today
+they share an address space and the same open images — nor a way to add a
+protocol without recompiling. Both are real, and both are arguments for a
+process boundary rather than for a smaller binary — and the next step for them
+is one process per protocol using this same binary, not a plugin framework.
+[docs/plugins.md](docs/plugins.md) has the measurements and the design
+question that decides it: who owns the image.
+
 ## One image, several protocols, one lock
 
 Every server in this family serialises the driver itself, because

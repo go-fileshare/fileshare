@@ -1,3 +1,5 @@
+//go:build !nosmb && !nowebdav
+
 package main
 
 import (
@@ -118,36 +120,14 @@ share "open" {
 		}
 	})
 
-	t.Run("nfs: the restricted share is not there at all", func(t *testing.T) {
-		nfs := protocolByName("nfs")
-		served, refused := nfs.exports(r.srv.shares)
-		if len(served) != 1 || served[0].name != "open" {
-			t.Errorf("nfs serves %v", names(served))
-		}
-		if len(refused) != 1 || refused[0].name != "photos" {
-			t.Errorf("nfs refuses %v", names(refused))
-		}
-		if !strings.Contains(nfs.refusal(refused[0]), "AUTH_UNIX") {
-			t.Errorf("the refusal does not say why: %q", nfs.refusal(refused[0]))
-		}
-	})
-
-	t.Run("what was announced says both halves", func(t *testing.T) {
+	t.Run("what was announced names every protocol this binary has", func(t *testing.T) {
 		said := r.out.String()
-		for _, want := range []string{"smb", "webdav", "nfs", "photos is not served over nfs"} {
-			if !strings.Contains(said, want) {
-				t.Errorf("the announcement does not mention %q:\n%s", want, said)
+		for _, p := range protocols {
+			if !strings.Contains(said, p.name) {
+				t.Errorf("the announcement does not mention %q:\n%s", p.name, said)
 			}
 		}
 	})
-}
-
-func names(shares []*share) []string {
-	var out []string
-	for _, s := range shares {
-		out = append(out, s.name)
-	}
-	return out
 }
 
 func mountSMB(t *testing.T, r *running, user, password, share string) *smb2.Share {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,7 +55,30 @@ type running struct {
 	srv   *server
 	cfg   *config
 	addrs map[string]string
-	out   *bytes.Buffer
+	out   *safeBuffer
+}
+
+// safeBuffer is what the server writes its announcements to during a test.
+//
+// The server locks its own writes -- the protocols announce themselves from
+// their own goroutines -- but a test that READS the buffer while one of them
+// is writing races just as surely. The lock has to cover both sides, so it
+// lives here, where both are.
+type safeBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *safeBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *safeBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 // start opens the configuration and serves it, on port 0 for every protocol,
@@ -67,7 +91,7 @@ func start(t *testing.T, body string) *running {
 	if err != nil {
 		t.Fatalf("loading: %v", err)
 	}
-	out := &bytes.Buffer{}
+	out := &safeBuffer{}
 	srv, err := open(cfg, out)
 	if err != nil {
 		t.Fatalf("opening: %v", err)

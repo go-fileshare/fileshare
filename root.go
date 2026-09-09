@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -33,6 +34,7 @@ type options struct {
 	readOnly bool
 	only     []string
 	name     string
+	isolate  bool
 }
 
 func (o *options) bind(f *pflag.FlagSet) {
@@ -47,6 +49,8 @@ func (o *options) bind(f *pflag.FlagSet) {
 	f.StringArrayVar(&o.only, "protocol", nil,
 		"serve only this protocol (repeatable; default: every one this binary has)")
 	f.StringVar(&o.name, "name", "FILESHARE", "what the server calls itself to a client")
+	f.BoolVar(&o.isolate, "isolate", false,
+		"serve each protocol in its own process, each opening only the images it may serve")
 }
 
 const longHelp = `fileshare serves disk images over SMB, NFS and WebDAV -- the same images, the
@@ -76,14 +80,14 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version(),
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd, &o)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return serve(cmd, &o, args)
 		},
 	}
 	o.bind(root.PersistentFlags())
 	root.SuggestionsMinimumDistance = 2
 	root.SetFlagErrorFunc(flagError)
-	root.AddCommand(newServeCmd(&o), newCheckCmd(&o))
+	root.AddCommand(newServeCmd(&o), newCheckCmd(&o), newServeOneCmd(&o))
 	return root
 }
 
@@ -94,18 +98,36 @@ func newServeCmd(o *options) *cobra.Command {
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return serve(cmd, o)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return serve(cmd, o, args)
 		},
 	}
 }
 
 // serve reads the configuration, opens every image, and listens.
-func serve(cmd *cobra.Command, o *options) error {
+func serve(cmd *cobra.Command, o *options, args []string) error {
 	cfg, err := configOf(o, nil)
 	if err != nil {
 		return err
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if o.isolate {
+		// The parent opens NOTHING: the images belong to the children, which
+		// is the whole point. What it does check is that the configuration can
+		// be honoured this way at all.
+		shares := make([]*share, 0, len(cfg.Shares))
+		for _, b := range cfg.Shares {
+			shares = append(shares, &share{name: b.Name, readOnly: b.ReadOnly,
+				allow: b.Allow, writers: b.Writers, protocols: b.Protocols})
+		}
+		if why := isolationRefusal(shares, cfg.Serves); why != "" {
+			return errors.New(why)
+		}
+		return runIsolated(ctx, cfg, os.Stdout, append(append([]string{}, o.files...), args...))
+	}
+
 	srv, err := open(cfg, cmd.OutOrStdout())
 	if err != nil {
 		return err
@@ -114,8 +136,6 @@ func serve(cmd *cobra.Command, o *options) error {
 
 	// A signal closes the listeners, which lets the deferred Close above run
 	// so every driver flushes whatever it was holding.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	return srv.run(ctx, cfg)
 }
 
@@ -223,15 +243,26 @@ func report(cmd *cobra.Command, cfg *config) error {
 		header += "\t" + strings.ToUpper(b.Protocol)
 	}
 	fmt.Fprintln(w, header)
+	// yes: served here. NO: this protocol cannot honour the share's own rules.
+	// -: the share names other protocols.
 	for _, sh := range srv.shares {
 		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", sh.name, sh.image, sh.kind, sh.who(), sh.writeAccess())
 		for _, b := range cfg.Serves {
+			// Asked of the function that DECIDES it, not derived again here:
+			// a table that computes the answer a second way is a table that
+			// can disagree with the server, and the reader would believe the
+			// table.
 			p := protocolByName(b.Protocol)
-			if !p.authenticates && sh.restricted() {
+			served, refused := p.exports([]*share{sh})
+			switch {
+			case len(served) == 1:
+				row += "\tyes"
+			case len(refused) == 1:
 				row += "\tNO"
-				continue
+			default:
+				// Not refused: the share named other protocols.
+				row += "\t-"
 			}
-			row += "\tyes"
 		}
 		fmt.Fprintln(w, row)
 	}

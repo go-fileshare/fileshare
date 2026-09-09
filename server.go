@@ -66,11 +66,12 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	}
 	for _, b := range cfg.Shares {
 		sh := &share{
-			name:     b.Name,
-			image:    b.Image,
-			readOnly: b.ReadOnly,
-			allow:    b.Allow,
-			writers:  b.Writers,
+			name:      b.Name,
+			image:     b.Image,
+			readOnly:  b.ReadOnly,
+			allow:     b.Allow,
+			writers:   b.Writers,
+			protocols: b.Protocols,
 		}
 		f, ro, err := openImageFile(b.Image, b.ReadOnly)
 		if err != nil {

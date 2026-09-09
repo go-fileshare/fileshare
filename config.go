@@ -56,6 +56,11 @@ type shareBlock struct {
 	ReadOnly bool     `hcl:"read_only,optional"`
 	Allow    []string `hcl:"allow,optional"`
 	Writers  []string `hcl:"writers,optional"`
+	// Protocols narrows which of them may carry this share. Empty means every
+	// protocol that CAN honour it -- which is not the same as every protocol,
+	// because one that cannot tell people apart is refused a restricted share
+	// whatever this says.
+	Protocols []string `hcl:"protocols,optional"`
 }
 
 // A serveBlock turns one protocol on. The label is the protocol's name.
@@ -136,6 +141,14 @@ func (c *config) check() error {
 		if s.ReadOnly && len(s.Writers) > 0 {
 			return fmt.Errorf("share %q is read_only and also lists writers: read_only wins, so say one or the other", s.Name)
 		}
+		for _, name := range s.Protocols {
+			if protocolByName(name) == nil {
+				if missing(name) {
+					return fmt.Errorf("share %q names %s, which this binary was built without", s.Name, name)
+				}
+				return fmt.Errorf("share %q names %q, which is not a protocol here: there are %s", s.Name, name, protocolNames())
+			}
+		}
 	}
 
 	users := map[string]bool{}
@@ -197,6 +210,34 @@ func (c *config) check() error {
 			authenticated = true
 		}
 	}
+	// A protocol that would carry NOTHING is a serve block that cannot do
+	// anything, and it is refused before an image is opened rather than at the
+	// first client -- or, worse, at the moment the server it is part of dies
+	// because one listener had no exports. The message says which shares were
+	// kept from it and why, because that is the thing to change.
+	for _, b := range c.Serves {
+		p := protocolByName(b.Protocol)
+		var carried bool
+		var why []string
+		for _, sb := range c.Shares {
+			sh := &share{name: sb.Name, readOnly: sb.ReadOnly, allow: sb.Allow,
+				writers: sb.Writers, protocols: sb.Protocols}
+			served, refused := p.exports([]*share{sh})
+			switch {
+			case len(served) == 1:
+				carried = true
+			case len(refused) == 1:
+				why = append(why, fmt.Sprintf("%s is restricted to %s", sh.name, sh.who()))
+			default:
+				why = append(why, fmt.Sprintf("%s names protocols = [%s]", sh.name, strings.Join(sb.Protocols, ", ")))
+			}
+		}
+		if !carried {
+			return fmt.Errorf("%s would carry nothing: %s. Remove the serve block, or let a share through",
+				b.Protocol, strings.Join(why, "; "))
+		}
+	}
+
 	// Users with nowhere to authenticate is a configuration that reads as
 	// protected and is not. The message names what THIS configuration serves,
 	// not every protocol the binary has: the reader is looking at their own

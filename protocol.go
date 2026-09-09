@@ -97,6 +97,11 @@ func missing(name string) bool {
 // widening access is the worse of the two failures.
 func (p *protocol) exports(shares []*share) (served, refused []*share) {
 	for _, s := range shares {
+		if len(s.protocols) > 0 && !slices.Contains(s.protocols, p.name) {
+			// Not refused, just not for this one: the share said which
+			// protocols carry it, and this is not among them.
+			continue
+		}
 		if !p.authenticates && s.restricted() {
 			refused = append(refused, s)
 			continue

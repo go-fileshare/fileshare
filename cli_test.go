@@ -131,3 +131,86 @@ func TestAListReadsAsASentence(t *testing.T) {
 		}
 	}
 }
+
+// The flag form: one image, one user, no configuration file. It is what the
+// command this product replaced was for, so it has to be here.
+func TestTheOneImageForm(t *testing.T) {
+	needUsers(t)
+	dir := t.TempDir()
+	img := image(t, dir, "holiday.img", map[string]string{"/a.txt": "a"})
+	pw := write(t, dir, "pw", "hunter2\n")
+
+	out, err := execute(t, "check", "--image", img, "--user", "alice", "--password-file", pw)
+	if err != nil {
+		t.Fatalf("check: %v\n%s", err, out)
+	}
+	// The share is named after the image, and every protocol this binary has
+	// is in the table.
+	if !strings.Contains(out, "holiday") {
+		t.Errorf("the share was not named after the image:\n%s", out)
+	}
+	for _, p := range protocols {
+		if !strings.Contains(out, strings.ToUpper(p.name)) {
+			t.Errorf("the flag form left out %s:\n%s", p.name, out)
+		}
+	}
+	if strings.Contains(out, "hunter2") {
+		t.Error("check printed a password")
+	}
+
+	// One protocol, by name. It has to be one that can authenticate: a
+	// configuration with users and only NFS is refused, and rightly.
+	var one *protocol
+	for _, p := range protocols {
+		if p.authenticates {
+			one = p
+			break
+		}
+	}
+	out, err = execute(t, "check", "--image", img, "--user", "alice", "--password-file", pw,
+		"--protocol", one.name)
+	if err != nil {
+		t.Fatalf("check --protocol: %v\n%s", err, out)
+	}
+	for _, p := range protocols {
+		if p == one {
+			continue
+		}
+		if strings.Contains(out, strings.ToUpper(p.name)) {
+			t.Errorf("--protocol %s served %s as well:\n%s", one.name, p.name, out)
+		}
+	}
+
+	// What it refuses.
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"an image with nobody named on it", []string{"--image", img}, "a share with nobody named on it"},
+		{"a protocol this binary has not", []string{"--image", img, "--user", "alice",
+			"--password-file", pw, "--protocol", "gopher"}, "names none this binary has"},
+		{"both a file and the flags", []string{"--config", dir, "--image", img},
+			"do not go with it"},
+	} {
+		if _, err := execute(t, append([]string{"check"}, tc.args...)...); err == nil ||
+			!strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+}
+
+func TestAShareIsNamedAfterItsImage(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"/srv/photos.img", "photos"},
+		{"holiday.dmg", "holiday"},
+		{`C:\images\backup.raw`, "backup"},
+		{"noextension", "noextension"},
+		{"", "disk"},
+		{"/srv/.hidden", ".hidden"},
+	} {
+		if got := defaultShareName(tc.path); got != tc.want {
+			t.Errorf("defaultShareName(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}

@@ -19,7 +19,9 @@
 // the server can tell WHO is asking.
 //
 //	SMB     NTLMv2. The server proves the password without ever seeing it.
-//	WebDAV  HTTP Basic over the transport's TLS, or a bearer token.
+//	WebDAV  HTTP Basic over the transport's TLS, or a bearer token an
+//	        identity provider signed (see the oidc block; nothing else here
+//	        has anywhere to put one).
 //	SFTP    A public key, or an SSH certificate from an authority you trust.
 //	NFSv3   NOTHING. AUTH_UNIX is a claim -- the client says "uid 501" and
 //	        the wire cannot disagree. There is no encryption either.

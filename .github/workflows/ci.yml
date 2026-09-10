@@ -35,6 +35,13 @@ jobs:
           go-version: stable
           check-latest: true
           cache: true
+      # The tokens in the OIDC tests are signed by pyjwt, which nobody in this
+      # repository wrote: a token this repository both minted and verified
+      # would prove only that its two halves agree with each other. The
+      # variable turns a missing judge into a failure rather than a skip.
+      - name: pyjwt
+        if: runner.os == 'Linux'
+        run: pip install --break-system-packages "pyjwt[crypto]" || pipx install "pyjwt[crypto]"
       - run: go vet ./...
       - name: gofmt
         if: matrix.os == 'ubuntu-latest'
@@ -46,6 +53,8 @@ jobs:
             exit 1
           fi
       - run: go test -count=1 ./...
+        env:
+          FILESHARE_REQUIRE_JUDGE: ${{ runner.os == 'Linux' && '1' || '' }}
 
   race:
     name: race detector
@@ -61,7 +70,15 @@ jobs:
           cache: true
       # One image, two protocols, at once: this is the lane where that claim
       # is worth something.
+      # The tokens in the OIDC tests are signed by pyjwt, which nobody in this
+      # repository wrote: a token this repository both minted and verified
+      # would prove only that its two halves agree with each other. The
+      # variable turns a missing judge into a failure rather than a skip.
+      - name: pyjwt
+        run: pip install --break-system-packages "pyjwt[crypto]" || pipx install "pyjwt[crypto]"
       - run: go test -race -count=1 ./...
+        env:
+          FILESHARE_REQUIRE_JUDGE: "1"
 
   install:
     name: go install @latest works
@@ -130,9 +147,14 @@ jobs:
           go-version: stable
           check-latest: true
           cache: true
+      # The judge belongs in every lane that RUNS the tests: without it the
+      # token tests skip here, and the number this lane exists to measure
+      # would be measured without them.
+      - name: pyjwt
+        run: pip install --break-system-packages "pyjwt[crypto]" || pipx install "pyjwt[crypto]"
       - run: |
           FLOOR=70.0
-          go test -coverprofile=cover.out ./... >/dev/null
+          FILESHARE_REQUIRE_JUDGE=1 go test -coverprofile=cover.out ./... >/dev/null
           go tool cover -func=cover.out
           cov=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "coverage: ${cov}%  floor: ${FLOOR}%  standard: 100%"

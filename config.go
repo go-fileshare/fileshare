@@ -3,19 +3,21 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/go-authn/directory"
 	"github.com/go-filesystems/sftp/sshd"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
-	"golang.org/x/crypto/ssh"
 )
 
 // A config is what the HCL files say.
@@ -48,6 +50,8 @@ type config struct {
 	// leaves.
 	TrustedUserCAFile string       `hcl:"trusted_user_ca_file,optional"`
 	Users             []userBlock  `hcl:"user,block"`
+	Groups            []groupBlock `hcl:"group,block"`
+	Directories       []usersBlock `hcl:"users,block"`
 	Shares            []shareBlock `hcl:"share,block"`
 	Serves            []serveBlock `hcl:"serve,block"`
 }
@@ -68,6 +72,54 @@ type userBlock struct {
 	// without the server ever holding the secret.
 	AuthorizedKeys     []string `hcl:"authorized_keys,optional"`
 	AuthorizedKeysFile string   `hcl:"authorized_keys_file,optional"`
+}
+
+// A groupBlock is a name for several people, so a share can be given to a
+// team rather than to a list that has to be edited every time somebody joins.
+//
+//	group "staff" { members = ["alice", "bob"] }
+//	share "photos" { allow = ["@staff"] }
+//
+// The leading @ is Samba's spelling (`valid users = @staff`) and is what
+// anybody administering a file server will type without being told.
+type groupBlock struct {
+	Name    string   `hcl:"name,label"`
+	Members []string `hcl:"members"`
+}
+
+// A usersBlock names a directory somewhere else: a database, or LDAP. The
+// label is which kind.
+//
+//	users "sql"  { driver = "postgres"  dsn_file = "..." users = "select ..." }
+//	users "ldap" { url = "ldaps://..."  base_dn = "ou=people,dc=example,dc=org" }
+//
+// It stands beside the `user` blocks rather than replacing them: a site with
+// three people in LDAP and one service account written down here should not
+// have to put the service account in LDAP.
+type usersBlock struct {
+	Kind string `hcl:"kind,label"`
+
+	// SQL.
+	Driver      string `hcl:"driver,optional"`
+	DSNFile     string `hcl:"dsn_file,optional"`
+	UsersQuery  string `hcl:"users,optional"`
+	GroupsQuery string `hcl:"groups,optional"`
+
+	// LDAP.
+	URL              string `hcl:"url,optional"`
+	BindDN           string `hcl:"bind_dn,optional"`
+	BindPasswordFile string `hcl:"bind_password_file,optional"`
+	BaseDN           string `hcl:"base_dn,optional"`
+	UserFilter       string `hcl:"user_filter,optional"`
+	UserAttribute    string `hcl:"user_attribute,optional"`
+	GroupBaseDN      string `hcl:"group_base_dn,optional"`
+	GroupFilter      string `hcl:"group_filter,optional"`
+	GroupAttribute   string `hcl:"group_attribute,optional"`
+	MemberAttribute  string `hcl:"group_member_attribute,optional"`
+	// StartTLS upgrades a plaintext ldap:// connection before binding. A
+	// directory reached without it sends the bind password in the clear,
+	// which is worth being asked for rather than assumed.
+	StartTLS bool `hcl:"start_tls,optional"`
 }
 
 // A shareBlock is one image, exported under a name, to some people.
@@ -192,23 +244,17 @@ func (c *config) check() error {
 		}
 	}
 
-	// A name in allow or writers that belongs to nobody is a typo, and a typo
-	// here is silent in the worst way: "alise" in allow locks Alice out of her
-	// own share and the server starts happily.
-	for _, s := range c.Shares {
-		for _, who := range s.Allow {
-			if !users[who] {
-				return fmt.Errorf("share %q allows %q, who is not a user here", s.Name, who)
-			}
+	groups := map[string]bool{}
+	for _, g := range c.Groups {
+		if _, twice := groups[g.Name]; twice {
+			return fmt.Errorf("group %q is defined twice", g.Name)
 		}
-		for _, who := range s.Writers {
-			if !users[who] {
-				return fmt.Errorf("share %q lets %q write, who is not a user here", s.Name, who)
-			}
-			if len(s.Allow) > 0 && !slices.Contains(s.Allow, who) {
-				return fmt.Errorf("share %q lets %q write but does not allow them to connect", s.Name, who)
-			}
+		if len(g.Members) == 0 {
+			// A group with nobody in it grants nothing, and a configuration
+			// that grants nothing to nobody reads exactly like one that works.
+			return fmt.Errorf("group %q has no members", g.Name)
 		}
+		groups[g.Name] = true
 	}
 
 	on := map[string]string{}
@@ -265,6 +311,35 @@ func (c *config) check() error {
 		}
 	}
 
+	// A `users` block that cannot be what it says it is. These are checked
+	// before anything connects, because a directory that is unreachable and a
+	// directory that was described wrongly produce the same symptom -- a
+	// server that will not start -- and only one of them is fixed by looking
+	// at the network.
+	for _, b := range c.Directories {
+		switch b.Kind {
+		case "sql":
+			if bad := named(map[string]string{"url": b.URL, "bind_dn": b.BindDN,
+				"base_dn": b.BaseDN, "bind_password_file": b.BindPasswordFile}); bad != "" {
+				return fmt.Errorf("users \"sql\" has %s in it, which belongs to an ldap block", bad)
+			}
+		case "ldap":
+			if bad := named(map[string]string{"driver": b.Driver, "dsn_file": b.DSNFile}); bad != "" {
+				return fmt.Errorf("users \"ldap\" has %s in it, which belongs to a sql block", bad)
+			}
+			// A bind password in the URL would be printed: by this program
+			// when it says where somebody came from, by the LDAP package's
+			// errors, and then by whatever collects a server's output. It is
+			// refused rather than redacted, and the refusal does not quote
+			// the URL either.
+			if u, err := url.Parse(b.URL); err == nil && u.User != nil {
+				return fmt.Errorf("users \"ldap\" has credentials in its url, and a url is printed: use bind_dn with bind_password_file")
+			}
+		default:
+			return fmt.Errorf("there is no %q directory here: there are sql and ldap", b.Kind)
+		}
+	}
+
 	// Users with nowhere to authenticate is a configuration that reads as
 	// protected and is not. The message names what THIS configuration serves,
 	// not every protocol the binary has: the reader is looking at their own
@@ -277,6 +352,109 @@ func (c *config) check() error {
 		return fmt.Errorf("there are users, and no protocol here can authenticate them: %s cannot tell people apart", list(named))
 	}
 	return nil
+}
+
+// resolve checks every name the configuration writes against the people and
+// groups that actually EXIST, once the directories are open.
+//
+// It is separate from validate, and later, because the file stopped being the
+// whole truth the day a `users` block could name a database: "@engineers" is
+// not a typo when the group is in SQL, and "dora" is not a stranger when she
+// is in LDAP. What has not changed is why the check is here at all -- a name
+// that belongs to nobody is silent in the worst way, since "alise" in allow
+// locks Alice out of her own share and the server starts happily.
+func (c *config) resolve(dir *directory.Set, known map[string]*directory.Identity) error {
+	// unknown says what is wrong with a name, in the same words whichever
+	// list it was in. A name may be a person or a GROUP, spelled @name.
+	unknown := func(who string) string {
+		if directory.IsGroup(who) {
+			if _, err := dir.Members(strings.TrimPrefix(who, directory.GroupPrefix)); err != nil {
+				if errors.Is(err, directory.ErrNoSuchGroup) {
+					return fmt.Sprintf("%s, and there is no such group in %s", who, dir.Describe())
+				}
+				// A directory that is BROKEN is not one that lacks the group,
+				// and the two are fixed in different places.
+				return fmt.Sprintf("%s, and the group could not be read: %v", who, err)
+			}
+			return ""
+		}
+		if _, ok := known[who]; !ok {
+			return fmt.Sprintf("%q, who is %s", who, nobodyIn(dir))
+		}
+		return ""
+	}
+	for _, g := range c.Groups {
+		for _, m := range g.Members {
+			if _, ok := known[m]; !ok {
+				return fmt.Errorf("group %q has %q in it, who is %s", g.Name, m, nobodyIn(dir))
+			}
+		}
+	}
+	for _, s := range c.Shares {
+		for _, who := range s.Allow {
+			if bad := unknown(who); bad != "" {
+				return fmt.Errorf("share %q allows %s", s.Name, bad)
+			}
+		}
+		for _, who := range s.Writers {
+			if bad := unknown(who); bad != "" {
+				return fmt.Errorf("share %q lets %s write", s.Name, bad)
+			}
+			// A writer who may not connect never writes. The comparison is
+			// between the EXPANDED lists, because "@staff" and "alice" can be
+			// the same people written two ways.
+			ok, err := within(who, s.Allow, dir)
+			if err != nil {
+				return fmt.Errorf("share %q: %w", s.Name, err)
+			}
+			if len(s.Allow) > 0 && !ok {
+				return fmt.Errorf("share %q lets %s write but does not allow them to connect", s.Name, who)
+			}
+		}
+	}
+	return nil
+}
+
+// named is the first of these fields that was written, for a message that
+// says which one to delete.
+func named(fields map[string]string) string {
+	var written []string
+	for k, v := range fields {
+		if v != "" {
+			written = append(written, k)
+		}
+	}
+	slices.Sort(written)
+	return list(written)
+}
+
+// nobodyIn says WHERE this server looked, so that a name belonging to nobody
+// reads as the typo it usually is -- and, when there are directories, tells
+// the reader which ones answered without the person in them.
+func nobodyIn(dir *directory.Set) string {
+	if len(dir.Sources()) == 1 {
+		return "not in " + dir.Describe()
+	}
+	return "in none of " + dir.Describe()
+}
+
+// within reports whether everybody named by who is also named by allow, with
+// both sides expanded through the directory.
+func within(who string, allow []string, dir *directory.Set) (bool, error) {
+	allowed, err := directory.Expand(allow, dir)
+	if err != nil {
+		return false, err
+	}
+	names, err := directory.Expand([]string{who}, dir)
+	if err != nil {
+		return false, err
+	}
+	for _, m := range names {
+		if !slices.Contains(allowed, m) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // servesProtocol reports whether this configuration turns one on.
@@ -303,7 +481,7 @@ func (u userBlock) password() (string, error) {
 
 // authorizedKeys reads this person's SSH public keys, from the configuration
 // or from a file written the way authorized_keys is.
-func (u userBlock) authorizedKeys() ([]ssh.PublicKey, error) {
+func (u userBlock) authorizedKeyLines() ([]string, error) {
 	text := strings.Join(u.AuthorizedKeys, "\n")
 	if u.AuthorizedKeysFile != "" {
 		b, err := os.ReadFile(u.AuthorizedKeysFile)
@@ -315,14 +493,20 @@ func (u userBlock) authorizedKeys() ([]ssh.PublicKey, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
-	keys, err := sshd.ParseAuthorizedKeys([]byte(text))
-	if err != nil {
-		// A line that does not parse is an error rather than a skip: silently
-		// ignoring one is how a server ends up denying the person it was
-		// configured for, with nothing to say why.
+	// Parsed here to REFUSE a line that does not parse -- silently ignoring
+	// one is how a server ends up denying the person it was configured for,
+	// with nothing to say why -- and handed on as text, because that is what
+	// a directory holds and what the library takes.
+	if _, err := sshd.ParseAuthorizedKeys([]byte(text)); err != nil {
 		return nil, fmt.Errorf("user %q: %w", u.Name, err)
 	}
-	return keys, nil
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines, nil
 }
 
 // diagError turns HCL's diagnostics into an error that keeps what makes them

@@ -9,8 +9,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 
+	"github.com/go-authn/directory"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-filesystems/detect"
@@ -28,15 +31,18 @@ import (
 type server struct {
 	name   string
 	shares []*share
-	users  map[string]string // user -> password
-	out    io.Writer
+	// who everybody is and what their source could give to prove them. The
+	// model is go-authn/directory's: no single credential answers all three
+	// protocols that authenticate.
+	who map[string]*directory.Identity
+	// dir is where they came from, for `check` to say.
+	dir *directory.Set
+	out io.Writer
 
 	// hostKeyFile is the SFTP identity, when the configuration named one, and
 	// trustedCAFile the authorities whose certificates are accepted.
 	hostKeyFile   string
 	trustedCAFile string
-	// keys are each person's SSH public keys, for SFTP.
-	keys map[string][]ssh.PublicKey
 	// stopping is closed when the server is going away, for protocols whose
 	// own Close is what stops them rather than the listener closing.
 	stopping chan struct{}
@@ -76,7 +82,7 @@ func registerDrivers() {
 // the start rather than an error the first client sees.
 func open(cfg *config, out io.Writer) (*server, error) {
 	registerDrivers()
-	s := &server{name: cfg.Name, users: map[string]string{}, keys: map[string][]ssh.PublicKey{},
+	s := &server{name: cfg.Name, who: map[string]*directory.Identity{},
 		// Locked, because the protocols write here from their OWN goroutines
 		// -- sftp says whether it generated a host key while the others are
 		// announcing themselves -- and two goroutines writing one io.Writer
@@ -86,31 +92,50 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	if s.name == "" {
 		s.name = "FILESHARE"
 	}
-	for _, u := range cfg.Users {
-		pw, err := u.password()
-		if err != nil {
-			s.Close()
-			return nil, err
-		}
-		if pw != "" {
-			s.users[u.Name] = pw
-		}
-		keys, err := u.authorizedKeys()
-		if err != nil {
-			s.Close()
-			return nil, err
-		}
-		if len(keys) > 0 {
-			s.keys[u.Name] = keys
-		}
+	dirs, err := sources(cfg)
+	if err != nil {
+		s.Close()
+		return nil, err
 	}
+	s.dir = dirs
+	s.closers = append(s.closers, dirs)
+	ids, err := s.dir.Identities()
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	for _, id := range ids {
+		s.who[id.Name()] = id
+	}
+	// Now that the directories have answered, the names in the file can be
+	// checked against the people who exist rather than against the file
+	// itself -- see config.resolve.
+	if err := cfg.resolve(s.dir, s.who); err != nil {
+		s.Close()
+		return nil, err
+	}
+
 	for _, b := range cfg.Shares {
+		// The lists are expanded HERE: by the time a protocol sees a share,
+		// "@staff" is the people in it. A group whose membership changes in
+		// the directory is picked up by a restart -- said plainly, because
+		// asking on every connection is a different design and this is not it.
+		allow, err := directory.Expand(b.Allow, s.dir)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("share %q: %w", b.Name, err)
+		}
+		writers, err := directory.Expand(b.Writers, s.dir)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("share %q: %w", b.Name, err)
+		}
 		sh := &share{
 			name:      b.Name,
 			image:     b.Image,
 			readOnly:  b.ReadOnly,
-			allow:     b.Allow,
-			writers:   b.Writers,
+			allow:     allow,
+			writers:   writers,
 			protocols: b.Protocols,
 		}
 		f, ro, err := openImageFile(b.Image, b.ReadOnly)
@@ -168,6 +193,17 @@ func (s *server) Close() error {
 }
 
 // password answers what a protocol asks when somebody authenticates.
+// sortedIdentities is everybody, in a stable order: a listing that reshuffles
+// itself between two runs is one nobody can trust.
+func (s *server) sortedIdentities() []*directory.Identity {
+	out := make([]*directory.Identity, 0, len(s.who))
+	for _, id := range s.who {
+		out = append(out, id)
+	}
+	slices.SortFunc(out, func(a, b *directory.Identity) int { return strings.Compare(a.Name(), b.Name()) })
+	return out
+}
+
 // stop tells the protocols that stop by their own Close, once.
 func (s *server) stop() {
 	select {
@@ -177,15 +213,43 @@ func (s *server) stop() {
 	}
 }
 
-func (s *server) password(user string) (string, bool) {
-	pw, ok := s.users[user]
-	return pw, ok
+// ntKey is what NTLMv2 needs: MD4(UTF16LE(password)), from the password when
+// the source gave one and from the hash when it gave that instead. A person
+// whose directory holds only a bcrypt cannot use SMB, and that is a fact about
+// NTLMv2 rather than a decision made here.
+func (s *server) ntKey(user string) ([]byte, bool) {
+	id, ok := s.who[user]
+	if !ok {
+		return nil, false
+	}
+	key, err := id.NTKey()
+	return key, err == nil
 }
 
-// authenticate is the check every authenticating protocol makes.
-func (s *server) authenticate(user, password string) bool {
-	want, ok := s.users[user]
-	return ok && want == password
+// matches answers the question HTTP Basic asks, which anything holding a hash
+// -- or a directory that will bind -- can answer.
+func (s *server) matches(user, password string) bool {
+	id, ok := s.who[user]
+	return ok && id.Verify(password) == nil
+}
+
+// keysFor is what SFTP asks. The lines a directory holds are parsed here,
+// where a bad one can be dropped rather than refused: a key added to LDAP by
+// somebody else must not stop this server from starting.
+func (s *server) keysFor(user string) []ssh.PublicKey {
+	id, ok := s.who[user]
+	if !ok {
+		return nil
+	}
+	var keys []ssh.PublicKey
+	for _, line := range id.Keys() {
+		k, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+		if err != nil {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // sharesFor is what this user may see, in the order the configuration gave.

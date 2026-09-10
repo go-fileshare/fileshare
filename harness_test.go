@@ -175,6 +175,16 @@ func anyAuthenticates() bool {
 	return false
 }
 
+// firstAuthenticating is a protocol that can tell people apart, or nil.
+func firstAuthenticating() *protocol {
+	for _, p := range protocols {
+		if p.authenticates {
+			return p
+		}
+	}
+	return nil
+}
+
 // needUsers skips a test that cannot mean anything in this build.
 func needUsers(t *testing.T) {
 	t.Helper()

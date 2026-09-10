@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,8 +41,7 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			"path separator",
 		},
 		{
-			"allow names somebody who is not a user",
-			`user "alice" { password = "x" }
+			"allow names somebody who is not a user", `user "alice" { password = "x" }
 			 share "s" {
 			   image = "/i"
 			   allow = ["alise"]
@@ -50,8 +50,7 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			`allows "alise"`,
 		},
 		{
-			"a writer who may not connect",
-			`user "alice" { password = "x" }
+			"a writer who may not connect", `user "alice" { password = "x" }
 			 user "bob"   { password = "y" }
 			 share "s" {
 			   image   = "/i"
@@ -76,13 +75,12 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 		{
 			// With no users at all, a name in allow belongs to nobody -- and
 			// that is the message, because it is the one that says what to fix.
-			"a restricted share and nobody to be",
-			`share "s" {
+			"a restricted share and nobody to be", `share "s" {
 			   image = "/i"
 			   allow = ["alice"]
 			 }
 			 serve "PROTO" {}`,
-			`allows "alice", who is not a user here`,
+			`allows "alice", who is not in the configuration file`,
 		},
 		{
 			"an address that is not one",
@@ -95,8 +93,31 @@ func TestConfigurationsThatCannotWork(t *testing.T) {
 			dir := t.TempDir()
 			// PROTO is whichever protocol this binary has: the refusals under
 			// test are about the configuration, not about which one it is.
-			p := write(t, dir, "c.hcl", strings.ReplaceAll(tc.body, "PROTO", protocols[0].name))
-			_, err := loadConfig([]string{p})
+			// A case about PEOPLE gets one that can tell them apart, or it
+			// would be refused for a truer reason than the one under test --
+			// a restricted share offered only to a protocol that cannot
+			// authenticate is refused as carrying nothing, and would be,
+			// typo or no typo.
+			proto := protocols[0]
+			if strings.Contains(tc.body, "allow") || strings.Contains(tc.body, "user \"") {
+				if proto = firstAuthenticating(); proto == nil {
+					t.Skip("this binary has no protocol that can tell people apart")
+				}
+			}
+			p := write(t, dir, "c.hcl", strings.ReplaceAll(tc.body, "PROTO", proto.name))
+			// Loaded AND opened, because some refusals can only be made once
+			// the directories have answered: a name in allow is checked
+			// against the people who exist, and with a `users` block those
+			// are not all in the file. Nothing is opened before that check,
+			// so a configuration naming an image that is not there still
+			// refuses for the reason under test.
+			cfg, err := loadConfig([]string{p})
+			if err == nil {
+				var srv *server
+				if srv, err = open(cfg, io.Discard); srv != nil {
+					srv.Close()
+				}
+			}
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want one mentioning %q", err, tc.want)
 			}

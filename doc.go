@@ -30,6 +30,26 @@
 // photos to whoever connects cannot both be honoured, and quietly widening
 // access is the worse of the two failures.
 //
+// # Where the people come from
+//
+// A user block is the whole directory for a household; a site that already has
+// its people in a database or in LDAP names them where they are instead:
+//
+//	users "sql"  { driver, dsn_file, and YOUR queries }
+//	users "ldap" { url, base_dn, bind_dn, bind_password_file }
+//
+// Sources are asked in the order they are written and the first that knows a
+// name owns it, so a service account written down locally is not overridden by
+// somebody with the same name in LDAP. A group is written @name wherever a
+// person could be, and its members are the union of every source.
+//
+// What a source can prove decides which protocols can serve somebody, and the
+// awkward half is worth saying here: NTLMv2 needs the password or its MD4, so
+// a directory that only CHECKS passwords -- an LDAP bind, a bcrypt column --
+// cannot answer SMB however good the check is, while WebDAV asks exactly the
+// question a bind answers. See github.com/go-authn/directory, whose model this
+// is, and Identity.Can, which is why check can print it per person.
+//
 // `fileshare check` prints the whole matrix -- every share against every
 // protocol, and who may read and write it -- because that is the question a
 // person actually has before they restart a server other people are using.

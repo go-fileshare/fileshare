@@ -60,9 +60,11 @@ name = "ATTIC"
 user "alice" { password_file = "/etc/fileshare/alice.pw" }
 user "bob"   { password_file = "/etc/fileshare/bob.pw" }
 
+group "family" { members = ["alice", "bob"] }
+
 share "photos" {
   image   = "/srv/photos.img"
-  allow   = ["alice", "bob"]   # only these two may connect
+  allow   = ["@family"]        # a group, or a person, in either list
   writers = ["alice"]          # bob gets it read-only
 }
 
@@ -126,6 +128,76 @@ startup — `allow = ["alise"]` would otherwise lock Alice out of her own share
 and start happily. A `serve` block with no `addr` lands on the registered port
 for that protocol, on loopback.
 
+## Where the people come from
+
+A `user` block is the whole directory for a household. A site whose people are
+already in a database or in LDAP should not copy them into a second place that
+goes stale, so a `users` block reads them where they are:
+
+```hcl
+users "sql" {
+  driver   = "postgres"                 # or sqlite, or mysql
+  dsn_file = "/etc/fileshare/dsn"       # a DSN holds a password: it lives in a file
+  users    = "select login, nt_hash, ssh_keys from staff"
+  groups   = "select team, member from team_members"
+}
+
+users "ldap" {
+  url                = "ldaps://ldap.example.org"
+  base_dn            = "ou=people,dc=example,dc=org"
+  bind_dn            = "cn=reader,dc=example,dc=org"
+  bind_password_file = "/etc/fileshare/bind.pw"
+}
+```
+
+The **queries are yours**, because a site's people are already in that site's
+shape; a schema invented here would mean copying them into a second one. The
+LDAP side reads what a Samba-aware directory already publishes —
+`sambaNTPassword`, `sshPublicKey`, `memberUid` — and every name is
+configurable.
+
+Sources are asked **in the order they are written**, and the first one that
+knows a name owns it. The `user` and `group` blocks come first, so a service
+account written down locally is not overridden by somebody with the same name
+in LDAP. Groups are the exception: a group's members are the **union** of every
+source, because a team can have people in a file and in a database.
+
+A group is written `@name` wherever a person could be:
+
+```hcl
+share "photos" {
+  allow   = ["@engineers", "alice"]
+  writers = ["@owners"]
+}
+```
+
+Expansion happens **once, at startup**. A membership that changes in LDAP is
+picked up by a restart — said plainly, because asking the directory on every
+connection is a different design and this is not it.
+
+### What a source can prove, and what each protocol needs
+
+This is the part a site discovers otherwise at a mount, so `check` says it
+first:
+
+| the source has | SMB | WebDAV | SFTP |
+|---|---|---|---|
+| a password (file, or a cleartext column) | yes | yes | — |
+| an NT hash (`sambaNTPassword`, `nt_hash`) | yes | — | — |
+| only a bind, or a bcrypt column | **no** | yes | — |
+| public keys, or a trusted CA | — | — | yes |
+
+**NTLMv2 needs the password or its MD4, and nothing else will do.** A client
+never sends a password to an SMB server — it sends a proof computed from it —
+so a directory that only *checks* passwords cannot answer SMB, however good the
+check is. That is a property of the protocol, not a limitation of this program,
+and no amount of configuration changes it. WebDAV asks only "is this the right
+password", which a bind answers.
+
+A person a directory names but proves nothing for is legitimate — a listing
+with the secrets elsewhere — and `check` says so in one line rather than
+leaving them to find out.
+
 ## `check`, before you restart something people are using
 
 ```
@@ -140,16 +212,21 @@ photos is not served over nfs: it is restricted to alice and bob, and NFSv3 has
 no authentication at all: AUTH_UNIX is a claim the client makes about itself and
 the wire cannot disagree with it
 
-USER   PASSWORD FROM
-alice  /etc/fileshare/alice.pw
-bob    /etc/fileshare/bob.pw
+USER   FROM                    AUTHENTICATES WITH                 SMB  WEBDAV  SFTP
+alice  the configuration file  a password from /etc/…/alice.pw    yes  yes     yes
+bob    the configuration file  a password from /etc/…/bob.pw      yes  yes     -
+dora   ldaps://ldap.example.org  a password check and an NT hash  yes  yes     -
+eli    ldaps://ldap.example.org  a password check                 -    yes     -
 
 this configuration can be served
 ```
 
 Every image is opened **read-only** and closed again, so this is safe to run
-against a live server's images. It prints where a password comes from and never
-what is in it.
+against a live server's images. It prints where a credential comes from and
+never what is in it — and the per-person columns are why
+[`Identity.Can`](https://github.com/go-authn/directory) exists: eli is in the
+same group as dora and SMB still cannot serve him, because LDAP holds his
+password and gives it to nobody.
 
 ## Building only what you want
 
@@ -161,11 +238,24 @@ go install -tags nonfs,nowebdav,nosftp github.com/go-fileshare/fileshare@latest 
 go build   -tags nosmb,nonfs,nosftp .                                            # WebDAV only
 ```
 
+Where the **people** come from is behind tags of its own: `nosql` leaves out
+the three database drivers, `noldap` the LDAP client.
+
 | build | size |
 |---|---|
-| everything | 16.1 MB |
-| `-tags nosftp` | 15.2 MB |
-| `-tags nonfs,nowebdav,nosftp` (SMB only) | 11.5 MB |
+| everything | 28.6 MB |
+| `-tags noldap` | 28.3 MB |
+| `-tags nosftp` | 27.9 MB |
+| `-tags nonfs,nowebdav,nosftp` (SMB only) | 26.4 MB |
+| `-tags nosql` | 16.9 MB |
+| `-tags nosql,noldap` | 16.6 MB |
+| `-tags nosql,noldap,nonfs,nowebdav,nosftp` | 11.9 MB |
+
+`nosql` is by a distance the biggest lever: PostgreSQL, MySQL and SQLite
+together weigh **11.7 MB**, more than every protocol in this program put
+together. A site whose users are in the file wants it. The drivers are imported
+by this command and not by the library that uses them, which is what makes the
+choice a build tag rather than a fork.
 
 A configuration naming a protocol this binary was built without is told *that*,
 rather than "there is no such protocol" — the difference between a typo and a

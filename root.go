@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 
+	"github.com/go-authn/directory"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -286,59 +287,110 @@ func report(cmd *cobra.Command, cfg *config) error {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(w, "USER\tAUTHENTICATES WITH")
+	// What each person can PROVE, and therefore which protocols they can use.
+	//
+	// This is the honest half of taking users from a directory: an LDAP bind
+	// answers WebDAV and cannot answer SMB, because NTLMv2 needs the password
+	// or its MD4 and the client never sends one. Said here, with the reason,
+	// rather than discovered by somebody at a mount.
+	// Where a password was read from, per person: the file, not its contents.
+	// A reader checking that alice's password comes from the file they think
+	// it does can do it here, without opening anything.
+	files := map[string]string{}
 	for _, u := range cfg.Users {
-		// What each person proves themselves with, and WHERE it comes from --
-		// never what it is. A password is a secret; the path to it is not.
-		var with []string
-		switch {
-		case u.PasswordFile != "":
-			with = append(with, "a password from "+u.PasswordFile)
-		case u.Password != "":
-			with = append(with, "a password from the configuration file")
+		if u.PasswordFile != "" {
+			files[u.Name] = u.PasswordFile
 		}
-		switch {
-		case u.AuthorizedKeysFile != "":
-			with = append(with, "keys from "+u.AuthorizedKeysFile)
-		case len(u.AuthorizedKeys) == 1:
-			with = append(with, "1 key in the configuration file")
-		case len(u.AuthorizedKeys) > 1:
-			with = append(with, fmt.Sprintf("%d keys in the configuration file", len(u.AuthorizedKeys)))
+	}
+	header = "USER\tFROM\tAUTHENTICATES WITH"
+	for _, b := range cfg.Serves {
+		if protocolByName(b.Protocol).authenticates {
+			header += "\t" + strings.ToUpper(b.Protocol)
 		}
-		if cfg.TrustedUserCAFile != "" {
-			with = append(with, "a certificate from "+cfg.TrustedUserCAFile)
+	}
+	fmt.Fprintln(w, header)
+	var stranded []string
+	for _, who := range srv.sortedIdentities() {
+		row, any := canUse(cfg, who)
+		fmt.Fprintf(w, "%s\t%s\t%s%s\n", who.Name(), who.Where(), credentials(who, files), row)
+		if !any {
+			stranded = append(stranded, who.Name())
 		}
-		fmt.Fprintf(w, "%s\t%s\n", u.Name, list(with))
 	}
 	if err := w.Flush(); err != nil {
 		return err
 	}
-	// Who can actually USE sftp: it authenticates by key or certificate, so a
-	// person with only a password is a person the table above says may
-	// connect and who cannot. Said here rather than discovered by them.
-	if p := protocolByName("sftp"); p != nil && cfg.servesProtocol("sftp") && cfg.TrustedUserCAFile == "" {
-		var without []string
-		for _, u := range cfg.Users {
-			if len(u.AuthorizedKeys) == 0 && u.AuthorizedKeysFile == "" {
-				without = append(without, u.Name)
-			}
-		}
-		if len(without) > 0 {
-			fmt.Fprintf(out, "\n%s cannot use sftp: it authenticates by key or certificate, and %s no authorized_keys\n",
-				list(without), have(len(without)))
-		}
+
+	// A person who can prove NOTHING here is a person the configuration names
+	// and no protocol can serve: worth a line of its own, because the table
+	// says it in the negative and a reader scanning columns can miss it.
+	if len(stranded) > 0 {
+		fmt.Fprintf(out, "\n%s cannot use any protocol here: nothing in %s proves them\n",
+			list(stranded), srv.dir.Describe())
 	}
 
 	fmt.Fprintln(out, "\nthis configuration can be served")
 	return nil
 }
 
-// have keeps the sentence above grammatical without a second sentence.
-func have(n int) string {
-	if n == 1 {
-		return "has"
+// credentials says what a source could give for somebody, in the order a
+// reader cares about: never what it IS, only what kind and where from.
+func credentials(who *directory.Identity, files map[string]string) string {
+	var have []string
+	if who.Can(directory.Password) {
+		have = append(have, "a password")
+	} else if who.Can(directory.Verifier) {
+		// A check the directory answers -- a bind, or a hash comparison --
+		// which is a different thing from holding the password.
+		have = append(have, "a password check")
 	}
-	return "have"
+	if who.Can(directory.NTHash) && !who.Can(directory.Password) {
+		have = append(have, "an NT hash")
+	}
+	if n := len(who.Keys()); n == 1 {
+		have = append(have, "1 key")
+	} else if n > 1 {
+		have = append(have, fmt.Sprintf("%d keys", n))
+	}
+	if len(have) == 0 {
+		return "nothing"
+	}
+	said := list(have)
+	if f := files[who.Name()]; f != "" {
+		said += " from " + f
+	}
+	return said
+}
+
+// canUse is one column per authenticating protocol, and whether ANY of them
+// said yes -- returned rather than recomputed by comparing the row against a
+// string of dashes, which is a spelling test and not a question about people.
+func canUse(cfg *config, who *directory.Identity) (row string, any bool) {
+	for _, b := range cfg.Serves {
+		p := protocolByName(b.Protocol)
+		if !p.authenticates {
+			continue
+		}
+		ok := false
+		switch b.Protocol {
+		case "smb":
+			// NTLMv2 needs the password or its MD4, and nothing else will do.
+			ok = who.Can(directory.NTHash)
+		case "webdav":
+			ok = who.Can(directory.Verifier) || who.Can(directory.Password)
+		case "sftp":
+			// A trusted authority makes everybody able to present a
+			// certificate, whatever this directory holds for them.
+			ok = who.Can(directory.PublicKeys) || cfg.TrustedUserCAFile != ""
+		}
+		if ok {
+			row += "\tyes"
+			any = true
+			continue
+		}
+		row += "\t-"
+	}
+	return row, any
 }
 
 // noArgs refuses a leftover argument, and says what one usually means.

@@ -43,7 +43,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 		// passwords in this configuration are for the protocols that have
 		// nothing better.
 		PublicKeyFor: func(user string, key ssh.PublicKey) bool {
-			for _, k := range s.keys[user] {
+			for _, k := range s.keysFor(user) {
 				if string(k.Marshal()) == string(key.Marshal()) {
 					return true
 				}

@@ -5,7 +5,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"fmt"
 	"html"
 	"net"
@@ -81,18 +80,15 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // server with credentials should not hand its contents to somebody who never
 // gave any. Without users at all, everyone is anonymous and everyone gets in.
 func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if len(b.server.users) == 0 {
+	if len(b.server.who) == 0 {
 		return "", true
 	}
-	user, password, ok := r.BasicAuth()
-	if ok {
-		want, known := b.server.password(user)
-		// Constant time, because the comparison is against a secret and the
-		// difference between "wrong at byte 1" and "wrong at byte 12" is
-		// measurable over a network.
-		if known && subtle.ConstantTimeCompare([]byte(password), []byte(want)) == 1 {
-			return user, true
-		}
+	// The comparison is the identity's own: it may be against a password this
+	// server holds, or a question asked of a directory that holds it and will
+	// not give it up. Either way it is constant-time where a comparison is
+	// what happens.
+	if user, password, ok := r.BasicAuth(); ok && b.server.matches(user, password) {
+		return user, true
 	}
 	w.Header().Set("WWW-Authenticate", `Basic realm="`+b.server.name+`", charset="UTF-8"`)
 	http.Error(w, "unauthorised", http.StatusUnauthorized)
@@ -108,10 +104,9 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			return
 		}
 		user := ""
-		if len(s.users) > 0 {
+		if len(s.who) > 0 {
 			u, p, ok := r.BasicAuth()
-			want, known := s.password(u)
-			if !ok || !known || subtle.ConstantTimeCompare([]byte(p), []byte(want)) != 1 {
+			if !ok || !s.matches(u, p) {
 				w.Header().Set("WWW-Authenticate", `Basic realm="`+s.name+`", charset="UTF-8"`)
 				http.Error(w, "unauthorised", http.StatusUnauthorized)
 				return

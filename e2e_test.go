@@ -3,16 +3,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
-	"time"
-
-	"github.com/cloudsoda/go-smb2"
 )
 
 // One image, two protocols, at the same time.
@@ -128,25 +124,6 @@ share "open" {
 			}
 		}
 	})
-}
-
-func mountSMB(t *testing.T, r *running, user, password, share string) *smb2.Share {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	d := &smb2.Dialer{Initiator: &smb2.NTLMInitiator{User: user, Password: password}}
-	s, err := d.Dial(ctx, r.addrs["smb"])
-	if err != nil {
-		cancel()
-		t.Fatalf("%s dialing smb: %v", user, err)
-	}
-	fs, err := s.Mount(share)
-	if err != nil {
-		s.Logoff()
-		cancel()
-		t.Fatalf("%s mounting %s: %v", user, share, err)
-	}
-	t.Cleanup(func() { fs.Umount(); s.Logoff(); cancel() })
-	return fs
 }
 
 func webdavGet(r *running, user, password, path string) ([]byte, error) {

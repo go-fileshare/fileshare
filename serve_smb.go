@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/go-filesystems/smb"
@@ -16,8 +17,16 @@ import (
 func serveSMB(s *server, p *protocol, ln net.Listener) error {
 	srv := smb.New()
 	srv.SetName(s.name)
-	for user, password := range s.users {
-		srv.AddUser(user, password)
+	for name := range s.who {
+		// Only the people NTLMv2 can be computed for. The KEY is what goes in,
+		// not the password: it is the same value either way, and it is what a
+		// directory publishes for exactly this reason. The rest are told by
+		// `check` rather than left to meet a refusal at a mount.
+		if key, ok := s.ntKey(name); ok {
+			if err := srv.AddUserHash(name, key); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+		}
 	}
 	served, _ := p.exports(s.shares)
 	for _, sh := range served {

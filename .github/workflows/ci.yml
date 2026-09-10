@@ -90,7 +90,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tags: [nonfs, nowebdav, nosftp, "nonfs,nowebdav,nosftp", "nosmb,nonfs,nowebdav", "nosmb,nowebdav,nosftp"]
+        tags: [nonfs, nowebdav, nosftp, "nonfs,nowebdav,nosftp", "nosmb,nonfs,nowebdav", "nosmb,nowebdav,nosftp",
+               # Not a protocol: where the PEOPLE come from. A site whose
+               # users are in the file needs neither an LDAP client nor three
+               # database drivers, and should not be made to carry them.
+               nosql, noldap, "nosql,noldap", "nosql,noldap,nonfs,nosftp"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6

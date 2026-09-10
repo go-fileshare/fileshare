@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/go-authn/directory"
+	"github.com/go-authn/directory/hcldir"
 	"github.com/go-filesystems/sftp/sshd"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -87,42 +87,12 @@ type groupBlock struct {
 	Members []string `hcl:"members"`
 }
 
-// A usersBlock names a directory somewhere else: a database, or LDAP. The
-// label is which kind.
-//
-//	users "sql"  { driver = "postgres"  dsn_file = "..." users = "select ..." }
-//	users "ldap" { url = "ldaps://..."  base_dn = "ou=people,dc=example,dc=org" }
-//
-// It stands beside the `user` blocks rather than replacing them: a site with
-// three people in LDAP and one service account written down here should not
-// have to put the service account in LDAP.
-type usersBlock struct {
-	Kind string `hcl:"kind,label"`
+// The `users` block is go-authn/directory/hcldir's: a file server and an
+// authentication server describing the same directory two ways would be two
+// vocabularies for one idea, and a person administering both would have to
+// learn it twice.
+type usersBlock = hcldir.Block
 
-	// SQL.
-	Driver      string `hcl:"driver,optional"`
-	DSNFile     string `hcl:"dsn_file,optional"`
-	UsersQuery  string `hcl:"users,optional"`
-	GroupsQuery string `hcl:"groups,optional"`
-
-	// LDAP.
-	URL              string `hcl:"url,optional"`
-	BindDN           string `hcl:"bind_dn,optional"`
-	BindPasswordFile string `hcl:"bind_password_file,optional"`
-	BaseDN           string `hcl:"base_dn,optional"`
-	UserFilter       string `hcl:"user_filter,optional"`
-	UserAttribute    string `hcl:"user_attribute,optional"`
-	GroupBaseDN      string `hcl:"group_base_dn,optional"`
-	GroupFilter      string `hcl:"group_filter,optional"`
-	GroupAttribute   string `hcl:"group_attribute,optional"`
-	MemberAttribute  string `hcl:"group_member_attribute,optional"`
-	// StartTLS upgrades a plaintext ldap:// connection before binding. A
-	// directory reached without it sends the bind password in the clear,
-	// which is worth being asked for rather than assumed.
-	StartTLS bool `hcl:"start_tls,optional"`
-}
-
-// A shareBlock is one image, exported under a name, to some people.
 type shareBlock struct {
 	Name     string   `hcl:"name,label"`
 	Image    string   `hcl:"image"`
@@ -317,26 +287,8 @@ func (c *config) check() error {
 	// server that will not start -- and only one of them is fixed by looking
 	// at the network.
 	for _, b := range c.Directories {
-		switch b.Kind {
-		case "sql":
-			if bad := named(map[string]string{"url": b.URL, "bind_dn": b.BindDN,
-				"base_dn": b.BaseDN, "bind_password_file": b.BindPasswordFile}); bad != "" {
-				return fmt.Errorf("users \"sql\" has %s in it, which belongs to an ldap block", bad)
-			}
-		case "ldap":
-			if bad := named(map[string]string{"driver": b.Driver, "dsn_file": b.DSNFile}); bad != "" {
-				return fmt.Errorf("users \"ldap\" has %s in it, which belongs to a sql block", bad)
-			}
-			// A bind password in the URL would be printed: by this program
-			// when it says where somebody came from, by the LDAP package's
-			// errors, and then by whatever collects a server's output. It is
-			// refused rather than redacted, and the refusal does not quote
-			// the URL either.
-			if u, err := url.Parse(b.URL); err == nil && u.User != nil {
-				return fmt.Errorf("users \"ldap\" has credentials in its url, and a url is printed: use bind_dn with bind_password_file")
-			}
-		default:
-			return fmt.Errorf("there is no %q directory here: there are sql and ldap", b.Kind)
+		if err := b.Check(); err != nil {
+			return err
 		}
 	}
 
@@ -413,19 +365,6 @@ func (c *config) resolve(dir *directory.Set, known map[string]*directory.Identit
 		}
 	}
 	return nil
-}
-
-// named is the first of these fields that was written, for a message that
-// says which one to delete.
-func named(fields map[string]string) string {
-	var written []string
-	for k, v := range fields {
-		if v != "" {
-			written = append(written, k)
-		}
-	}
-	slices.Sort(written)
-	return list(written)
 }
 
 // nobodyIn says WHERE this server looked, so that a name belonging to nobody

@@ -5,15 +5,11 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
-	"net"
 	"strings"
 	"testing"
-	"time"
 
-	// Named for what it is here: an LDAP server to test against, not the
-	// package that talks to one.
-	ldapd "github.com/glauth/ldap"
 	"github.com/go-authn/directory"
+	"github.com/go-authn/directory/ldaptest"
 )
 
 // People out of LDAP, and the honest half of what that costs.
@@ -28,29 +24,31 @@ import (
 func TestPeopleFromLDAPAndWhatEachCanUse(t *testing.T) {
 	needUsers(t)
 	dir := t.TempDir()
-	url := serveLDAP(t, &ldapFixture{
-		// dora has what a Samba-aware directory publishes.
-		people: map[string]ldapPerson{
-			"dora": {
-				dn:       "uid=dora,ou=people,dc=example,dc=org",
-				password: "hunter2",
-				ntHash:   hex.EncodeToString(directory.NTHashOf("hunter2")),
-			},
+	// The directory is go-authn/directory/ldaptest -- glauth/ldap underneath,
+	// an independent implementation, read in its own CI by OpenLDAP's client.
+	d, err := ldaptest.NewServer(&ldaptest.Directory{
+		People: map[string]ldaptest.Person{
+			// dora has what a Samba-aware directory publishes.
+			"dora": {Password: "hunter2", NTHash: hex.EncodeToString(directory.NTHashOf("hunter2"))},
 			// eli has only what LDAP holds by default: a password nobody can
 			// read, which is exactly why SMB cannot serve him.
-			"eli": {dn: "uid=eli,ou=people,dc=example,dc=org", password: "swordfish"},
+			"eli": {Password: "swordfish"},
 		},
-		groups: map[string][]string{"engineers": {"dora", "eli"}},
+		Groups: map[string][]string{"engineers": {"dora", "eli"}},
 	})
-	pw := write(t, dir, "bind.pw", "let me read\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	pw := write(t, dir, "bind.pw", d.ReaderPassword+"\n")
 	img := image(t, dir, "photos.img", map[string]string{"/greeting.txt": "hello"})
 	open := image(t, dir, "open.img", map[string]string{"/b.txt": "b"})
 	body := fmt.Sprintf(`
 users "ldap" {
   url                = %q
-  base_dn            = "ou=people,dc=example,dc=org"
-  group_base_dn      = "ou=groups,dc=example,dc=org"
-  bind_dn            = "cn=reader,dc=example,dc=org"
+  base_dn            = %q
+  group_base_dn      = %q
+  bind_dn            = %q
   bind_password_file = %q
 }
 
@@ -60,14 +58,14 @@ share "photos" {
 }
 
 share "open" { image = %q }
-`, url, hclPath(pw), hclPath(img), hclPath(open)) + serveBlocks()
+`, d.URL, d.PeopleDN, d.GroupsDN, d.ReaderDN, hclPath(pw), hclPath(img), hclPath(open)) + serveBlocks()
 
 	out, err := execute(t, "check", write(t, dir, "c.hcl", body))
 	if err != nil {
 		t.Fatalf("check: %v\n%s", err, out)
 	}
 	// The matrix, per person: dora yes everywhere, eli not over SMB.
-	for _, want := range []string{"dora", "eli", url, "a password check"} {
+	for _, want := range []string{"dora", "eli", d.URL, "a password check"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("check did not say %q:\n%s", want, out)
 		}
@@ -100,6 +98,16 @@ share "open" { image = %q }
 	if _, err := webdavGet(r, "eli", "wrong", "/photos/greeting.txt"); err == nil {
 		t.Error("a wrong password was accepted")
 	}
+	// ⛔ And the empty password, which this directory answers with SUCCESS
+	// exactly as a real one does: the refusal has to happen before the bind.
+	if _, err := webdavGet(r, "eli", "", "/photos/greeting.txt"); err == nil {
+		t.Error("eli was let in with an empty password (the unauthenticated bind)")
+	}
+	// The passwords really were checked against the DIRECTORY, rather than
+	// against something this program held.
+	if d.Binds() == 0 {
+		t.Error("no bind reached the directory")
+	}
 }
 
 // line is the first line of out containing s, with its columns intact.
@@ -110,91 +118,4 @@ func line(out, s string) string {
 		}
 	}
 	return ""
-}
-
-type ldapPerson struct {
-	dn       string
-	password string
-	ntHash   string
-	sshKeys  []string
-}
-
-type ldapFixture struct {
-	people map[string]ldapPerson
-	groups map[string][]string
-}
-
-func (f *ldapFixture) Bind(bindDN, password string, _ net.Conn) (ldapd.LDAPResultCode, error) {
-	if bindDN == "cn=reader,dc=example,dc=org" && password == "let me read" {
-		return ldapd.LDAPResultSuccess, nil
-	}
-	for _, p := range f.people {
-		if p.dn == bindDN && p.password != "" && password == p.password {
-			return ldapd.LDAPResultSuccess, nil
-		}
-	}
-	// An empty password binds SUCCESSFULLY in a real directory -- the
-	// unauthenticated bind -- and so it does here, so that a server relying on
-	// a bind has something real to refuse.
-	if password == "" {
-		return ldapd.LDAPResultSuccess, nil
-	}
-	return ldapd.LDAPResultInvalidCredentials, nil
-}
-
-func (f *ldapFixture) Search(_ string, req ldapd.SearchRequest, _ net.Conn) (ldapd.ServerSearchResult, error) {
-	var entries []*ldapd.Entry
-	switch {
-	case strings.Contains(req.Filter, "posixAccount"):
-		for uid, p := range f.people {
-			attrs := []*ldapd.EntryAttribute{{Name: "uid", Values: []string{uid}}}
-			if p.ntHash != "" {
-				attrs = append(attrs, &ldapd.EntryAttribute{Name: "sambaNTPassword", Values: []string{p.ntHash}})
-			}
-			if len(p.sshKeys) > 0 {
-				attrs = append(attrs, &ldapd.EntryAttribute{Name: "sshPublicKey", Values: p.sshKeys})
-			}
-			entries = append(entries, &ldapd.Entry{DN: p.dn, Attributes: attrs})
-		}
-	case strings.Contains(req.Filter, "posixGroup"):
-		for name, members := range f.groups {
-			if !strings.Contains(req.Filter, "cn="+name+")") {
-				continue
-			}
-			entries = append(entries, &ldapd.Entry{
-				DN:         "cn=" + name + ",ou=groups,dc=example,dc=org",
-				Attributes: []*ldapd.EntryAttribute{{Name: "memberUid", Values: members}},
-			})
-		}
-	}
-	return ldapd.ServerSearchResult{Entries: entries, ResultCode: ldapd.LDAPResultSuccess}, nil
-}
-
-func serveLDAP(t *testing.T, f *ldapFixture) string {
-	t.Helper()
-	s := ldapd.NewServer()
-	s.BindFunc("", f)
-	s.SearchFunc("", f)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() { _ = s.Serve(ln) }()
-	t.Cleanup(func() { ln.Close() })
-	// Bind first, announce second: the address a client dials is the one the
-	// listener got, not the one asked for.
-	addr := ln.Addr().String()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		c, err := net.Dial("tcp", addr)
-		if err == nil {
-			c.Close()
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("nothing is listening on %s", addr)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return "ldap://" + addr
 }

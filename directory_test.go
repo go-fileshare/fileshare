@@ -116,19 +116,6 @@ share "photos" { image = %q }
 	}
 }
 
-// people is three users with passwords in files, as a configuration fragment.
-func people(t *testing.T, dir string) string {
-	t.Helper()
-	var b strings.Builder
-	for _, u := range []struct{ name, password string }{
-		{"alice", "hunter2"}, {"bob", "swordfish"}, {"carol", "correct horse"},
-	} {
-		f := write(t, dir, u.name+".pw", u.password+"\n")
-		fmt.Fprintf(&b, "user %q { password_file = %q }\n", u.name, hclPath(f))
-	}
-	return b.String() + "\n"
-}
-
 // A `users` block described wrongly is refused before anything connects: an
 // unreachable directory and a mistyped one produce the same symptom -- a
 // server that will not start -- and only one of them is fixed by looking at

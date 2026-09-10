@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
@@ -232,4 +234,27 @@ user "bob"   { password_file = %q }
 
 serve %q { addr = "127.0.0.1:0" }
 `, hclPath(alice), hclPath(bob), shares, name)
+}
+
+// privatePEM writes a key in the PKCS#8 PEM that every other language reads.
+func privatePEM(t *testing.T, key any) string {
+	t.Helper()
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+}
+
+// people is three users with passwords in files, as a configuration fragment.
+func people(t *testing.T, dir string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, u := range []struct{ name, password string }{
+		{"alice", "hunter2"}, {"bob", "swordfish"}, {"carol", "correct horse"},
+	} {
+		f := write(t, dir, u.name+".pw", u.password+"\n")
+		fmt.Fprintf(&b, "user %q { password_file = %q }\n", u.name, hclPath(f))
+	}
+	return b.String() + "\n"
 }

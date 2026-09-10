@@ -80,8 +80,15 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // server with credentials should not hand its contents to somebody who never
 // gave any. Without users at all, everyone is anonymous and everyone gets in.
 func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if len(b.server.who) == 0 {
+	if len(b.server.who) == 0 && b.server.oidc == nil {
 		return "", true
+	}
+	// A token first, because a client that sent one meant it: falling back to
+	// asking for a password after refusing a token turns a rejected token
+	// into a password prompt, which is confusing for a person and useless for
+	// a program.
+	if user, ok := b.server.bearer(r); ok {
+		return user, true
 	}
 	// The comparison is the identity's own: it may be against a password this
 	// server holds, or a question asked of a directory that holds it and will
@@ -90,7 +97,7 @@ func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (string, 
 	if user, password, ok := r.BasicAuth(); ok && b.server.matches(user, password) {
 		return user, true
 	}
-	w.Header().Set("WWW-Authenticate", `Basic realm="`+b.server.name+`", charset="UTF-8"`)
+	b.server.challenge(w)
 	http.Error(w, "unauthorised", http.StatusUnauthorized)
 	return "", false
 }
@@ -104,10 +111,15 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			return
 		}
 		user := ""
-		if len(s.who) > 0 {
-			u, p, ok := r.BasicAuth()
-			if !ok || !s.matches(u, p) {
-				w.Header().Set("WWW-Authenticate", `Basic realm="`+s.name+`", charset="UTF-8"`)
+		if len(s.who) > 0 || s.oidc != nil {
+			u, ok := s.bearer(r)
+			if !ok {
+				var p string
+				u, p, ok = r.BasicAuth()
+				ok = ok && s.matches(u, p)
+			}
+			if !ok {
+				s.challenge(w)
 				http.Error(w, "unauthorised", http.StatusUnauthorized)
 				return
 			}

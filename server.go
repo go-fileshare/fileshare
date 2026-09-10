@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/go-authn/directory"
+	"github.com/go-authn/oidc"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-filesystems/detect"
@@ -38,6 +39,13 @@ type server struct {
 	// dir is where they came from, for `check` to say.
 	dir *directory.Set
 	out io.Writer
+
+	// cfg is the configuration this server was opened from, for the parts
+	// that are read at request time rather than copied at startup.
+	cfg *config
+	// oidc verifies bearer tokens, when the configuration named a provider.
+	// Only WebDAV can carry one -- see oidcauth.go.
+	oidc *oidc.Verifier
 
 	// hostKeyFile is the SFTP identity, when the configuration named one, and
 	// trustedCAFile the authorities whose certificates are accepted.
@@ -82,7 +90,7 @@ func registerDrivers() {
 // the start rather than an error the first client sees.
 func open(cfg *config, out io.Writer) (*server, error) {
 	registerDrivers()
-	s := &server{name: cfg.Name, who: map[string]*directory.Identity{},
+	s := &server{name: cfg.Name, cfg: cfg, who: map[string]*directory.Identity{},
 		// Locked, because the protocols write here from their OWN goroutines
 		// -- sftp says whether it generated a host key while the others are
 		// announcing themselves -- and two goroutines writing one io.Writer
@@ -113,6 +121,13 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	if err := cfg.resolve(s.dir, s.who); err != nil {
 		s.Close()
 		return nil, err
+	}
+
+	if v, err := openOIDC(cfg.OIDC); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("the identity provider: %w", err)
+	} else if v != nil {
+		s.oidc = v
 	}
 
 	for _, b := range cfg.Shares {

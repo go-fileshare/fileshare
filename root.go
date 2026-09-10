@@ -329,6 +329,21 @@ func report(cmd *cobra.Command, cfg *config) error {
 			list(stranded), srv.dir.Describe())
 	}
 
+	// ⛔ Which protocols a TOKEN can be carried by, which is one. Said in the
+	// same place as everything else a person cannot do, because a site that
+	// points a browser at this and then tries to mount it over SMB with the
+	// same account should find out here.
+	if cfg.OIDC != nil {
+		fmt.Fprintf(out, "\ntokens from %s are accepted over webdav and nowhere else: "+
+			"SMB authenticates with NTLMv2, SFTP with a key, and NFS with nothing -- "+
+			"none of them has anywhere to put a token\n", cfg.OIDC.Issuer)
+		who := "somebody a token names must also be named here"
+		if cfg.OIDC.TrustAll {
+			who = "trust_all: anybody that provider vouches for is let in, whether or not this file knows them"
+		}
+		fmt.Fprintf(out, "%s\n", who)
+	}
+
 	fmt.Fprintln(out, "\nthis configuration can be served")
 	return nil
 }

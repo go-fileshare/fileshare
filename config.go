@@ -52,8 +52,12 @@ type config struct {
 	Users             []userBlock  `hcl:"user,block"`
 	Groups            []groupBlock `hcl:"group,block"`
 	Directories       []usersBlock `hcl:"users,block"`
-	Shares            []shareBlock `hcl:"share,block"`
-	Serves            []serveBlock `hcl:"serve,block"`
+	// OIDC names an identity provider whose tokens this server accepts.
+	// ⛔ Only WebDAV can carry a token: SMB authenticates with NTLMv2, SFTP
+	// with a key, and NFS with nothing. `check` prints that per person.
+	OIDC   *oidcBlock   `hcl:"oidc,block"`
+	Shares []shareBlock `hcl:"share,block"`
+	Serves []serveBlock `hcl:"serve,block"`
 }
 
 // A userBlock is a set of credentials. The password comes from the file named
@@ -85,6 +89,34 @@ type userBlock struct {
 type groupBlock struct {
 	Name    string   `hcl:"name,label"`
 	Members []string `hcl:"members"`
+}
+
+// An oidcBlock names an identity provider.
+//
+// There is no client secret here and no redirect: this server is the resource
+// server, not the thing that talks a person through logging in. Something
+// arrives with a token, and go-authn/oidc says who it is about.
+type oidcBlock struct {
+	// Issuer is the provider, exactly as its tokens spell "iss".
+	Issuer string `hcl:"issuer"`
+	// Audience is what this server is called at the provider. A token minted
+	// for another service is a valid token that is simply not addressed here.
+	Audience string `hcl:"audience"`
+	// JWKSURL skips discovery, for a provider that publishes no
+	// /.well-known/openid-configuration.
+	JWKSURL string `hcl:"jwks_url,optional"`
+	// UsernameClaim is which claim names the person, in the names the shares
+	// are written with. Default preferred_username.
+	UsernameClaim string `hcl:"username_claim,optional"`
+	// GroupsClaim is which claim carries their groups. Default groups.
+	GroupsClaim string `hcl:"groups_claim,optional"`
+	// TrustAll accepts anybody the provider vouches for, rather than only
+	// people this configuration also knows.
+	//
+	// ⛔ It is the difference between "these people" and "everybody that
+	// provider has", and it is spelled out because a token proves who the
+	// PROVIDER says somebody is -- not that this server has a share for them.
+	TrustAll bool `hcl:"trust_all,optional"`
 }
 
 // The `users` block is go-authn/directory/hcldir's: a file server and an
@@ -289,6 +321,25 @@ func (c *config) check() error {
 	for _, b := range c.Directories {
 		if err := b.Check(); err != nil {
 			return err
+		}
+	}
+
+	if o := c.OIDC; o != nil {
+		switch {
+		case o.Issuer == "":
+			return fmt.Errorf("the oidc block has no issuer")
+		case o.Audience == "":
+			return fmt.Errorf("the oidc block has no audience: a token minted for another service is a " +
+				"valid token, and a server that does not check accepts every one that provider ever signed")
+		case !c.servesProtocol("webdav"):
+			// ⛔ Not a warning: a configuration that names a provider and
+			// serves nothing that can carry a token does not do what it says.
+			return fmt.Errorf("the oidc block is here and webdav is not served: a token can only arrive " +
+				"over webdav, because SMB, SFTP and NFS have nowhere to put one")
+		case o.TrustAll && len(c.Users) == 0 && len(c.Directories) == 0:
+			// This is the legitimate shape for trust_all -- the provider IS
+			// the directory -- and it is allowed. Named here so the reader
+			// knows it was considered.
 		}
 	}
 

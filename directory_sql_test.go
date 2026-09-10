@@ -134,3 +134,37 @@ func sqliteWith(t *testing.T, dir, schema string) string {
 	}
 	return write(t, dir, "dsn", path+"\n")
 }
+
+// The database this program opened is closed with the server.
+//
+// Windows found the leak -- a test could not remove its own SQLite file
+// because the handle was still open -- and every Unix hid it, since unlinking
+// a file somebody still holds is allowed there. So the witness here is not the
+// file: it is the source itself, asked to do its work after it was closed.
+func TestTheDatabaseIsClosedWithTheServer(t *testing.T) {
+	dir := t.TempDir()
+	dsn := sqliteWith(t, dir, `
+create table staff (login text primary key, secret text);
+insert into staff values ('dora', 'hunter2');
+`)
+	src, err := openSQL(usersBlock{
+		Kind: "sql", Driver: "sqlite", DSNFile: dsn,
+		UsersQuery: "select login, secret from staff",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.Identities(); err != nil {
+		t.Fatalf("reading the people: %v", err)
+	}
+	c, ok := src.(interface{ Close() error })
+	if !ok {
+		t.Fatal("the source cannot be closed, so the database it opened never is")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.Identities(); err == nil {
+		t.Error("the database answered after it was closed")
+	}
+}

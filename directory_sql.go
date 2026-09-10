@@ -47,9 +47,30 @@ func openSQL(b usersBlock) (directory.Source, error) {
 		db.Close()
 		return nil, fmt.Errorf("the database is not answering: %w", err)
 	}
-	return sqldir.New(db, sqldir.Queries{People: b.UsersQuery, Groups: b.GroupsQuery},
+	src, err := sqldir.New(db, sqldir.Queries{People: b.UsersQuery, Groups: b.GroupsQuery},
 		sqldir.Named("a "+b.Driver+" database"))
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	// The database is OURS to close: sqldir takes a *sql.DB precisely so that
+	// the driver and the lifetime belong to the caller. Windows found this --
+	// a test could not remove its own SQLite file, because the handle was
+	// still open -- and every Unix would have hidden it, since unlinking a
+	// file somebody still holds is allowed there and the leak only shows up
+	// as connections that accumulate.
+	return closer{Source: src, close: db.Close}, nil
 }
+
+// closer is a source that closes something when the set does. It embeds the
+// Source rather than wrapping it method by method, so a source that grows a
+// method later keeps it here.
+type closer struct {
+	directory.Source
+	close func() error
+}
+
+func (c closer) Close() error { return c.close() }
 
 // sqlDriver maps the name a person writes -- the database's, not the Go
 // package's -- to a registered driver.

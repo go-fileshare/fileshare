@@ -3,9 +3,8 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/go-authn/directory"
+	"github.com/go-authn/directory/hcldir"
 )
 
 // Where the people come from.
@@ -28,12 +27,14 @@ import (
 // written down here is not overridden by one that appears in LDAP later.
 func sources(cfg *config) (*directory.Set, error) {
 	set := directory.NewSet(hclSource(cfg))
-	for _, b := range cfg.Directories {
-		src, err := openDirectory(b)
-		if err != nil {
-			set.Close()
-			return nil, fmt.Errorf("users %q: %w", b.Kind, err)
-		}
+	// hcldir opens them, and closes what it opened if a later one fails: a
+	// half-open set is a server holding a database it will never use.
+	srcs, err := hcldir.OpenAll(cfg.Directories)
+	if err != nil {
+		set.Close()
+		return nil, err
+	}
+	for _, src := range srcs {
 		set.Add(src)
 	}
 	return set, nil
@@ -63,15 +64,4 @@ func hclSource(cfg *config) directory.Source {
 		static.People = append(static.People, directory.NewIdentity(u.Name, opts...))
 	}
 	return static
-}
-
-// openDirectory builds one source from a `users` block.
-func openDirectory(b usersBlock) (directory.Source, error) {
-	switch b.Kind {
-	case "sql":
-		return openSQL(b)
-	case "ldap":
-		return openLDAP(b)
-	}
-	return nil, fmt.Errorf("there is no %q directory here: there are sql and ldap", b.Kind)
 }

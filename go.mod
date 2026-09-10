@@ -10,8 +10,7 @@ go 1.26.4
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
-	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1
-	github.com/go-authn/directory v0.1.0
+	github.com/go-authn/directory v0.2.0
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
@@ -44,6 +43,7 @@ require (
 	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
+	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-volumes/gpt v0.0.0-20260831115417-b3069a3ac03a // indirect

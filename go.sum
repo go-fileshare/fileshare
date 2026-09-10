@@ -27,8 +27,8 @@ github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1/go.mod h1:5ueZMujvJ5nu
 github.com/go-asn1-ber/asn1-ber v1.5.5/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
 github.com/go-asn1-ber/asn1-ber v1.5.8 h1:H9AZkK22UOmfX8J84ubyaZxKJZ3FMHVwn8swoMML7iQ=
 github.com/go-asn1-ber/asn1-ber v1.5.8/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
-github.com/go-authn/directory v0.1.0 h1:mMn2IjOf2yQ7xibSgo/E0wP+fKkQmsGU3oVK8RrRhpY=
-github.com/go-authn/directory v0.1.0/go.mod h1:oIY25JckUYz+fqhr3ET9AnQhIztxtfCtPkHcZfSRYwE=
+github.com/go-authn/directory v0.2.0 h1:iA8k8ToLBeTjPa5UdANXdiAHgp44lyjueegL0TCLEW4=
+github.com/go-authn/directory v0.2.0/go.mod h1:X5vrdICze4fXF44SCmPw1zV08GgYD8beu0hHbMDByjk=
 github.com/go-filesystems/detect v0.1.0 h1:DCiR5lLKFJ/kon8wKs1ueG1hX27wJaIHqym+Ai0Y/pU=
 github.com/go-filesystems/detect v0.1.0/go.mod h1:OCGE1O8l2Z41PODXWkuJOin83ooqHWh439jSpOGWb/Q=
 github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee h1:X1MQIC2EL1rKKGRyiO8mjez6SyCjRhm+bJFLpvKvSiY=

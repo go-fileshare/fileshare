@@ -38,14 +38,31 @@ The filesystem inside the image is worked out rather than declared —
 magic and hands back the driver that owns it: **fat32, exfat, ext4, ntfs, ufs,
 iso9660, squashfs or hfsplus**.
 
-That is every driver in the organisation of the one shape —
-`OpenReader(io.ReaderAt, int64)`, a filesystem at offset zero. **apfs, btrfs,
-xfs and zfs are not served**, and the reason is their shape rather than an
-oversight: each opens a *disk* image and picks a **partition**, over a block
-backend that must also answer `Size`, `Sync`, `Truncate` and `Close`. Serving
-them means deciding what a share's `image` is — today it is a filesystem image,
-and for those four it would be a disk image with a partition table. That is a
-question worth asking out loud rather than answering in a registration list.
+That is every driver of the one shape — `OpenReader(io.ReaderAt, int64)`, a
+filesystem at offset zero.
+
+**apfs, btrfs, xfs and zfs cannot be recognised that way**: each opens a *disk*
+image and picks a **partition**, so there is no magic at offset zero to find.
+A share says which:
+
+```hcl
+share "photos" {
+  image      = "/srv/disk.img"
+  filesystem = "xfs"
+  partition  = 2       # or leave it out: -1, the first data partition
+}
+```
+
+⛔ **Naming a filesystem turns detection off for that share.** That is the
+point — and it is the risk, so the image is opened as *that* or refused. A
+FAT32 image told it is XFS does not become an XFS share; it fails to start,
+saying what it was asked to open it as.
+
+`filesystem` is accepted for the sniffable ones too, and then the two are
+compared: a share that says `ext4` over a FAT32 image is refused with *the
+share says ext4 and the image holds fat32*. That is how a site refuses a
+misdetection rather than discovering one later. `check` marks a named driver
+with an asterisk, because that row was not recognised — it was asserted.
 
 ## What a protocol can promise
 
@@ -296,6 +313,7 @@ the three database drivers, `noldap` the LDAP client.
 | `-tags noldap` | 28.3 MB |
 | `-tags nosftp` | 27.9 MB |
 | `-tags nonfs,nowebdav,nosftp` (SMB only) | 26.4 MB |
+| `-tags nopartitioned` (no apfs, btrfs, xfs, zfs) | 29.5 MB |
 | `-tags nosql` | 16.9 MB |
 | `-tags nosql,noldap` | 16.6 MB |
 | `-tags nosql,noldap,nonfs,nowebdav,nosftp` | 11.9 MB |

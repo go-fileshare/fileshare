@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-filesystems/detect"
+	filesystem "github.com/go-filesystems/interface"
 
 	filesystem_exfat "github.com/go-filesystems/exfat"
 	filesystem_ext4 "github.com/go-filesystems/ext4"
@@ -181,7 +182,7 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			s.Close()
 			return nil, err
 		}
-		fsys, kind, err := detect.Open(f, info.Size())
+		fsys, kind, err := openShareImage(b, f, info.Size(), ro)
 		if err != nil {
 			f.Close()
 			s.Close()
@@ -202,11 +203,52 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// alongside instead.
 		sh.fsys = lockFS(fsys)
 		sh.kind = kind
+		// Remembered so `check` can say it: a driver that was NAMED was not
+		// checked against the image's magic the way a found one was, and a
+		// reader deciding whether to trust the row should know which it is.
+		sh.named = b.Filesystem != ""
 		sh.size = uint64(info.Size())
 		s.closers = append(s.closers, sh.fsys, f)
 		s.shares = append(s.shares, sh)
 	}
 	return s, nil
+}
+
+// openShareImage opens the filesystem in an image, either by finding out what
+// it is or by being told.
+//
+// Being told is not only for the four that cannot be sniffed. A share may name
+// any of them, and then the image is opened as THAT or refused -- which is
+// what somebody wants when an image carries something that looks like two
+// things, or when a misdetection would be worse than a refusal.
+func openShareImage(b shareBlock, f *os.File, size int64, readOnly bool) (filesystem.Filesystem, detect.Type, error) {
+	if b.Filesystem == "" {
+		return detect.Open(f, size)
+	}
+	if partitionAware(b.Filesystem) {
+		partition := -1
+		if b.Partition != nil {
+			partition = *b.Partition
+		}
+		fsys, err := openNamed(b.Filesystem, f, size, readOnly, partition)
+		if err != nil {
+			return nil, detect.Unknown, fmt.Errorf("as %s: %w", b.Filesystem, err)
+		}
+		return fsys, detect.Type(b.Filesystem), nil
+	}
+	// One of the sniffable ones, named on purpose. detect owns the openers, so
+	// it opens it -- and then says whether the image really was that, which is
+	// the difference between "open it as ext4" and "hope it is ext4".
+	fsys, kind, err := detect.Open(f, size)
+	if err != nil {
+		return nil, detect.Unknown, err
+	}
+	if string(kind) != b.Filesystem {
+		fsys.Close()
+		return nil, detect.Unknown, fmt.Errorf("the share says %s and the image holds %s",
+			b.Filesystem, kind)
+	}
+	return fsys, kind, nil
 }
 
 // detectOpen is detect.Open, named here so a test can reach it.

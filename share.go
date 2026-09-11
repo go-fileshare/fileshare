@@ -32,6 +32,9 @@ type share struct {
 	fsys filesystem.Filesystem
 	kind detect.Type
 	size uint64
+	// named is true when the configuration said which filesystem this is,
+	// rather than the magic saying so.
+	named bool
 }
 
 // restricted reports whether this share names anybody. A restricted share

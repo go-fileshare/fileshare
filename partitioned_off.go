@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	filesystem "github.com/go-filesystems/interface"
@@ -17,7 +18,7 @@ import (
 //
 // A configuration naming one is told THAT, which is a different thing from
 // naming a filesystem that does not exist.
-func openNamed(name string, _ *os.File, _ int64, _ bool, _ int) (filesystem.Filesystem, error) {
+func openNamed(name string, _ *os.File, _ io.ReaderAt, _ int64, _ bool, _ partitionChoice) (filesystem.Filesystem, error) {
 	return nil, fmt.Errorf("this binary was built without %s (-tags nopartitioned)", name)
 }
 

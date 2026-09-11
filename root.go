@@ -254,7 +254,14 @@ func report(cmd *cobra.Command, cfg *config) error {
 			// that or refused -- it was not recognised.
 			kind += "*"
 		}
-		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", sh.name, sh.image, kind, sh.who(), sh.writeAccess())
+		image := sh.image
+		if sh.partition != "" {
+			// The image alone would not say which of its partitions is being
+			// served, and that is the thing somebody restarting a server
+			// wants to check.
+			image += "  [" + sh.partition + "]"
+		}
+		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", sh.name, image, kind, sh.who(), sh.writeAccess())
 		for _, b := range cfg.Serves {
 			// Asked of the function that DECIDES it, not derived again here:
 			// a table that computes the answer a second way is a table that

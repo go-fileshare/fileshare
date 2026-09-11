@@ -1,5 +1,9 @@
 # fileshare
 
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-0A6E96?style=flat-square)](LICENSE)
+[![CI](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml/badge.svg)](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml)
+[![cgo](https://img.shields.io/badge/cgo-none-0079A8?style=flat-square)](https://github.com/go-fileshare/fileshare)
+
 **Share a disk image over SMB, NFS, WebDAV and SFTP — one configuration, one
 binary, pure Go.**
 

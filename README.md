@@ -35,8 +35,17 @@ get two of them subtly wrong.
 
 The filesystem inside the image is worked out rather than declared —
 [`go-filesystems/detect`](https://github.com/go-filesystems/detect) reads the
-magic and hands back the driver that owns it: fat32, exfat, ext4, ntfs,
-iso9660, squashfs or hfsplus.
+magic and hands back the driver that owns it: **fat32, exfat, ext4, ntfs, ufs,
+iso9660, squashfs or hfsplus**.
+
+That is every driver in the organisation of the one shape —
+`OpenReader(io.ReaderAt, int64)`, a filesystem at offset zero. **apfs, btrfs,
+xfs and zfs are not served**, and the reason is their shape rather than an
+oversight: each opens a *disk* image and picks a **partition**, over a block
+backend that must also answer `Size`, `Sync`, `Truncate` and `Close`. Serving
+them means deciding what a share's `image` is — today it is a filesystem image,
+and for those four it would be a disk image with a partition table. That is a
+question worth asking out loud rather than answering in a registration list.
 
 ## What a protocol can promise
 

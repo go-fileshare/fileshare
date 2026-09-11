@@ -13,6 +13,20 @@
 // with its own configuration file and its own idea of who "alice" is, is a way
 // to get three of them subtly wrong.
 //
+// # Which filesystems
+//
+// The one inside an image is worked out rather than declared, by
+// go-filesystems/detect: fat32, exfat, ext4, ntfs, ufs, iso9660, squashfs and
+// hfsplus -- every driver in that organisation of the one shape,
+// OpenReader(io.ReaderAt, int64).
+//
+// apfs, btrfs, xfs and zfs are NOT served, and it is their shape rather than
+// an oversight: each opens a DISK image and picks a PARTITION, over a block
+// backend that must also answer Size, Sync, Truncate and Close. Serving them
+// means deciding what a share's image is -- today a filesystem image, for
+// those four a disk image with a partition table -- which is a question worth
+// asking out loud rather than answering in a registration list.
+//
 // # What a protocol can promise
 //
 // The protocols do not agree about the one thing access control needs: whether

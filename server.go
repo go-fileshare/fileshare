@@ -26,6 +26,7 @@ import (
 	filesystem_iso9660 "github.com/go-filesystems/iso9660"
 	filesystem_ntfs "github.com/go-filesystems/ntfs"
 	filesystem_squashfs "github.com/go-filesystems/squashfs"
+	filesystem_ufs "github.com/go-filesystems/ufs"
 )
 
 // A server is everything the configuration asked for, opened and ready.
@@ -81,7 +82,23 @@ func registerDrivers() {
 	detect.Register(detect.ISO9660, filesystem_iso9660.OpenReader)
 	detect.Register(detect.SquashFS, filesystem_squashfs.OpenReader)
 	detect.Register(detect.HFSPlus, hfsplus.OpenReader)
+	detect.Register(detect.UFS, filesystem_ufs.OpenReader)
 }
+
+// ⛔ What is NOT here, and why, so the next reader does not have to find out:
+//
+// go-filesystems also ships apfs, btrfs, xfs and zfs. They are not missing by
+// oversight -- they have a DIFFERENT shape. Each opens a disk image and picks
+// a PARTITION (`Open(path string, partIndex int)`, -1 meaning "find the first
+// data partition"), over a read-write block backend that must also answer
+// Size, Sync, Truncate and Close. detect.Register takes an io.ReaderAt and a
+// size, which is a filesystem at offset zero and nothing else.
+//
+// Serving them means deciding what a share's `image` is: today it is a
+// FILESYSTEM image, and for those four it would be a DISK image with a
+// partition table -- a different question, and one worth asking out loud
+// rather than answering in a registration list. ffs is not here either, for
+// the opposite reason: it is a thin alias over ufs, which IS here.
 
 // open builds a server from a configuration: every password read, every image
 // opened, every driver wrapped in the one lock they will all share.

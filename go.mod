@@ -46,7 +46,15 @@ require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
+	github.com/go-compressions/lzfse v0.3.0 // indirect
+	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
+	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect
+	github.com/go-fde/apfs v0.0.0-20260620062418-22bb63627e03 // indirect
+	github.com/go-filesystems/apfs v0.1.0 // indirect
+	github.com/go-filesystems/btrfs v0.1.0 // indirect
 	github.com/go-filesystems/ufs v0.2.0 // indirect
+	github.com/go-filesystems/xfs v0.1.0 // indirect
+	github.com/go-filesystems/zfs v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-volumes/gpt v0.0.0-20260831115417-b3069a3ac03a // indirect
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect

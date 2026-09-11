@@ -20,12 +20,22 @@
 // hfsplus -- every driver in that organisation of the one shape,
 // OpenReader(io.ReaderAt, int64).
 //
-// apfs, btrfs, xfs and zfs are NOT served, and it is their shape rather than
-// an oversight: each opens a DISK image and picks a PARTITION, over a block
-// backend that must also answer Size, Sync, Truncate and Close. Serving them
-// means deciding what a share's image is -- today a filesystem image, for
-// those four a disk image with a partition table -- which is a question worth
-// asking out loud rather than answering in a registration list.
+// apfs, btrfs, xfs and zfs cannot be recognised that way: each opens a DISK
+// image and picks a partition, so there is no magic at offset zero to find. A
+// share says which, and may also say which partition:
+//
+//	share "photos" {
+//	  image      = "/srv/disk.img"
+//	  filesystem = "xfs"
+//	  partition  = 2      # default -1: the first data partition
+//	}
+//
+// ⛔ Naming a filesystem turns detection OFF for that share, so the image is
+// opened as that or REFUSED -- a FAT32 image told it is XFS fails to start
+// rather than becoming an XFS share. The sniffable ones may be named too, and
+// then what was claimed is compared with what was found, which is how a site
+// refuses a misdetection instead of discovering one. `check` marks a named
+// driver with an asterisk: that row was asserted, not recognised.
 //
 // # What a protocol can promise
 //

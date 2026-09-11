@@ -126,11 +126,22 @@ type oidcBlock struct {
 type usersBlock = hcldir.Block
 
 type shareBlock struct {
-	Name     string   `hcl:"name,label"`
-	Image    string   `hcl:"image"`
-	ReadOnly bool     `hcl:"read_only,optional"`
-	Allow    []string `hcl:"allow,optional"`
-	Writers  []string `hcl:"writers,optional"`
+	Name     string `hcl:"name,label"`
+	Image    string `hcl:"image"`
+	ReadOnly bool   `hcl:"read_only,optional"`
+	// Filesystem names the driver instead of sniffing for it. It is needed
+	// for apfs, btrfs, xfs and zfs -- which open a DISK image and pick a
+	// partition, so there is no filesystem magic at offset zero to find --
+	// and it is accepted for the others as an override.
+	//
+	// ⛔ Saying it turns detection OFF for this share.
+	Filesystem string `hcl:"filesystem,optional"`
+	// Partition is which one to open, counting from 1. The default, -1, is
+	// "the first data partition", and 0 means the image IS the filesystem
+	// with no partition table around it.
+	Partition *int     `hcl:"partition,optional"`
+	Allow     []string `hcl:"allow,optional"`
+	Writers   []string `hcl:"writers,optional"`
 	// Protocols narrows which of them may carry this share. Empty means every
 	// protocol that CAN honour it -- which is not the same as every protocol,
 	// because one that cannot tell people apart is refused a restricted share
@@ -212,6 +223,28 @@ func (c *config) check() error {
 		}
 		if strings.ContainsAny(s.Name, `\/`) {
 			return fmt.Errorf("share %q has a path separator in its name: it is a name, not a path", s.Name)
+		}
+		if s.Filesystem != "" && !knownFilesystem(s.Filesystem) {
+			return fmt.Errorf("share %q names filesystem %q, which is not one here: %s",
+				s.Name, s.Filesystem, allFilesystems())
+		}
+		if s.Partition != nil {
+			if s.Filesystem == "" {
+				// Detection reads offset zero. A partition number with
+				// nothing to apply it to is a configuration that reads as
+				// though it selected something and did not.
+				return fmt.Errorf("share %q gives a partition but no filesystem: "+
+					"a partition is chosen by a driver, and which driver is what filesystem says", s.Name)
+			}
+			if *s.Partition < -1 {
+				return fmt.Errorf("share %q asks for partition %d: they count from 1, "+
+					"0 means the image is the filesystem itself, and -1 means the first data partition",
+					s.Name, *s.Partition)
+			}
+			if !partitionAware(s.Filesystem) {
+				return fmt.Errorf("share %q gives a partition and names %s, which opens a filesystem "+
+					"directly and has no partitions to choose from", s.Name, s.Filesystem)
+			}
 		}
 		if s.ReadOnly && len(s.Writers) > 0 {
 			return fmt.Errorf("share %q is read_only and also lists writers: read_only wins, so say one or the other", s.Name)
@@ -445,6 +478,36 @@ func within(who string, allow []string, dir *directory.Set) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// detectedFilesystems are the ones detect sniffs for, which a share may also
+// name to skip the sniffing.
+var detectedFilesystems = []string{"fat32", "exfat", "ext4", "ntfs", "ufs", "iso9660", "squashfs", "hfsplus"}
+
+// partitionAwareFilesystems open a disk image and pick a partition, which is
+// why they cannot be sniffed at offset zero.
+var partitionAwareFilesystems = []string{"apfs", "btrfs", "xfs", "zfs"}
+
+func knownFilesystem(name string) bool {
+	return slices.Contains(detectedFilesystems, name) || partitionAware(name)
+}
+
+func partitionAware(name string) bool { return slices.Contains(partitionAwareFilesystems, name) }
+
+// allFilesystems is every name a share may use, for a message that lists what
+// would have worked -- and says when this binary was built without half of it.
+func allFilesystems() string {
+	names := append([]string{}, detectedFilesystems...)
+	if hasNamed() {
+		names = append(names, partitionAwareFilesystems...)
+	}
+	slices.Sort(names)
+	out := strings.Join(names, ", ")
+	if !hasNamed() {
+		out += " (this binary was built with -tags nopartitioned, which leaves out " +
+			strings.Join(partitionAwareFilesystems, ", ") + ")"
+	}
+	return out
 }
 
 // servesProtocol reports whether this configuration turns one on.

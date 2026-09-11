@@ -247,7 +247,14 @@ func report(cmd *cobra.Command, cfg *config) error {
 	// yes: served here. NO: this protocol cannot honour the share's own rules.
 	// -: the share names other protocols.
 	for _, sh := range srv.shares {
-		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", sh.name, sh.image, sh.kind, sh.who(), sh.writeAccess())
+		kind := string(sh.kind)
+		if sh.named {
+			// The asterisk is explained under the table: this row's driver
+			// was chosen by the configuration, so the image was opened as
+			// that or refused -- it was not recognised.
+			kind += "*"
+		}
+		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", sh.name, sh.image, kind, sh.who(), sh.writeAccess())
 		for _, b := range cfg.Serves {
 			// Asked of the function that DECIDES it, not derived again here:
 			// a table that computes the answer a second way is a table that
@@ -269,6 +276,11 @@ func report(cmd *cobra.Command, cfg *config) error {
 	}
 	if err := w.Flush(); err != nil {
 		return err
+	}
+
+	if slices.ContainsFunc(srv.shares, func(sh *share) bool { return sh.named }) {
+		fmt.Fprintln(out, "\n* the configuration said which filesystem this is, so the image was opened "+
+			"as that or refused; the others were recognised by their own magic")
 	}
 
 	// Every refusal, spelled out. A column of NO says what happens; this says

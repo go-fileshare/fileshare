@@ -55,6 +55,10 @@ github.com/go-filesystems/smb v0.2.0 h1:vY0z8RMDXcy4LR0ZUe6ekMYdaV4EYxqmfck2ZyDt
 github.com/go-filesystems/smb v0.2.0/go.mod h1:cYtIVwElvjJE6e8IJOYmAHQ4j+8mzOHB9Z07TLK72AM=
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b h1:GXfYwBRU7hYVy6Hst4gYbFLGIBJy2QPdBVz4wf6VEdk=
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b/go.mod h1:JP818cUyKO0bq/FtOyZLRSX8rVpG7q9/KBKJ++kppoU=
+github.com/go-filesystems/ufs v0.1.0 h1:Iia9J9/r4Wx3vaqq4KoUOB3Uh/CnZdngI9WoeRTuP5g=
+github.com/go-filesystems/ufs v0.1.0/go.mod h1:NA11NCVnh5clspvOY6d0ZxZr268c+cqYCUFdeUZ0lN4=
+github.com/go-filesystems/ufs v0.2.0 h1:a9iq3oOW1gYBfv2RIz0cEat2mKwTPyJCqXnmt8+yTKo=
+github.com/go-filesystems/ufs v0.2.0/go.mod h1:OOR5nRWbLlwPBhsDRrVYfNkfYwy+goA0GpRC1BgDiog=
 github.com/go-filesystems/webdav v0.1.0 h1:JNeCwsvowr2XHzTY9cIHfA7OmS3DfNZ7wNCZ2mwqKik=
 github.com/go-filesystems/webdav v0.1.0/go.mod h1:Diy5uAmTOhoH8eysCp3I8fmu8gu42OHwBPY3K5Bg+4I=
 github.com/go-ldap/ldap/v3 v3.4.14 h1:D6PYdEgsaVzsXyr6w/yDC06Ria4uUhWm+Rb+er8lfAs=

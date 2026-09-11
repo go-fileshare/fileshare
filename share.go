@@ -35,6 +35,9 @@ type share struct {
 	// named is true when the configuration said which filesystem this is,
 	// rather than the magic saying so.
 	named bool
+	// partition describes the one that was taken, when the share chose one,
+	// in the words the configuration could have used to ask for it.
+	partition string
 }
 
 // restricted reports whether this share names anybody. A restricted share

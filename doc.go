@@ -30,6 +30,14 @@
 //	  partition  = 2      # default -1: the first data partition
 //	}
 //
+// A partition is chosen for ANY filesystem, not only those four: a disk image
+// holding FAT32 has a table in front of it as often as one holding XFS does,
+// and detection reads offset zero. Say partition, partition_label or
+// partition_uuid -- one of them, never two -- and the driver is handed a view
+// of that partition. An INDEX moves when a disk is repartitioned; a label or a
+// UUID names the partition itself. A share that chose one is read-only, and
+// says so at startup.
+//
 // ⛔ Naming a filesystem turns detection OFF for that share, so the image is
 // opened as that or REFUSED -- a FAT32 image told it is XFS fails to start
 // rather than becoming an XFS share. The sniffable ones may be named too, and

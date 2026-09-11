@@ -182,7 +182,7 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			s.Close()
 			return nil, err
 		}
-		fsys, kind, err := openShareImage(b, f, info.Size(), ro)
+		fsys, kind, took, err := openShareImage(b, f, info.Size(), ro)
 		if err != nil {
 			f.Close()
 			s.Close()
@@ -192,6 +192,19 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			// Not what was asked for, so it is said out loud: the share works,
 			// and it will not take a write.
 			fmt.Fprintf(out, "%s could not be opened for writing: %s is read-only\n", b.Image, b.Name)
+			sh.readOnly = true
+			sh.writers = nil
+		}
+		if took != "" && !sh.readOnly {
+			// ⛔ A share that chose a partition is READ-ONLY, and saying so
+			// here is the whole point: the driver would be given the
+			// partition's offsets over a file that is the whole disk, so a
+			// write lands at the same offset from the start of the IMAGE --
+			// on the partition table, as often as not. It refuses, and
+			// without this line the share would read as writable in `check`
+			// and refuse every write at the client instead.
+			fmt.Fprintf(out, "%s serves %s, so it is read-only: writing into a partition "+
+				"is not supported yet\n", b.Name, took)
 			sh.readOnly = true
 			sh.writers = nil
 		}
@@ -207,6 +220,7 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// checked against the image's magic the way a found one was, and a
 		// reader deciding whether to trust the row should know which it is.
 		sh.named = b.Filesystem != ""
+		sh.partition = took
 		sh.size = uint64(info.Size())
 		s.closers = append(s.closers, sh.fsys, f)
 		s.shares = append(s.shares, sh)
@@ -221,34 +235,47 @@ func open(cfg *config, out io.Writer) (*server, error) {
 // any of them, and then the image is opened as THAT or refused -- which is
 // what somebody wants when an image carries something that looks like two
 // things, or when a misdetection would be worse than a refusal.
-func openShareImage(b shareBlock, f *os.File, size int64, readOnly bool) (filesystem.Filesystem, detect.Type, error) {
+func openShareImage(b shareBlock, f *os.File, size int64, readOnly bool) (filesystem.Filesystem, detect.Type, string, error) {
+	// The partition first, and for EVERY filesystem: a disk image holding
+	// FAT32 has a table in front of it as often as one holding XFS does, and
+	// detection reads offset zero, where a partitioned image has the table.
+	choice := partitionChoice{label: b.PartitionLabel, uuid: b.PartitionUUID}
+	if b.Partition != nil {
+		choice.index = *b.Partition
+	}
+	view, viewSize, took, err := selectPartition(f, size, choice)
+	if err != nil {
+		return nil, detect.Unknown, "", err
+	}
+
 	if b.Filesystem == "" {
-		return detect.Open(f, size)
+		fsys, kind, err := detect.Open(view, viewSize)
+		return fsys, kind, took, err
 	}
 	if partitionAware(b.Filesystem) {
-		partition := -1
-		if b.Partition != nil {
-			partition = *b.Partition
-		}
-		fsys, err := openNamed(b.Filesystem, f, size, readOnly, partition)
+		// Those four find a partition themselves. When this configuration
+		// already chose one, they are handed that view and told the image IS
+		// the filesystem -- so the two mechanisms never both run, and what
+		// `check` prints is what was opened.
+		fsys, err := openNamed(b.Filesystem, f, view, viewSize, readOnly, choice)
 		if err != nil {
-			return nil, detect.Unknown, fmt.Errorf("as %s: %w", b.Filesystem, err)
+			return nil, detect.Unknown, "", fmt.Errorf("as %s: %w", b.Filesystem, err)
 		}
-		return fsys, detect.Type(b.Filesystem), nil
+		return fsys, detect.Type(b.Filesystem), took, nil
 	}
 	// One of the sniffable ones, named on purpose. detect owns the openers, so
 	// it opens it -- and then says whether the image really was that, which is
 	// the difference between "open it as ext4" and "hope it is ext4".
-	fsys, kind, err := detect.Open(f, size)
+	fsys, kind, err := detect.Open(view, viewSize)
 	if err != nil {
-		return nil, detect.Unknown, err
+		return nil, detect.Unknown, "", err
 	}
 	if string(kind) != b.Filesystem {
 		fsys.Close()
-		return nil, detect.Unknown, fmt.Errorf("the share says %s and the image holds %s",
+		return nil, detect.Unknown, "", fmt.Errorf("the share says %s and the image holds %s",
 			b.Filesystem, kind)
 	}
-	return fsys, kind, nil
+	return fsys, kind, took, nil
 }
 
 // detectOpen is detect.Open, named here so a test can reach it.

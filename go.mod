@@ -56,7 +56,7 @@ require (
 	github.com/go-filesystems/xfs v0.1.0 // indirect
 	github.com/go-filesystems/zfs v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
-	github.com/go-volumes/gpt v0.0.0-20260831115417-b3069a3ac03a // indirect
+	github.com/go-volumes/gpt v0.2.0 // indirect
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

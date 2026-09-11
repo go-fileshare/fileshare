@@ -15,6 +15,7 @@ import (
 	"github.com/go-authn/directory"
 	"github.com/go-authn/directory/hcldir"
 	"github.com/go-filesystems/sftp/sshd"
+	"github.com/go-volumes/gpt"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -136,12 +137,22 @@ type shareBlock struct {
 	//
 	// ⛔ Saying it turns detection OFF for this share.
 	Filesystem string `hcl:"filesystem,optional"`
-	// Partition is which one to open, counting from 1. The default, -1, is
-	// "the first data partition", and 0 means the image IS the filesystem
-	// with no partition table around it.
-	Partition *int     `hcl:"partition,optional"`
-	Allow     []string `hcl:"allow,optional"`
-	Writers   []string `hcl:"writers,optional"`
+	// Partition is which one to open, counting from 1 the way every
+	// partitioning tool prints them.
+	//
+	// ⛔ An index MOVES. A disk repartitioned, a tool that writes entries in
+	// another order, an image restored with one partition fewer -- and this
+	// names something else, silently, because a filesystem is still found
+	// there. Prefer PartitionLabel or PartitionUUID, which name the partition
+	// itself; the index is here for MBR images, which have neither.
+	Partition *int `hcl:"partition,optional"`
+	// PartitionLabel is the GPT partition name -- what lsblk calls PARTLABEL.
+	PartitionLabel string `hcl:"partition_label,optional"`
+	// PartitionUUID is the GPT unique partition GUID -- what Linux calls
+	// PARTUUID -- as people write it: 8-4-4-4-12.
+	PartitionUUID string   `hcl:"partition_uuid,optional"`
+	Allow         []string `hcl:"allow,optional"`
+	Writers       []string `hcl:"writers,optional"`
 	// Protocols narrows which of them may carry this share. Empty means every
 	// protocol that CAN honour it -- which is not the same as every protocol,
 	// because one that cannot tell people apart is refused a restricted share
@@ -228,22 +239,19 @@ func (c *config) check() error {
 			return fmt.Errorf("share %q names filesystem %q, which is not one here: %s",
 				s.Name, s.Filesystem, allFilesystems())
 		}
-		if s.Partition != nil {
-			if s.Filesystem == "" {
-				// Detection reads offset zero. A partition number with
-				// nothing to apply it to is a configuration that reads as
-				// though it selected something and did not.
-				return fmt.Errorf("share %q gives a partition but no filesystem: "+
-					"a partition is chosen by a driver, and which driver is what filesystem says", s.Name)
-			}
-			if *s.Partition < -1 {
-				return fmt.Errorf("share %q asks for partition %d: they count from 1, "+
-					"0 means the image is the filesystem itself, and -1 means the first data partition",
-					s.Name, *s.Partition)
-			}
-			if !partitionAware(s.Filesystem) {
-				return fmt.Errorf("share %q gives a partition and names %s, which opens a filesystem "+
-					"directly and has no partitions to choose from", s.Name, s.Filesystem)
+		if n := chosenPartitionWays(s); n > 1 {
+			// Two ways to name one partition can disagree, and then the share
+			// serves whichever the code happened to try first.
+			return fmt.Errorf("share %q chooses a partition %d ways: say one of "+
+				"partition, partition_label or partition_uuid", s.Name, n)
+		}
+		if s.Partition != nil && *s.Partition < 1 {
+			return fmt.Errorf("share %q asks for partition %d: they count from 1, "+
+				"and a share with no partition setting uses the image itself", s.Name, *s.Partition)
+		}
+		if s.PartitionUUID != "" {
+			if _, err := gpt.ParseUUID(s.PartitionUUID); err != nil {
+				return fmt.Errorf("share %q: %w", s.Name, err)
 			}
 		}
 		if s.ReadOnly && len(s.Writers) > 0 {
@@ -508,6 +516,21 @@ func allFilesystems() string {
 			strings.Join(partitionAwareFilesystems, ", ") + ")"
 	}
 	return out
+}
+
+// chosenPartitionWays counts how many ways a share names its partition.
+func chosenPartitionWays(s shareBlock) int {
+	n := 0
+	if s.Partition != nil {
+		n++
+	}
+	if s.PartitionLabel != "" {
+		n++
+	}
+	if s.PartitionUUID != "" {
+		n++
+	}
+	return n
 }
 
 // servesProtocol reports whether this configuration turns one on.

@@ -19,7 +19,7 @@ require (
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.3.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
-	github.com/go-filesystems/nfs v0.2.0
+	github.com/go-filesystems/nfs v0.3.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/sftp v0.3.0
 	github.com/go-filesystems/smb v0.2.0
@@ -46,17 +46,18 @@ require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
+	github.com/go-authn/krb5 v0.2.1
 	github.com/go-compressions/lzfse v0.3.0 // indirect
 	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect
 	github.com/go-fde/apfs v0.0.0-20260620062418-22bb63627e03 // indirect
-	github.com/go-filesystems/apfs v0.1.0 // indirect
-	github.com/go-filesystems/btrfs v0.1.0 // indirect
-	github.com/go-filesystems/ufs v0.2.0 // indirect
-	github.com/go-filesystems/xfs v0.1.0 // indirect
-	github.com/go-filesystems/zfs v0.1.0 // indirect
+	github.com/go-filesystems/apfs v0.1.0
+	github.com/go-filesystems/btrfs v0.1.0
+	github.com/go-filesystems/ufs v0.2.0
+	github.com/go-filesystems/xfs v0.1.0
+	github.com/go-filesystems/zfs v0.1.0
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
-	github.com/go-volumes/gpt v0.2.0 // indirect
+	github.com/go-volumes/gpt v0.2.0
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -69,7 +70,7 @@ require (
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
-	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
+	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect

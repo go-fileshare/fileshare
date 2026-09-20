@@ -436,7 +436,7 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 
 // announce says what is being served where, and -- as loudly -- what is NOT.
 func (s *server) announce(p *protocol, addr string) {
-	served, refused := p.exports(s.shares)
+	served, refused := p.exports(s.cfg, s.shares)
 	names := make([]string, 0, len(served))
 	for _, sh := range served {
 		names = append(names, sh.name)

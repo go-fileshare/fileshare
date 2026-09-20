@@ -28,7 +28,7 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 			}
 		}
 	}
-	served, _ := p.exports(s.shares)
+	served, _ := p.exports(s.cfg, s.shares)
 	for _, sh := range served {
 		var opts []smb.ShareOption
 		if sh.readOnly {

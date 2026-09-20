@@ -56,9 +56,10 @@ type config struct {
 	// OIDC names an identity provider whose tokens this server accepts.
 	// ⛔ Only WebDAV can carry a token: SMB authenticates with NTLMv2, SFTP
 	// with a key, and NFS with nothing. `check` prints that per person.
-	OIDC   *oidcBlock   `hcl:"oidc,block"`
-	Shares []shareBlock `hcl:"share,block"`
-	Serves []serveBlock `hcl:"serve,block"`
+	OIDC     *oidcBlock     `hcl:"oidc,block"`
+	Kerberos *kerberosBlock `hcl:"kerberos,block"`
+	Shares   []shareBlock   `hcl:"share,block"`
+	Serves   []serveBlock   `hcl:"serve,block"`
 }
 
 // A userBlock is a set of credentials. The password comes from the file named
@@ -338,7 +339,7 @@ func (c *config) check() error {
 		for _, sb := range c.Shares {
 			sh := &share{name: sb.Name, readOnly: sb.ReadOnly, allow: sb.Allow,
 				writers: sb.Writers, protocols: sb.Protocols}
-			served, refused := p.exports([]*share{sh})
+			served, refused := p.exports(c, []*share{sh})
 			switch {
 			case len(served) == 1:
 				carried = true
@@ -594,4 +595,36 @@ func diagError(parser *hclparse.Parser, diags hcl.Diagnostics) error {
 		return diags
 	}
 	return fmt.Errorf("%s", strings.TrimSpace(sb.String()))
+}
+
+// A kerberosBlock lets NFS tell people apart.
+//
+// ⛔ It is the only reason a restricted share can be served over NFS at all.
+// Without it NFSv3 carries AUTH_UNIX, which is a claim the client makes about
+// itself and the wire cannot disagree with -- so a share naming who may use it
+// is refused rather than handed to whoever connects.
+//
+// The keytab holds the key for nfs/<host>@REALM. It is the same file a KDC
+// writes with ktadd, and go-authn/kdc reads the other side of it.
+type kerberosBlock struct {
+	// Realm is the realm whose tickets this server accepts. Principals from
+	// any other realm are refused even when the name before the @ matches:
+	// alice@EXAMPLE.ORG and alice@PARTNER.ORG are different people.
+	Realm string `hcl:"realm"`
+
+	// Keytab is the file holding this service's key.
+	Keytab string `hcl:"keytab"`
+}
+
+// userOf maps a Kerberos principal onto a name this configuration knows.
+//
+// It returns "" for a principal from another realm, and that is the whole
+// point of the realm being configured rather than inferred: two realms can
+// both have an alice, and only one of them is ours.
+func (k *kerberosBlock) userOf(principal string) string {
+	name, realm, ok := strings.Cut(principal, "@")
+	if !ok || realm != k.Realm || name == "" {
+		return ""
+	}
+	return name
 }

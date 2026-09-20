@@ -123,7 +123,7 @@ func serve(cmd *cobra.Command, o *options, args []string) error {
 			shares = append(shares, &share{name: b.Name, readOnly: b.ReadOnly,
 				allow: b.Allow, writers: b.Writers, protocols: b.Protocols})
 		}
-		if why := isolationRefusal(shares, cfg.Serves); why != "" {
+		if why := isolationRefusal(cfg, shares, cfg.Serves); why != "" {
 			return errors.New(why)
 		}
 		return runIsolated(ctx, cfg, os.Stdout, append(append([]string{}, o.files...), args...))
@@ -268,7 +268,7 @@ func report(cmd *cobra.Command, cfg *config) error {
 			// can disagree with the server, and the reader would believe the
 			// table.
 			p := protocolByName(b.Protocol)
-			served, refused := p.exports([]*share{sh})
+			served, refused := p.exports(cfg, []*share{sh})
 			switch {
 			case len(served) == 1:
 				row += "\tyes"
@@ -295,7 +295,7 @@ func report(cmd *cobra.Command, cfg *config) error {
 	var said bool
 	for _, b := range cfg.Serves {
 		p := protocolByName(b.Protocol)
-		_, refused := p.exports(srv.shares)
+		_, refused := p.exports(cfg, srv.shares)
 		for _, sh := range refused {
 			if !said {
 				fmt.Fprintln(out)

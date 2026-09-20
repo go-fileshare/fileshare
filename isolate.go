@@ -49,7 +49,7 @@ import (
 
 // isolationRefusal reports why this configuration cannot be served one process
 // per protocol, or "" when it can.
-func isolationRefusal(shares []*share, serves []serveBlock) string {
+func isolationRefusal(cfg *config, shares []*share, serves []serveBlock) string {
 	for _, sh := range shares {
 		if sh.readOnly {
 			continue // nothing mutates it: any number of readers is fine
@@ -60,7 +60,7 @@ func isolationRefusal(shares []*share, serves []serveBlock) string {
 			if p == nil {
 				continue
 			}
-			served, _ := p.exports([]*share{sh})
+			served, _ := p.exports(cfg, []*share{sh})
 			if len(served) == 1 {
 				writable = append(writable, b.Protocol)
 			}
@@ -83,7 +83,7 @@ func sharesForChild(cfg *config, p *protocol) []string {
 	var names []string
 	for _, b := range cfg.Shares {
 		sh := &share{name: b.Name, readOnly: b.ReadOnly, allow: b.Allow, writers: b.Writers, protocols: b.Protocols}
-		if served, _ := p.exports([]*share{sh}); len(served) == 1 {
+		if served, _ := p.exports(cfg, []*share{sh}); len(served) == 1 {
 			names = append(names, b.Name)
 		}
 	}

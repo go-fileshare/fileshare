@@ -27,7 +27,7 @@ import (
 // PROPFIND and a PUT from interleaving inside one image.
 func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 	mux := http.NewServeMux()
-	served, _ := p.exports(s.shares)
+	served, _ := p.exports(s.cfg, s.shares)
 	for _, sh := range served {
 		prefix := "/" + sh.name
 		read, err := webdav.New(sh.fsys,

@@ -22,7 +22,9 @@ type protocol struct {
 	//
 	//   SMB     NTLMv2, and the password never crosses the wire.
 	//   WebDAV  HTTP Basic (and TLS underneath, which is the caller's).
-	//   NFSv3   No. AUTH_UNIX is a claim the wire cannot check.
+	//   NFSv3   Not on its own: AUTH_UNIX is a claim the wire cannot check.
+	//           With a kerberos block it can, and canAuthenticate is where
+	//           that deployment-dependent answer is given.
 	authenticates bool
 
 	// why is what a refusal says. It is written here, once, rather than
@@ -95,14 +97,28 @@ func missing(name string) bool {
 // configuration that says "photos belongs to alice" and a protocol that would
 // hand photos to whoever connects cannot both be honoured, and quietly
 // widening access is the worse of the two failures.
-func (p *protocol) exports(shares []*share) (served, refused []*share) {
+// canAuthenticate reports whether this protocol can tell people apart in THIS
+// deployment.
+//
+// For every protocol but NFS the answer is a property of the protocol and
+// nothing else. NFS is the exception: it cannot, until a keytab turns
+// RPCSEC_GSS on, and then it can -- which is why the question takes a
+// configuration rather than being a field.
+func (p *protocol) canAuthenticate(c *config) bool {
+	if p.authenticates {
+		return true
+	}
+	return p.name == "nfs" && c != nil && c.Kerberos != nil
+}
+
+func (p *protocol) exports(c *config, shares []*share) (served, refused []*share) {
 	for _, s := range shares {
 		if len(s.protocols) > 0 && !slices.Contains(s.protocols, p.name) {
 			// Not refused, just not for this one: the share said which
 			// protocols carry it, and this is not among them.
 			continue
 		}
-		if !p.authenticates && s.restricted() {
+		if !p.canAuthenticate(c) && s.restricted() {
 			refused = append(refused, s)
 			continue
 		}

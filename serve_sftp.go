@@ -32,7 +32,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
-	served, _ := p.exports(s.shares)
+	served, _ := p.exports(s.cfg, s.shares)
 	d, err := sshd.New(nil, sshd.Config{
 		HostKeys:       []ssh.Signer{hostKey},
 		TrustedUserCAs: cas,

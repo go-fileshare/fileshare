@@ -26,7 +26,7 @@ share "open" {
 }`, hclPath(img), hclPath(open))))
 
 	nfs := protocolByName("nfs")
-	served, refused := nfs.exports(r.srv.shares)
+	served, refused := nfs.exports(r.srv.cfg, r.srv.shares)
 	if len(served) != 1 || served[0].name != "open" {
 		t.Errorf("nfs serves %v", names(served))
 	}

@@ -8,8 +8,9 @@ func init() {
 	register(&protocol{
 		name:          "nfs",
 		authenticates: false,
-		why: "NFSv3 has no authentication at all: AUTH_UNIX is a claim the client makes " +
-			"about itself and the wire cannot disagree with it",
+		why: "NFSv3 on its own has no authentication: AUTH_UNIX is a claim the client makes " +
+			"about itself and the wire cannot disagree with it. A kerberos block lifts this: " +
+			"sec=krb5 carries a principal a ticket proves",
 		serve:       serveNFS,
 		defaultPort: 2049,
 	})

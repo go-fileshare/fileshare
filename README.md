@@ -23,9 +23,24 @@ webdav on 0.0.0.0:8080 — photos and scratch
 sftp   on 0.0.0.0:2222 — photos and scratch
 nfs    on 0.0.0.0:2049 — scratch
        photos is not served over nfs: it is restricted to alice and bob, and
-       NFSv3 has no authentication at all: AUTH_UNIX is a claim the client
-       makes about itself and the wire cannot disagree with it
+       NFSv3 on its own has no authentication: AUTH_UNIX is a claim the client
+       makes about itself and the wire cannot disagree with it. A kerberos
+       block lifts this: sec=krb5 carries a principal a ticket proves
 ```
+
+That last refusal is the one that used to be permanent. A `kerberos` block
+makes NFS able to tell people apart, and `photos` is then served over it like
+anywhere else — to `alice` and `bob`, and to nobody else:
+
+```hcl
+kerberos {
+  realm  = "EXAMPLE.ORG"
+  keytab = "/etc/fileshare/krb5.keytab"
+}
+```
+
+The realm is compared, not just the name before the `@`: two realms can each
+have an `alice`, and only one of them is yours.
 
 A person wants to **share an image**. Which protocol carries it is a property
 of the client at the other end: macOS and Windows reach for SMB, a Linux fleet

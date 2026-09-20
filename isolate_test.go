@@ -39,7 +39,7 @@ func TestWhatCannotBeIsolated(t *testing.T) {
 					t.Skipf("this binary has no %s", b.Protocol)
 				}
 			}
-			why := isolationRefusal([]*share{tc.share}, tc.serves)
+			why := isolationRefusal(nil, []*share{tc.share}, tc.serves)
 			if (why != "") != tc.refuse {
 				t.Errorf("refusal = %q, want refused = %v", why, tc.refuse)
 			}

@@ -219,7 +219,27 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: the device-backed tests
-        run: go test -run 'TestServesARealBlockDevice' -v -count=1 .
+      # ⛔ THE LINUX LANE JOINS THE `disk` GROUP RATHER THAN RUNNING AS ROOT,
+      # and that is the exercise. losetup creates /dev/loopN as root:disk 0660
+      # and the runner user is not in disk, so the first run of this lane
+      # failed with "permission denied" -- which is exactly the claim under
+      # test. Running `go test` under sudo would have made the lane green while
+      # proving the opposite of what this feature says: that read access to the
+      # node is enough, and root is not needed.
+      #
+      # macOS needs none of it. hdiutil attaches a device owned by the
+      # attaching user, which is why that half passed on the first run.
+      - name: join the disk group (Linux)
+        if: runner.os == 'Linux'
+        run: sudo usermod -aG disk "$USER"
+
+      - name: the device-backed tests (Linux, as an ordinary user in `disk`)
+        if: runner.os == 'Linux'
+        run: sg disk -c "go test -run TestServesARealBlockDevice -v -count=1 ."
+
+      - name: the device-backed tests (macOS)
+        if: runner.os == 'macOS'
+        run: go test -run TestServesARealBlockDevice -v -count=1 .
+
       - name: the device tests that need no device
         run: go test -run 'TestAlignedReaderAt|TestImageLength|TestDeviceOpenHint' -count=1 .

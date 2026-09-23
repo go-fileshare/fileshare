@@ -226,10 +226,17 @@ Bearer`, and the challenge it sends offers **both** — a client picks the one i
 can answer.
 
 ⛔ **Only WebDAV.** SMB authenticates with NTLMv2, SFTP with a key or a
-certificate, NFS with nothing at all: none of them has anywhere to put an
-Authorization header. That is a fact about the protocols, not a limit of this
-program, and a configuration naming a provider without serving WebDAV is
-refused rather than started.
+certificate, NFS with nothing at all, and **S3 with a SigV4 signature** — an
+HMAC computed over the request, with no field a bearer token fits in. None of
+them has anywhere to put an Authorization header. That is a fact about the
+protocols, not a limit of this program, and a configuration naming a provider
+without serving WebDAV is refused rather than started.
+
+The usual way to reach S3 with an OIDC token is **STS
+`AssumeRoleWithWebIdentity`**, which exchanges the token for temporary
+credentials the client then signs with. That is a different thing from
+accepting a bearer token, and it is not implemented here — said plainly
+because it is the first thing somebody arriving from MinIO will look for.
 
 ⛔ **A token says who the provider thinks somebody is. It does not say this
 server has a share for them.** A valid token for a name no source here knows is

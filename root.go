@@ -354,8 +354,9 @@ func report(cmd *cobra.Command, cfg *config) error {
 	// same account should find out here.
 	if cfg.OIDC != nil {
 		fmt.Fprintf(out, "\ntokens from %s are accepted over webdav and nowhere else: "+
-			"SMB authenticates with NTLMv2, SFTP with a key, and NFS with nothing -- "+
-			"none of them has anywhere to put a token\n", cfg.OIDC.Issuer)
+			"SMB authenticates with NTLMv2, SFTP with a key, NFS with nothing, and "+
+			"S3 with a SigV4 signature -- an HMAC over the request, with no field a "+
+			"bearer token fits in\n", cfg.OIDC.Issuer)
 		who := "somebody a token names must also be named here"
 		if cfg.OIDC.TrustAll {
 			who = "trust_all: anybody that provider vouches for is let in, whether or not this file knows them"

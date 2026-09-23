@@ -174,6 +174,9 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		f, ro, err := openImageFile(b.Image, b.ReadOnly)
 		if err != nil {
 			s.Close()
+			if hint := deviceOpenHint(b.Image, err); hint != "" {
+				return nil, fmt.Errorf("opening %s: %w\n       %s", b.Image, err, hint)
+			}
 			return nil, fmt.Errorf("opening %s: %w", b.Image, err)
 		}
 		info, err := f.Stat()
@@ -182,7 +185,31 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			s.Close()
 			return nil, err
 		}
-		fsys, kind, took, err := openShareImage(b, f, info.Size(), ro)
+		// A device has no length in its inode, so it is asked. Doing this
+		// through Stat alone handed every driver a zero-length image.
+		size, err := imageLength(f, info)
+		if err != nil {
+			f.Close()
+			s.Close()
+			return nil, fmt.Errorf("%s: %w", b.Image, err)
+		}
+		// What the drivers read through. A raw device refuses an unaligned
+		// read -- and reading a two-byte field at offset 11 is what parsing a
+		// FAT BPB is -- so a device gets a reader that rounds out to whole
+		// blocks. Without it /dev/rdisk4 reported `unknown filesystem`, the
+		// EINVAL swallowed by a detector that found no magic number.
+		var r io.ReaderAt = f
+		if isDevice(info) {
+			r = alignedReaderAt{r: f, size: size}
+			if !sh.readOnly {
+				// The same reasoning as a share that picked a partition: it
+				// will be served, and it will not take a write. Writing to a
+				// live disk is not a decision to make silently.
+				fmt.Fprintf(out, "%s is a device, so %s is read-only\n", b.Image, b.Name)
+				sh.readOnly = true
+			}
+		}
+		fsys, kind, took, err := openShareImage(b, f, r, size, ro)
 		if err != nil {
 			f.Close()
 			s.Close()
@@ -221,7 +248,9 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// reader deciding whether to trust the row should know which it is.
 		sh.named = b.Filesystem != ""
 		sh.partition = took
-		sh.size = uint64(info.Size())
+		// size, not info.Size(): the latter is 0 for a device, and this is
+		// what `check` prints.
+		sh.size = uint64(size)
 		s.closers = append(s.closers, sh.fsys, f)
 		s.shares = append(s.shares, sh)
 	}
@@ -235,7 +264,11 @@ func open(cfg *config, out io.Writer) (*server, error) {
 // any of them, and then the image is opened as THAT or refused -- which is
 // what somebody wants when an image carries something that looks like two
 // things, or when a misdetection would be worse than a refusal.
-func openShareImage(b shareBlock, f *os.File, size int64, readOnly bool) (filesystem.Filesystem, detect.Type, string, error) {
+// r is what everything READS through, and it is not always f: a raw device
+// refuses an unaligned read, so a device is handed an alignedReaderAt. f stays
+// the *os.File because the writable path needs WriteAt, which a device never
+// takes -- see device.go.
+func openShareImage(b shareBlock, f *os.File, r io.ReaderAt, size int64, readOnly bool) (filesystem.Filesystem, detect.Type, string, error) {
 	// The partition first, and for EVERY filesystem: a disk image holding
 	// FAT32 has a table in front of it as often as one holding XFS does, and
 	// detection reads offset zero, where a partitioned image has the table.
@@ -243,7 +276,7 @@ func openShareImage(b shareBlock, f *os.File, size int64, readOnly bool) (filesy
 	if b.Partition != nil {
 		choice.index = *b.Partition
 	}
-	view, viewSize, took, err := selectPartition(f, size, choice)
+	view, viewSize, took, err := selectPartition(r, size, choice)
 	if err != nil {
 		return nil, detect.Unknown, "", err
 	}
@@ -459,6 +492,15 @@ func (s *server) announce(p *protocol, addr string) {
 // every write from deep inside a driver. A file that cannot be opened for
 // writing is served read-only rather than not at all, and the caller says so.
 func openImageFile(path string, readOnly bool) (*os.File, bool, error) {
+	// ⛔ A DEVICE TAKES A DIFFERENT OPEN, and it is checked before the
+	// read-write attempt rather than after: asking for O_RDWR on a disk is the
+	// request that must not be made casually. openDevice asks the kernel for
+	// exclusive access, which is what keeps a mounted filesystem from being
+	// read in a state that never existed on disk. See device.go.
+	if fi, err := os.Stat(path); err == nil && isDevice(fi) {
+		f, err := openDevice(path)
+		return f, true, err
+	}
 	if !readOnly {
 		if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
 			return f, false, nil

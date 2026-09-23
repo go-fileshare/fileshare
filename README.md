@@ -447,6 +447,52 @@ process is never told about. A `serve` block that would end up carrying nothing
 is refused too, before any image is opened, naming the shares that were kept
 from it and why.
 
+## A device, not only an image
+
+```hcl
+share "photos" {
+  image = "/dev/sda"        # a device node, not a file
+}
+```
+
+**No privilege is involved.** Nothing here mounts anything -- the
+[`go-filesystems`](https://github.com/go-filesystems) drivers read ext4, xfs and
+the rest in user space -- so there is no `mount(2)` and therefore no
+`CAP_SYS_ADMIN`. Opening a device is an ordinary `open(2)`, governed by the
+permissions on the node:
+
+| | owner | mode | enough |
+|---|---|---|---|
+| Linux `/dev/sda` | `root:disk` | 0660 | membership of `disk` |
+| macOS `/dev/disk0` | `root:operator` | 0640 | membership of `operator`, plus Full Disk Access |
+
+A refusal says which group, rather than `permission denied` -- the answer is
+never `sudo`. Port 445 is the one privileged act left, and `--isolate` already
+handles it: the parent binds the listener, the child that speaks SMB never
+needs the privilege.
+
+⛔ **A device share is read-only.** The same reasoning as a share that chose a
+partition. Writing to a live disk is not a decision to make on your behalf.
+
+⛔⛔ **The device is opened exclusively, and that is about correctness, not
+caution.** If the kernel has a filesystem mounted from it, the filesystem's
+page cache holds newer metadata than the device does -- so a raw reader sees a
+directory block from before an update beside an inode block from after it, a
+state that never existed on disk at any one moment. `O_EXCL` on a block device
+is the kernel's own primitive for "nobody else, a mount included"; it is what
+`mkfs` and `fsck` use. A device in use is refused, by name, with the reason.
+
+Two things were measured rather than assumed, and both were surprises:
+
+- `Stat().Size()` is **0** for a device, so the length is asked of the device
+  itself. Seeking to the end answers on Linux and returns **0 with no error**
+  on macOS, which is why Darwin uses `DKIOCGETBLOCKCOUNT` instead.
+- A **raw** node (`/dev/rdiskN`, or `O_DIRECT` on Linux) refuses an unaligned
+  read, and reading a two-byte field at offset 11 is what parsing a FAT BPB
+  *is*. Reads to a device are rounded out to whole blocks; without that,
+  `/dev/rdisk4` reported `unknown filesystem` -- the `EINVAL` swallowed by a
+  detector that found no magic number.
+
 ## One image, several protocols, one lock
 
 Every server in this family serialises the driver itself, because

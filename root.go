@@ -405,18 +405,7 @@ func canUse(cfg *config, who *directory.Identity) (row string, any bool) {
 		if !p.authenticates {
 			continue
 		}
-		ok := false
-		switch b.Protocol {
-		case "smb":
-			// NTLMv2 needs the password or its MD4, and nothing else will do.
-			ok = who.Can(directory.NTHash)
-		case "webdav":
-			ok = who.Can(directory.Verifier) || who.Can(directory.Password)
-		case "sftp":
-			// A trusted authority makes everybody able to present a
-			// certificate, whatever this directory holds for them.
-			ok = who.Can(directory.PublicKeys) || cfg.TrustedUserCAFile != ""
-		}
+		ok := canServeUser(b.Protocol, who, cfg)
 		if ok {
 			row += "\tyes"
 			any = true

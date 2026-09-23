@@ -10,7 +10,7 @@ go 1.26.4
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
-	github.com/go-authn/directory v0.5.0
+	github.com/go-authn/directory v0.6.0
 	github.com/go-authn/oidc v0.1.0
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
@@ -21,18 +21,20 @@ require (
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.3.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
+	github.com/go-filesystems/s3 v0.1.0
 	github.com/go-filesystems/sftp v0.3.0
 	github.com/go-filesystems/smb v0.2.0
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/webdav v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
+	github.com/go-volumes/s3 v0.0.0-20260903051126-cfe79d096697
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.57.0
-	modernc.org/sqlite v1.58.0
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -87,7 +89,7 @@ require (
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

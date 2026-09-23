@@ -5,8 +5,8 @@
 [![CI](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml/badge.svg)](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml)
 [![cgo](https://img.shields.io/badge/cgo-none-0079A8?style=flat-square)](https://github.com/go-fileshare/fileshare)
 
-**Share a disk image over SMB, NFS, WebDAV and SFTP — one configuration, one
-binary, pure Go.**
+**Share a disk image over SMB, NFS, WebDAV, SFTP and S3 — one configuration,
+one binary, pure Go.**
 
 Documentation: **<https://go-fileshare.github.io/docs/>**
 
@@ -126,6 +126,7 @@ the server can tell **who** is asking.
 | **SMB** | NTLMv2. The password never crosses the wire, and the share tells a reader they are one — in the access mask, before they try. |
 | **WebDAV** | HTTP Basic, over whatever TLS the transport gives it. A share a person may not use answers 404, not 403: it is not confirmed to exist. |
 | **SFTP** | A **public key**, or an **SSH certificate** from an authority you trust: the server never holds the secret, and with a certificate a person's access is issued and expires elsewhere. No password: a client that prompts for one is doing the thing keys exist to avoid. |
+| **S3** | **SigV4**, header or presigned. The secret proves itself by computing an HMAC and never crosses the wire — so, like NTLMv2, the directory must HOLD the password rather than merely check it. A share is a bucket. |
 | **OIDC** (over WebDAV) | A **bearer token** an identity provider signed. Verified by [go-authn/oidc](https://github.com/go-authn/oidc): signature, issuer, audience, expiry. No other protocol here has anywhere to put one. |
 | **NFSv3** | **Nothing.** `AUTH_UNIX` is a claim — the client says "uid 501" and the wire cannot disagree. There is no encryption either. |
 
@@ -298,12 +299,12 @@ connection is a different design and this is not it.
 This is the part a site discovers otherwise at a mount, so `check` says it
 first:
 
-| the source has | SMB | WebDAV | SFTP |
-|---|---|---|---|
-| a password (file, or a cleartext column) | yes | yes | — |
-| an NT hash (`sambaNTPassword`, `nt_hash`) | yes | — | — |
-| only a bind, or a bcrypt column | **no** | yes | — |
-| public keys, or a trusted CA | — | — | yes |
+| the source has | SMB | S3 | WebDAV | SFTP |
+|---|---|---|---|---|
+| a password (file, or a cleartext column) | yes | yes | yes | — |
+| an NT hash (`sambaNTPassword`, `nt_hash`) | yes | **no** | — | — |
+| only a bind, or a bcrypt column | **no** | **no** | yes | — |
+| public keys, or a trusted CA | — | — | — | yes |
 
 **NTLMv2 needs the password or its MD4, and nothing else will do.** A client
 never sends a password to an SMB server — it sends a proof computed from it —
@@ -361,14 +362,15 @@ the three database drivers, `noldap` the LDAP client.
 
 | build | size |
 |---|---|
-| everything | 28.6 MB |
-| `-tags noldap` | 28.3 MB |
-| `-tags nosftp` | 27.9 MB |
-| `-tags nonfs,nowebdav,nosftp` (SMB only) | 26.4 MB |
-| `-tags nopartitioned` (no apfs, btrfs, xfs, zfs) | 29.5 MB |
-| `-tags nosql` | 16.9 MB |
-| `-tags nosql,noldap` | 16.6 MB |
-| `-tags nosql,noldap,nonfs,nowebdav,nosftp` | 11.9 MB |
+| everything | 31.2 MB |
+| `-tags noldap` | 30.9 MB |
+| `-tags nosftp` | 30.6 MB |
+| `-tags nos3` | 31.1 MB |
+| `-tags nonfs,nowebdav,nosftp,nos3` (SMB only) | 28.1 MB |
+| `-tags nopartitioned` (no apfs, btrfs, xfs, zfs) | 29.2 MB |
+| `-tags nosql` | 20.2 MB |
+| `-tags nosql,noldap` | 19.8 MB |
+| `-tags nosql,noldap,nonfs,nowebdav,nosftp,nos3` | 16.2 MB |
 
 `nosql` is by a distance the biggest lever: PostgreSQL, MySQL and SQLite
 together weigh **11.7 MB**, more than every protocol in this program put
@@ -525,12 +527,47 @@ safety.
   configuration alone: alice writes and bob does not, over SMB and over WebDAV,
   and NFS is not offered the share at all.
 
+## S3: a share is a bucket
+
+```hcl
+serve "s3" { addr = "0.0.0.0:9000" }
+```
+
+The fifth protocol, and the one that makes an image reachable from anything
+that speaks object storage — a backup tool, a data pipeline, `rclone`, a
+browser’s `fetch()`. Nothing mounts.
+
+```
+GET /                      the shares this person may use, as buckets
+GET /photos?list-type=2    the files in that share, as keys
+GET /photos/holiday.jpg    the file itself, Range and all
+```
+
+It is served over the **same per-user tree SFTP uses**, so a share alice may
+not use is not a bucket alice can see — and the access rules are applied in
+one place rather than copied into a second protocol.
+
+**An access key is a user, and the secret key is their password.** SigV4
+proves possession by computing an HMAC, so the directory must hold the
+password: the same column as NTLMv2, and `check` prints it. An identity
+holding only an NT hash serves SMB and **not** S3 — MD4 is not a secret an
+HMAC can be built from.
+
+⛔ The secret never leaves the directory. `Identity.Derive` runs the key
+schedule over the password and hands back only the result, which is why there
+is no `Password()` accessor anywhere in this program.
+
+The object API itself is [`go-filesystems/s3`](https://github.com/go-filesystems/s3):
+`ListBuckets`, `ListObjectsV2` with prefix and delimiter, `HeadObject`,
+`GetObject` with `Range`. Costs **0.1 MB** — SigV4 is stdlib crypto.
+
 ## Not yet
 
-**S3** — the fifth protocol, and the one that would make an image reachable
-from anything that speaks object storage. It needs a `go-filesystems/s3` to
-exist first: SigV4 is stdlib arithmetic, and the union tree in `unionfs.go` is
-already the shape a bucket list wants.
+**Writes over S3.** `PUT` and `DELETE` answer 403. The library can write, but
+a share a person may only read has to refuse them at the same place SFTP
+does, and that is not wired yet — refusing is better than a half-written
+object. **Multipart upload** is refused by name, so a client falls back to a
+single `PUT` rather than failing at the end of a 5 GB one.
 
 ## Licence
 

@@ -7,6 +7,8 @@ import (
 	"net"
 	"slices"
 	"strings"
+
+	"github.com/go-authn/directory"
 )
 
 // A protocol is one way to reach a share, and what it can honestly promise.
@@ -59,7 +61,7 @@ var protocols []*protocol
 // known is every protocol this program has a name for, whether or not it was
 // compiled in. A configuration that names one which was left out deserves to
 // be told THAT, rather than "there is no such protocol".
-var known = []string{"smb", "webdav", "nfs", "sftp"}
+var known = []string{"smb", "webdav", "nfs", "sftp", "s3"}
 
 func register(p *protocol) {
 	protocols = append(protocols, p)
@@ -131,4 +133,40 @@ func (p *protocol) exports(c *config, shares []*share) (served, refused []*share
 func (p *protocol) refusal(s *share) string {
 	return fmt.Sprintf("%s is not served over %s: it is restricted to %s, and %s",
 		s.name, p.name, s.who(), p.why)
+}
+
+// canServeUser answers whether a protocol can authenticate THIS person, given
+// what their directory holds for them.
+//
+// It is a function rather than a switch inside the `check` renderer because it
+// is the answer `check` prints AND the reason a mount fails later: the two
+// must be the same rule, and a rule stated in one place cannot drift from
+// itself. It also makes the distinctions testable without building a
+// configuration that can reach every credential shape -- an NT hash arrives
+// from SQL or LDAP and cannot be written in an HCL user block at all.
+func canServeUser(name string, who *directory.Identity, cfg *config) bool {
+	switch name {
+	case "smb":
+		// NTLMv2 needs the password or its MD4, and nothing else will do.
+		return who.Can(directory.NTHash)
+	case "webdav":
+		return who.Can(directory.Verifier) || who.Can(directory.Password)
+	case "sftp":
+		// A trusted authority makes everybody able to present a certificate,
+		// whatever this directory holds for them.
+		return who.Can(directory.PublicKeys) || (cfg != nil && cfg.TrustedUserCAFile != "")
+	case "s3":
+		// ⛔ NEARLY the same answer as SMB, and the difference matters. SigV4
+		// proves possession of the secret by computing an HMAC from it, so
+		// this server needs the secret -- the password itself. A source that
+		// can only CHECK a password answers WebDAV and cannot answer S3,
+		// exactly as it cannot answer NTLMv2.
+		//
+		// But NOT directory.NTHash: that is the MD4 SMB can work from, and an
+		// HMAC cannot be computed from it. An identity holding only an NT hash
+		// serves SMB and not S3, so the two columns are neighbours rather than
+		// copies -- which is the kind of thing `check` exists to print.
+		return who.Can(directory.Password)
+	}
+	return false
 }

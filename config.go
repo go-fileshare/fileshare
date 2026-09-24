@@ -14,7 +14,6 @@ import (
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/directory/hcldir"
-	"github.com/go-filesystems/sftp/sshd"
 	"github.com/go-volumes/gpt"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -62,36 +61,19 @@ type config struct {
 	Serves   []serveBlock   `hcl:"serve,block"`
 }
 
-// A userBlock is a set of credentials. The password comes from the file named
-// here, or -- when it is written inline -- from the configuration itself,
-// which is a choice about who may read that file.
-type userBlock struct {
-	Name         string `hcl:"name,label"`
-	Password     string `hcl:"password,optional"`
-	PasswordFile string `hcl:"password_file,optional"`
-	// AuthorizedKeys are this person's SSH public keys, for SFTP. They are
-	// written the way an authorized_keys file writes them ("ssh-ed25519 AAAA…
-	// alice@laptop"), either inline or in a file of their own.
-	//
-	// SFTP authenticates by KEY, not by password: a password prompt is the
-	// thing SSH clients exist to avoid, and a key proves who is asking
-	// without the server ever holding the secret.
-	AuthorizedKeys     []string `hcl:"authorized_keys,optional"`
-	AuthorizedKeysFile string   `hcl:"authorized_keys_file,optional"`
-}
+// A userBlock is somebody written in this file rather than in a directory.
+//
+// ⛔ It used to be declared HERE, and go-authn/authnd declared its own, and
+// the two had drifted: authnd's carried nt_hash and totp_secret and this one
+// did not, so a person written inline here could never be served over SMB --
+// NTLMv2 works from the password or its MD4 and nothing else, which is what
+// canServeUser says. One definition now, in the package that exists to hold
+// exactly this.
+type userBlock = hcldir.UserBlock
 
 // A groupBlock is a name for several people, so a share can be given to a
-// team rather than to a list that has to be edited every time somebody joins.
-//
-//	group "staff" { members = ["alice", "bob"] }
-//	share "photos" { allow = ["@staff"] }
-//
-// The leading @ is Samba's spelling (`valid users = @staff`) and is what
-// anybody administering a file server will type without being told.
-type groupBlock struct {
-	Name    string   `hcl:"name,label"`
-	Members []string `hcl:"members"`
-}
+// team rather than to a list.
+type groupBlock = hcldir.GroupBlock
 
 // An oidcBlock names an identity provider.
 //
@@ -545,46 +527,7 @@ func (c *config) servesProtocol(name string) bool {
 }
 
 // password reads what this user authenticates with.
-func (u userBlock) password() (string, error) {
-	if u.PasswordFile != "" {
-		b, err := os.ReadFile(u.PasswordFile)
-		if err != nil {
-			return "", fmt.Errorf("user %q: %w", u.Name, err)
-		}
-		return strings.TrimRight(string(b), "\r\n"), nil
-	}
-	return u.Password, nil
-}
 
-// authorizedKeys reads this person's SSH public keys, from the configuration
-// or from a file written the way authorized_keys is.
-func (u userBlock) authorizedKeyLines() ([]string, error) {
-	text := strings.Join(u.AuthorizedKeys, "\n")
-	if u.AuthorizedKeysFile != "" {
-		b, err := os.ReadFile(u.AuthorizedKeysFile)
-		if err != nil {
-			return nil, fmt.Errorf("user %q: %w", u.Name, err)
-		}
-		text = string(b)
-	}
-	if strings.TrimSpace(text) == "" {
-		return nil, nil
-	}
-	// Parsed here to REFUSE a line that does not parse -- silently ignoring
-	// one is how a server ends up denying the person it was configured for,
-	// with nothing to say why -- and handed on as text, because that is what
-	// a directory holds and what the library takes.
-	if _, err := sshd.ParseAuthorizedKeys([]byte(text)); err != nil {
-		return nil, fmt.Errorf("user %q: %w", u.Name, err)
-	}
-	var lines []string
-	for _, line := range strings.Split(text, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines, nil
-}
 
 // diagError turns HCL's diagnostics into an error that keeps what makes them
 // worth having: the file, the line, and the source snippet.

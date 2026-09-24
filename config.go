@@ -526,9 +526,6 @@ func (c *config) servesProtocol(name string) bool {
 	return false
 }
 
-// password reads what this user authenticates with.
-
-
 // diagError turns HCL's diagnostics into an error that keeps what makes them
 // worth having: the file, the line, and the source snippet.
 func diagError(parser *hclparse.Parser, diags hcl.Diagnostics) error {

@@ -10,7 +10,7 @@ go 1.26.4
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
-	github.com/go-authn/directory v0.6.0
+	github.com/go-authn/directory v0.7.0
 	github.com/go-authn/oidc v0.1.0
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-authn/directory/hcldir"
 	"io"
 	"os"
 	"path/filepath"
@@ -190,8 +191,23 @@ share "photos" {
 		t.Errorf("%s kept %q", protocols[1].name, cfg.Serves[1].Addr)
 	}
 	if anyAuthenticates() {
-		if got, err := cfg.Users[0].password(); err != nil || got != "hunter2" {
-			t.Errorf("the password file gave %q, %v", got, err)
+		// The password now comes out through hcldir's file source, which is
+		// where the block itself lives.
+		src, err := hcldir.File(cfg.Users, cfg.Groups)
+		if err != nil {
+			t.Fatalf("hcldir.File: %v", err)
+		}
+		people, err := src.Identities()
+		if err != nil || len(people) == 0 {
+			t.Fatalf("identities: %v", err)
+		}
+		// The identity verifies rather than hands the secret back, so the
+		// assertion is that it accepts the right one and refuses another.
+		if err := people[0].Verify("hunter2"); err != nil {
+			t.Errorf("the password file did not give hunter2: %v", err)
+		}
+		if err := people[0].Verify("hunter3"); err == nil {
+			t.Error("a wrong password was accepted")
 		}
 	}
 }

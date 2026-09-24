@@ -29,6 +29,8 @@ github.com/go-asn1-ber/asn1-ber v1.5.8 h1:H9AZkK22UOmfX8J84ubyaZxKJZ3FMHVwn8swoM
 github.com/go-asn1-ber/asn1-ber v1.5.8/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
 github.com/go-authn/directory v0.6.0 h1:U34HTcSdElmYomovac18XFKJsXTPoeDBgRM7YuXt+eY=
 github.com/go-authn/directory v0.6.0/go.mod h1:cmrrZp9RLD2X9+8iM1t753NnLN42RFRhSoQe+MV1km4=
+github.com/go-authn/directory v0.7.0 h1:LrsHN9JThCakJD/upa1N/qK57CIvwCoq9496XLpd7uw=
+github.com/go-authn/directory v0.7.0/go.mod h1:GCHFOwZn2BJhYShlBhqW+NmBKysVlfFparCqhaYdc6Y=
 github.com/go-authn/krb5 v0.2.1 h1:bLJ6fEl26aeWg6GUZDzwQI/ohtyElMW8kDOfibTxPeE=
 github.com/go-authn/krb5 v0.2.1/go.mod h1:OKwOP1tWIqY6GhTEDYXHvtQUKDmGuvxTIN7TOjv7Xjs=
 github.com/go-authn/oidc v0.1.0 h1:aUBEIZ0aESaT3Ps0+GpPJuF8PYXai4iFrzkMKAK9ZnE=

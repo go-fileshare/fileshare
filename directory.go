@@ -41,27 +41,16 @@ func sources(cfg *config) (*directory.Set, error) {
 }
 
 // hclSource turns the configuration file's own blocks into a source.
+//
+// The building is hcldir's now. It was written here and again in
+// go-authn/authnd, and the two copies had already drifted apart; see the note
+// on userBlock in config.go.
 func hclSource(cfg *config) directory.Source {
-	static := &directory.Static{
-		Name:   "the configuration file",
-		Groups: map[string][]string{},
+	// The errors here were caught when the configuration was checked; a
+	// second report of the same thing would be noise.
+	src, err := hcldir.File(cfg.Users, cfg.Groups)
+	if err != nil {
+		return &directory.Static{Name: "the configuration file", Groups: map[string][]string{}}
 	}
-	for _, g := range cfg.Groups {
-		static.Groups[g.Name] = g.Members
-	}
-	for _, u := range cfg.Users {
-		// The errors here were caught when the configuration was checked; a
-		// second report of the same thing would be noise.
-		pw, _ := u.password()
-		keys, _ := u.authorizedKeyLines()
-		opts := []directory.Option{directory.From("the configuration file")}
-		if pw != "" {
-			opts = append(opts, directory.WithPassword(pw))
-		}
-		if len(keys) > 0 {
-			opts = append(opts, directory.WithPublicKeys(keys...))
-		}
-		static.People = append(static.People, directory.NewIdentity(u.Name, opts...))
-	}
-	return static
+	return src
 }

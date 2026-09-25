@@ -214,3 +214,27 @@ func TestAShareIsNamedAfterItsImage(t *testing.T) {
 		}
 	}
 }
+
+// TestHelpNamesEveryProtocol pins the help to the registry rather than to a
+// sentence. The long help said "over SMB, NFS and WebDAV" for as long as this
+// binary had five protocols: nothing asserted it, so nothing failed when s3
+// and sftp arrived. A build tag that drops a protocol would have made any
+// fixed sentence wrong too, which is why the check is that every name the
+// binary HAS appears -- not that a particular list does.
+func TestHelpNamesEveryProtocol(t *testing.T) {
+	t.Parallel()
+
+	out, err := execute(t, "--help")
+	if err != nil {
+		t.Fatalf("--help: %v", err)
+	}
+	short := newRootCmd().Short
+	for _, p := range protocols {
+		if !strings.Contains(out, p.name) {
+			t.Errorf("long help does not name %q, which this binary serves:\n%s", p.name, out)
+		}
+		if !strings.Contains(short, p.name) {
+			t.Errorf("one-line description does not name %q: %q", p.name, short)
+		}
+	}
+}

@@ -54,8 +54,15 @@ func (o *options) bind(f *pflag.FlagSet) {
 		"serve each protocol in its own process, each opening only the images it may serve")
 }
 
-const longHelp = `fileshare serves disk images over SMB, NFS and WebDAV -- the same images, the
-same users, the same per-share access, from one configuration file.
+// longHelp is BUILT, not typed. It said "over SMB, NFS and WebDAV" while the
+// binary had five protocols, because a sentence naming them cannot be kept in
+// step with a registry by hand -- and under a build tag that leaves one out,
+// any fixed sentence is wrong for that build too. protocolNames() is what
+// --protocol already answers with, so the help and the error cannot disagree.
+func longHelp() string {
+	return fmt.Sprintf(`fileshare serves disk images over %s -- the
+same images, the same users, the same per-share access, from one
+configuration file.
 
     fileshare --image disk.img --user alice --password-file pw
     fileshare --config /etc/fileshare.d
@@ -65,18 +72,22 @@ The password comes from a FILE, never a flag: an argument is visible in the
 process list to every user on the machine.
 
 The protocols do not agree about the one thing access control needs: whether
-the server can tell WHO is asking. SMB proves it with NTLMv2 and WebDAV with
-HTTP Basic; NFSv3 cannot -- AUTH_UNIX is a claim the wire cannot check. So a
-share that names who may use it is NOT exported over NFS. That is a refusal,
+the server can tell WHO is asking. SMB proves it with NTLMv2, WebDAV with HTTP
+Basic or a bearer token, SFTP with a public key, S3 with a SigV4 signature --
+so what a person can be served over depends on what is held for them, and
+"fileshare check" prints that matrix before anything is restarted. NFSv3 alone
+proves nothing: AUTH_UNIX is a claim the wire cannot check. So a share that
+names who may use it is NOT exported over NFS. That is a refusal,
 not a warning: a configuration saying "photos belongs to alice" and a protocol
-handing photos to whoever connects cannot both be honoured.`
+handing photos to whoever connects cannot both be honoured.`, protocolNames())
+}
 
 func newRootCmd() *cobra.Command {
 	var o options
 	root := &cobra.Command{
 		Use:           "fileshare",
-		Short:         "Share disk images over SMB, NFS and WebDAV",
-		Long:          longHelp,
+		Short:         "Share disk images over " + protocolNames(),
+		Long:          longHelp(),
 		Args:          noArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,

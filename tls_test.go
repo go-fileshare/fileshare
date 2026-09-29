@@ -91,6 +91,9 @@ func TestTLSConfigRefusals(t *testing.T) {
 			serveBlocks(), serves, 1)
 	}
 	noUsers := fmt.Sprintf("share \"d\" {\n  image = %q\n}\n", hclPath(img))
+	// Absolute on every system: "/var/lib/x" is not, on Windows, and the
+	// cases below must be refused for what they are about, not for that.
+	cache := hclPath(filepath.Join(dir, "acme"))
 	cases := []struct{ name, body, want string }{
 		{"webdav on a public address, with passwords", withUsers(`serve "webdav" { addr = "0.0.0.0:8080" }`), "in the clear"},
 		{"... served over TLS", withUsers(tlsBlock + "serve \"webdav\" {\n  addr = \"0.0.0.0:8443\"\n  tls = true\n}"), ""},
@@ -104,8 +107,8 @@ func TestTLSConfigRefusals(t *testing.T) {
 		{"client_ca_file without tls", noUsers + tlsBlock + fmt.Sprintf("serve \"webdav\" { tls = true }\nserve \"nfs\" { client_ca_file = %q }", hclPath(p.caFile)), "check nothing"},
 		{"plaintext on s3", withUsers(`serve "s3" { plaintext = true }`), "for webdav"},
 		{"plaintext and tls", withUsers(tlsBlock + "serve \"webdav\" {\n  tls = true\n  plaintext = true\n}"), "one or the other"},
-		{"files and acme", withUsers(fmt.Sprintf("tls {\n  cert_file = %q\n  key_file = %q\n  acme {\n    domains = [\"x.example\"]\n    cache_dir = \"/var/lib/x\"\n  }\n}\n", hclPath(p.certFile), hclPath(p.keyFile)) + `serve "webdav" { tls = true }`), "tls:"},
-		{"an http_challenge that is no address", withUsers("tls {\n  acme {\n    domains = [\"x.example\"]\n    cache_dir = \"/var/lib/x\"\n    http_challenge = \"eighty\"\n  }\n}\n" + `serve "webdav" { tls = true }`), "http_challenge"},
+		{"files and acme", withUsers(fmt.Sprintf("tls {\n  cert_file = %q\n  key_file = %q\n  acme {\n    domains = [\"x.example\"]\n    cache_dir = %q\n  }\n}\n", hclPath(p.certFile), hclPath(p.keyFile), cache) + `serve "webdav" { tls = true }`), "tls:"},
+		{"an http_challenge that is no address", withUsers(fmt.Sprintf("tls {\n  acme {\n    domains = [\"x.example\"]\n    cache_dir = %q\n    http_challenge = \"eighty\"\n  }\n}\n", cache) + `serve "webdav" { tls = true }`), "http_challenge"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

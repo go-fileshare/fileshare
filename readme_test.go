@@ -20,7 +20,8 @@ func TestTheREADMEsHCLParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks := regexp.MustCompile("(?s)```hcl\n(.*?)```").FindAllStringSubmatch(string(data), -1)
+	// \r?: on Windows git checks the README out with CRLF endings.
+	blocks := regexp.MustCompile("(?s)```hcl\r?\n(.*?)```").FindAllStringSubmatch(string(data), -1)
 	if len(blocks) < 5 {
 		// The control: a pattern that finds nothing would pass forever.
 		t.Fatalf("found %d hcl blocks in the README; the pattern is not finding them", len(blocks))

@@ -86,6 +86,6 @@ func principalGate(k *kerberosBlock, sh *share) func(string) (bool, bool) {
 		if user == "" {
 			return false, false
 		}
-		return sh.mayUse(user), sh.mayUse(user) && !sh.readOnlyFor(user)
+		return sh.mayUse(local(user)), sh.mayUse(local(user)) && !sh.readOnlyFor(local(user))
 	}
 }

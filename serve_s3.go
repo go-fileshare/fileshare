@@ -80,14 +80,14 @@ func (h *s3ByUser) forUser(user string) (http.Handler, error) {
 	if srv, ok := h.byUser[user]; ok {
 		return srv, nil
 	}
-	shares := h.server.sharesFor(user)
+	shares := h.server.sharesFor(local(user))
 	if len(shares) == 0 {
 		// A person with no shares gets a server over an empty tree rather than
 		// an error naming them: whether a user exists is not a thing an
 		// unauthenticated request should be able to learn.
 		shares = nil
 	}
-	srv, err := objectapi.New(unionFor(shares, user), h.server.s3Secret(user))
+	srv, err := objectapi.New(unionFor(shares, local(user)), h.server.s3Secret(user))
 	if err != nil {
 		return nil, err
 	}

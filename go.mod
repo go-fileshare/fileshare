@@ -37,7 +37,10 @@ require (
 	modernc.org/sqlite v1.59.0
 )
 
-require github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
+require (
+	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
+)
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

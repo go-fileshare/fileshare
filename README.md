@@ -251,6 +251,32 @@ oidc {
 }
 ```
 
+### People the provider names, not this file
+
+A federation -- RENATER through [go-authn/bridge](https://github.com/go-authn/bridge),
+say -- knows who is in a project, and a share can ask IT rather than copy the
+list:
+
+```hcl
+share "photos" {
+  image   = "/srv/photos.img"
+  allow   = ["oidc:groups:urn:mace:univ-example.fr:photos", "oidc:user:bob@univ-example.fr", "alice"]
+  writers = ["oidc:groups:urn:mace:univ-example.fr:photos"]
+}
+```
+
+`oidc:groups:<value>` is somebody whose token's groups claim holds the value;
+`oidc:user:<name>` is somebody the token names. The spelling is opkssh's, so
+that one vocabulary says who reaches a shell and who reaches a share. Somebody
+a rule names is known to this server as far as tokens go -- the open shares
+too -- and somebody no rule names is still a stranger.
+
+⛔ **A rule is about the provider's people only.** `oidc:user:bob` is the bob
+the provider vouches for; a local account called bob, with a password, is
+somebody else and matches no rule. A rule with no `oidc` block, a malformed
+one, or one that may write without being allowed to connect is refused at
+startup.
+
 There is no login flow here: no redirect, no client secret, no cookies. This is
 the resource server.
 

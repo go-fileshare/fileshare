@@ -153,12 +153,22 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// "@staff" is the people in it. A group whose membership changes in
 		// the directory is picked up by a restart -- said plainly, because
 		// asking on every connection is a different design and this is not it.
-		allow, err := directory.Expand(b.Allow, s.dir)
+		allowNames, allowClaims, err := splitRules(b.Allow)
 		if err != nil {
 			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
-		writers, err := directory.Expand(b.Writers, s.dir)
+		writerNames, writerClaims, err := splitRules(b.Writers)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("share %q: %w", b.Name, err)
+		}
+		allow, err := directory.Expand(allowNames, s.dir)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("share %q: %w", b.Name, err)
+		}
+		writers, err := directory.Expand(writerNames, s.dir)
 		if err != nil {
 			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
@@ -167,8 +177,10 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			name:      b.Name,
 			image:     b.Image,
 			readOnly:  b.ReadOnly,
-			allow:     allow,
-			writers:   writers,
+			allow:        allow,
+			writers:      writers,
+			allowClaims:  allowClaims,
+			writerClaims: writerClaims,
 			protocols: b.Protocols,
 		}
 		f, ro, err := openImageFile(b.Image, b.ReadOnly)
@@ -386,11 +398,11 @@ func (s *server) keysFor(user string) []ssh.PublicKey {
 	return keys
 }
 
-// sharesFor is what this user may see, in the order the configuration gave.
-func (s *server) sharesFor(user string) []*share {
+// sharesFor is what this person may see, in the order the configuration gave.
+func (s *server) sharesFor(p principal) []*share {
 	var out []*share
 	for _, sh := range s.shares {
-		if sh.mayUse(user) {
+		if sh.mayUse(p) {
 			out = append(out, sh)
 		}
 	}

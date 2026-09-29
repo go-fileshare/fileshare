@@ -50,23 +50,23 @@ func openOIDC(b *oidcBlock) (*oidc.Verifier, error) {
 // The reason goes to the server's own output. A client that sent a token this
 // server will not accept is told that it was not accepted, and nothing more:
 // which check refused it is a fact about the account or the provider.
-func (s *server) bearer(r *http.Request) (string, bool) {
+func (s *server) bearer(r *http.Request) (principal, bool) {
 	if s.oidc == nil {
-		return "", false
+		return principal{}, false
 	}
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || strings.TrimSpace(raw) == "" {
-		return "", false
+		return principal{}, false
 	}
 	tok, err := s.oidc.Verify(r.Context(), strings.TrimSpace(raw))
 	if err != nil {
 		fmt.Fprintf(s.out, "a token was refused: %v\n", err)
-		return "", false
+		return principal{}, false
 	}
 	name := tok.Username()
 	if name == "" {
 		fmt.Fprintf(s.out, "a token carries no %s: nobody to be\n", s.usernameClaim())
-		return "", false
+		return principal{}, false
 	}
 	// ⛔ A token proves who the PROVIDER says this is. It does not put them in
 	// this server's shares: a name that no source here knows is somebody this
@@ -77,12 +77,28 @@ func (s *server) bearer(r *http.Request) (string, bool) {
 	// provider IS the directory -- said explicitly with `trust_all`, because
 	// it is the difference between "these people" and "everybody that
 	// provider has".
-	if _, known := s.who[name]; !known && !s.trustAllTokens() {
+	//
+	// And a share that names people through the provider -- oidc:groups:...,
+	// oidc:user:... -- is that same statement made for one share: somebody
+	// it names is known here, as far as that share goes.
+	p := principal{name: name, federated: true, groups: tok.Groups()}
+	if _, known := s.who[name]; !known && !s.trustAllTokens() && !s.namedByARule(p) {
 		fmt.Fprintf(s.out, "%s arrived with a valid token and is in %s: refused\n",
 			name, nobodyIn(s.dir))
-		return "", false
+		return principal{}, false
 	}
-	return name, true
+	return p, true
+}
+
+// namedByARule reports whether any share names this person through the
+// identity provider.
+func (s *server) namedByARule(p principal) bool {
+	for _, sh := range s.shares {
+		if p.matches(sh.allowClaims) || p.matches(sh.writerClaims) {
+			return true
+		}
+	}
+	return false
 }
 
 // tokenIdentity is what `check` prints for people who exist only as tokens.

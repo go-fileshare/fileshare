@@ -79,27 +79,27 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // A share nobody is named on still authenticates when there are users: a
 // server with credentials should not hand its contents to somebody who never
 // gave any. Without users at all, everyone is anonymous and everyone gets in.
-func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (string, bool) {
+func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (principal, bool) {
 	if len(b.server.who) == 0 && b.server.oidc == nil {
-		return "", true
+		return principal{}, true
 	}
 	// A token first, because a client that sent one meant it: falling back to
 	// asking for a password after refusing a token turns a rejected token
 	// into a password prompt, which is confusing for a person and useless for
 	// a program.
-	if user, ok := b.server.bearer(r); ok {
-		return user, true
+	if p, ok := b.server.bearer(r); ok {
+		return p, true
 	}
 	// The comparison is the identity's own: it may be against a password this
 	// server holds, or a question asked of a directory that holds it and will
 	// not give it up. Either way it is constant-time where a comparison is
 	// what happens.
 	if user, password, ok := r.BasicAuth(); ok && b.server.matches(user, password) {
-		return user, true
+		return local(user), true
 	}
 	b.server.challenge(w)
 	http.Error(w, "unauthorised", http.StatusUnauthorized)
-	return "", false
+	return principal{}, false
 }
 
 // webdavIndex lists the shares this person may open, which is what a browser
@@ -110,13 +110,13 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		user := ""
+		var user principal
 		if len(s.who) > 0 || s.oidc != nil {
 			u, ok := s.bearer(r)
 			if !ok {
-				var p string
-				u, p, ok = r.BasicAuth()
-				ok = ok && s.matches(u, p)
+				name, pw, basic := r.BasicAuth()
+				ok = basic && s.matches(name, pw)
+				u = local(name)
 			}
 			if !ok {
 				s.challenge(w)

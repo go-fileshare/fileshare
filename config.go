@@ -419,11 +419,29 @@ func (c *config) resolve(dir *directory.Set, known map[string]*directory.Identit
 	}
 	for _, s := range c.Shares {
 		for _, who := range s.Allow {
+			if isRule(who) {
+				if err := c.checkRule(s.Name, who); err != nil {
+					return err
+				}
+				continue
+			}
 			if bad := unknown(who); bad != "" {
 				return fmt.Errorf("share %q allows %s", s.Name, bad)
 			}
 		}
 		for _, who := range s.Writers {
+			if isRule(who) {
+				if err := c.checkRule(s.Name, who); err != nil {
+					return err
+				}
+				// Membership of a provider's group cannot be compared with a
+				// list of names here, so a rule that may write must be one that
+				// may connect, spelled the same way.
+				if len(s.Allow) > 0 && !slices.Contains(s.Allow, who) {
+					return fmt.Errorf("share %q lets %s write but does not allow %s to connect", s.Name, who, who)
+				}
+				continue
+			}
 			if bad := unknown(who); bad != "" {
 				return fmt.Errorf("share %q lets %s write", s.Name, bad)
 			}
@@ -567,4 +585,18 @@ func (k *kerberosBlock) userOf(principal string) string {
 		return ""
 	}
 	return name
+}
+
+func isRule(who string) bool { return strings.HasPrefix(who, "oidc:") }
+
+// checkRule refuses an oidc: rule that is malformed, or that no identity
+// provider here could ever satisfy.
+func (c *config) checkRule(share, who string) error {
+	if _, _, err := splitRules([]string{who}); err != nil {
+		return fmt.Errorf("share %q: %w", share, err)
+	}
+	if c.OIDC == nil {
+		return fmt.Errorf("share %q names %s, and there is no oidc block: no identity provider here could say who that is", share, who)
+	}
+	return nil
 }

@@ -18,7 +18,7 @@ func unionUnder(t *testing.T) (*unionFS, *memShare, *memShare) {
 		{name: "writable", fsys: rw},
 		{name: "readable", fsys: ro, readOnly: true},
 		{name: "notmine", fsys: rw, allow: []string{"somebody"}},
-	}, "alice"), rw, ro
+	}, local("alice")), rw, ro
 }
 
 func TestTheTreeIsWhatThisPersonMayUse(t *testing.T) {

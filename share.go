@@ -24,6 +24,10 @@ type share struct {
 	readOnly bool
 	allow    []string
 	writers  []string
+	// allowClaims and writerClaims are the `oidc:` entries of the two lists:
+	// people the identity provider names, who need not exist anywhere here.
+	allowClaims  []claimRule
+	writerClaims []claimRule
 	// protocols is which of them may carry this share; empty means all of
 	// them. See protocol.exports.
 	protocols []string
@@ -42,19 +46,27 @@ type share struct {
 
 // restricted reports whether this share names anybody. A restricted share
 // cannot be served by a protocol that does not know who is asking.
-func (s *share) restricted() bool { return len(s.allow) > 0 || len(s.writers) > 0 }
-
-// mayUse reports whether a user may reach this share at all.
-func (s *share) mayUse(user string) bool {
-	return len(s.allow) == 0 || slices.Contains(s.allow, user)
+func (s *share) restricted() bool {
+	return len(s.allow) > 0 || len(s.writers) > 0 || len(s.allowClaims) > 0 || len(s.writerClaims) > 0
 }
 
-// readOnlyFor reports whether this user's view of the share is read-only.
-func (s *share) readOnlyFor(user string) bool {
+// mayUse reports whether somebody may reach this share at all.
+func (s *share) mayUse(p principal) bool {
+	if len(s.allow) == 0 && len(s.allowClaims) == 0 {
+		return true
+	}
+	return slices.Contains(s.allow, p.name) || p.matches(s.allowClaims)
+}
+
+// readOnlyFor reports whether this person's view of the share is read-only.
+func (s *share) readOnlyFor(p principal) bool {
 	if s.readOnly {
 		return true
 	}
-	return len(s.writers) > 0 && !slices.Contains(s.writers, user)
+	if len(s.writers) == 0 && len(s.writerClaims) == 0 {
+		return false
+	}
+	return !slices.Contains(s.writers, p.name) && !p.matches(s.writerClaims)
 }
 
 // anyoneWrites reports whether the share is writable with no question asked --
@@ -63,10 +75,20 @@ func (s *share) anyoneWrites() bool { return !s.readOnly && !s.restricted() }
 
 // users is who this share is for, as a person reads it.
 func (s *share) who() string {
-	if len(s.allow) == 0 {
+	if len(s.allow) == 0 && len(s.allowClaims) == 0 {
 		return "anyone who authenticates"
 	}
-	return list(s.allow)
+	return list(withRules(s.allow, s.allowClaims))
+}
+
+// withRules is the names, then the provider's rules, as the configuration
+// spells them.
+func withRules(names []string, rules []claimRule) []string {
+	out := slices.Clone(names)
+	for _, r := range rules {
+		out = append(out, r.String())
+	}
+	return out
 }
 
 // writeAccess says who may write, in the same voice.
@@ -74,10 +96,10 @@ func (s *share) writeAccess() string {
 	switch {
 	case s.readOnly:
 		return "nobody (read_only)"
-	case len(s.writers) > 0:
-		return list(s.writers)
-	case len(s.allow) > 0:
-		return list(s.allow)
+	case len(s.writers) > 0 || len(s.writerClaims) > 0:
+		return list(withRules(s.writers, s.writerClaims))
+	case len(s.allow) > 0 || len(s.allowClaims) > 0:
+		return list(withRules(s.allow, s.allowClaims))
 	}
 	return "anyone who authenticates"
 }

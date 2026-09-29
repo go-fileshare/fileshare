@@ -43,16 +43,16 @@ type unionEntry struct {
 var errReadOnly = os.ErrPermission
 
 // unionFor builds the tree one person sees.
-func unionFor(shares []*share, user string) *unionFS {
+func unionFor(shares []*share, p principal) *unionFS {
 	u := &unionFS{}
 	for _, sh := range shares {
-		if !sh.mayUse(user) {
+		if !sh.mayUse(p) {
 			continue
 		}
 		u.entries = append(u.entries, unionEntry{
 			name:     sh.name,
 			fsys:     sh.fsys,
-			readOnly: sh.readOnlyFor(user),
+			readOnly: sh.readOnlyFor(p),
 		})
 	}
 	return u

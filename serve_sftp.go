@@ -51,7 +51,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 			return false
 		},
 		ServerFor: func(user string) (*sftp.Server, error) {
-			tree := unionFor(served, user)
+			tree := unionFor(served, local(user))
 			if len(tree.entries) == 0 {
 				// Nothing here for them. Refusing says so; an empty directory
 				// would look like a server that lost their files.

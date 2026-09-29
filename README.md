@@ -685,7 +685,7 @@ binding, such as GÉANT TCS through HARICA:
 ```hcl
 tls {
   acme {
-    directory_url     = "https://acme.harica.gr/<alias>/directory"
+    directory_url     = "https://acme-v02.harica.gr/acme/<uuid>/directory"   # the Server URL cm.harica.gr shows
     domains           = ["files.example.org"]
     cache_dir         = "/var/lib/fileshare/acme"
     eab_key_id        = "…"

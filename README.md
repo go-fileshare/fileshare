@@ -236,6 +236,41 @@ oidc {
   is no auth_id file here to map one to the other:
   `sftp alice@univ-example.fr@files.example.org`.
 
+#### Which institutions, and which groups
+
+```hcl
+oidc {
+  # ...
+  domains = ["univ-a.fr", "univ-b.fr"]   # nobody else from the federation gets in
+}
+
+share "projet-x" {
+  image   = "/srv/projet-x.img"
+  allow   = ["oidc:groups:urn:mace:univ-a.fr:projet-x", "oidc:domain:univ-b.fr"]
+  writers = ["oidc:groups:urn:mace:univ-a.fr:projet-x"]
+}
+```
+
+`domains` is checked at authentication, over SFTP and WebDAV alike: a name
+must be `<something>@<one of them>`, compared whole (`evilunivb.fr` is not
+`univb.fr`). `oidc:domain:` is the same test for one share. The domain can be
+trusted as far as the provider: go-authn/bridge drops an eppn or subject-id
+whose scope the IdP's federation metadata does not grant it.
+
+**Groups** are what the institution's IdP releases, turned into the `groups`
+claim by go-authn/bridge's `claims { groups = [...] }`: `eduPersonEntitlement`
+by default (a lab's or a VO's groups, as eduTEAMS or an institution's group
+manager publishes them), or `eduPersonScopedAffiliation` (`staff@univ-a.fr`,
+`student@univ-b.fr`). They travel in the token over WebDAV and in the
+certificate's `groups@go-authn.org` extension over SFTP. To see them:
+
+```sh
+ssh-keygen -L -f ~/.ssh/id_ed25519-cert.pub     # the Extensions section
+```
+
+and this server says, at every federated SFTP login,
+`sftp: alice@univ-a.fr, vouched for by the provider, in groups [...]`.
+
 ⛔ Somebody the provider vouches for is still a stranger here unless a rule
 names them or `trust_all` says the provider is the directory -- the same test a
 token passes over WebDAV. A provider certificate with no principal, valid for

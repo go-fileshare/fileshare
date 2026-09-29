@@ -168,6 +168,12 @@ type oidcBlock struct {
 	// PROVIDER says somebody is -- not that this server has a share for them.
 	TrustAll bool `hcl:"trust_all,optional"`
 
+	// Domains, when set, are the only institutions whose people are let in:
+	// a federated name must be <something>@<one of these>. The rest of the
+	// federation -- hundreds of IdPs in RENATER, thousands in eduGAIN -- is
+	// refused at authentication, before any share is looked at.
+	Domains []string `hcl:"domains,optional"`
+
 	// SSHCAFile is the provider's SSH certificate authority -- go-authn/bridge's
 	// ssh_ca -- whose certificates carry the provider's word over SFTP: the
 	// principal is the person, and the groups extension their groups. It is

@@ -34,6 +34,9 @@ func local(name string) principal { return principal{name: name} }
 //
 //	oidc:groups:<value>  -- the token's groups claim contains <value>
 //	oidc:user:<name>     -- the token names <name> (its username claim)
+//	oidc:domain:<domain> -- the name is <something>@<domain>: an eppn or a
+//	                        subject-id's scope, which the SAML side has
+//	                        already checked belongs to the institution
 //
 // The spelling follows opkssh's auth_id, where `oidc:groups:X` means the
 // same thing, so that one vocabulary describes who may reach a file server
@@ -55,8 +58,8 @@ func splitRules(list []string) (names []string, rules []claimRule, err error) {
 			continue
 		}
 		kind, value, ok := strings.Cut(rest, ":")
-		if !ok || value == "" || (kind != "groups" && kind != "user") {
-			return nil, nil, fmt.Errorf("%q: an identity provider rule is oidc:groups:<value> or oidc:user:<name>", e)
+		if !ok || value == "" || (kind != "groups" && kind != "user" && kind != "domain") {
+			return nil, nil, fmt.Errorf("%q: an identity provider rule is oidc:groups:<value>, oidc:user:<name> or oidc:domain:<domain>", e)
 		}
 		rules = append(rules, claimRule{kind, value})
 	}
@@ -81,7 +84,42 @@ func (p principal) matches(rules []claimRule) bool {
 			if slices.Contains(p.groups, r.value) {
 				return true
 			}
+		case "domain":
+			if d := p.domain(); d != "" && d == strings.ToLower(r.value) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// domain is the part of the name after its last "@", lower-cased: the
+// scope of an eppn or a subject-id. "" when the name has none.
+//
+// It can be trusted as far as the provider can: go-authn/bridge drops an
+// identifier whose scope the IdP's federation metadata does not grant it, so
+// alice@univ-a.fr is somebody univ-a.fr's own IdP vouched for.
+func (p principal) domain() string {
+	at := strings.LastIndexByte(p.name, '@')
+	if at < 0 || at == len(p.name)-1 {
+		return ""
+	}
+	return strings.ToLower(p.name[at+1:])
+}
+
+// domainAllowed says whether the oidc block's domains admit p. No list
+// admits everybody the provider vouches for.
+func (o *oidcBlock) domainAllowed(p principal) bool {
+	if o == nil || len(o.Domains) == 0 {
+		return true
+	}
+	return slices.Contains(o.lowerDomains(), p.domain())
+}
+
+func (o *oidcBlock) lowerDomains() []string {
+	out := make([]string, len(o.Domains))
+	for i, d := range o.Domains {
+		out[i] = strings.ToLower(strings.TrimSpace(d))
+	}
+	return out
 }

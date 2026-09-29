@@ -61,6 +61,14 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 		},
 		ServerForLogin: func(user string, perms *ssh.Permissions) (*sftp.Server, error) {
 			who := principalOf(user, perms)
+			if who.federated {
+				if !s.cfg.OIDC.domainAllowed(who) {
+					return nil, fmt.Errorf("%s: the provider vouches for them, from a domain this server does not admit", user)
+				}
+				// Said once per login: which groups the provider says this person
+				// is in is the first thing asked when a share does not appear.
+				fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
+			}
 			// Somebody the provider vouches for is somebody this server knows
 			// only when a rule names them, or trust_all says the provider IS
 			// the directory -- the same test a token passes over WebDAV.

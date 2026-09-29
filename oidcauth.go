@@ -82,6 +82,10 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// oidc:user:... -- is that same statement made for one share: somebody
 	// it names is known here, as far as that share goes.
 	p := principal{name: name, federated: true, groups: tok.Groups()}
+	if !s.cfg.OIDC.domainAllowed(p) {
+		fmt.Fprintf(s.out, "%s arrived with a valid token from a domain this server does not admit: refused\n", name)
+		return principal{}, false
+	}
 	if _, known := s.person(name); !known && !s.trustAllTokens() && !s.namedByARule(p) {
 		fmt.Fprintf(s.out, "%s arrived with a valid token and is in %s: refused\n",
 			name, nobodyIn(s.dir))

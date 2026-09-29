@@ -171,7 +171,7 @@ func TestProviderRulesAreChecked(t *testing.T) {
 share "x" {
   image = %q
   allow = ["oidc:roles:g"]
-}`, hclPath(img)), "oidc:groups:<value> or oidc:user:<name>"},
+}`, hclPath(img)), "oidc:groups:<value>, oidc:user:<name> or oidc:domain:<domain>"},
 		"a writer rule that may not connect": {fmt.Sprintf(`oidc {
   issuer   = "https://idp.example.org"
   audience = "fileshare"

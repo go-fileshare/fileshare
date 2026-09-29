@@ -33,7 +33,16 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 		return err
 	}
 	served, _ := p.exports(s.cfg, s.currentShares())
+	fed, err := newFederatedSFTP(s.cfg.OIDC)
+	if err != nil {
+		return err
+	}
+	var certificateFor func(string, *ssh.Certificate) (*ssh.Permissions, error)
+	if fed != nil {
+		certificateFor = fed.certificate
+	}
 	d, err := sshd.New(nil, sshd.Config{
+		CertificateFor: certificateFor,
 		HostKeys:       []ssh.Signer{hostKey},
 		TrustedUserCAs: cas,
 		// A key proves who is asking without this server ever holding the
@@ -50,8 +59,15 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 			}
 			return false
 		},
-		ServerFor: func(user string) (*sftp.Server, error) {
-			tree := unionFor(served, local(user))
+		ServerForLogin: func(user string, perms *ssh.Permissions) (*sftp.Server, error) {
+			who := principalOf(user, perms)
+			// Somebody the provider vouches for is somebody this server knows
+			// only when a rule names them, or trust_all says the provider IS
+			// the directory -- the same test a token passes over WebDAV.
+			if _, known := s.who[user]; who.federated && !known && !s.trustAllTokens() && !s.namedByARule(who) {
+				return nil, fmt.Errorf("%s: the provider vouches for them and nothing here names them", user)
+			}
+			tree := unionFor(served, who)
 			if len(tree.entries) == 0 {
 				// Nothing here for them. Refusing says so; an empty directory
 				// would look like a server that lost their files.

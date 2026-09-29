@@ -177,8 +177,27 @@ share "open" { image = %q }
 serve %q {}
 `, hclPath(img), withoutWebdav.name)
 	_, err := loadConfig([]string{write(t, dir, "c.hcl", body)})
-	if err == nil || !strings.Contains(err.Error(), "only arrive over webdav") {
+	if err == nil || !strings.Contains(err.Error(), "neither webdav nor a federated sftp") {
 		t.Errorf("error = %v", err)
+	}
+	// SFTP carries the provider's word too, once the oidc block says how:
+	// its SSH CA, or opkssh.
+	if protocolByName("sftp") != nil {
+		ca := write(t, dir, "ca.pub", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzsRUMGgSpTy1SW6sfnPvRbiB5W8kL7LZ7mnxHgYgJv ca\n")
+		sftpOnly := fmt.Sprintf(`
+oidc {
+  issuer      = "https://login.example.test"
+  audience    = "fileshare"
+  ssh_ca_file = %q
+}
+
+share "open" { image = %q }
+
+serve "sftp" {}
+`, hclPath(ca), hclPath(img))
+		if _, err := loadConfig([]string{write(t, dir, "sftp.hcl", sftpOnly)}); err != nil {
+			t.Errorf("an oidc block for sftp alone was refused: %v", err)
+		}
 	}
 	// And a block that cannot verify anything is refused too.
 	for _, missing := range []string{"issuer", "audience"} {

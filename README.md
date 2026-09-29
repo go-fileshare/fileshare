@@ -209,6 +209,38 @@ The signature, the validity window and the principals are checked by
 `x/crypto/ssh`'s `CertChecker`; verified against OpenSSH's own client, which
 also refuses the same key once its certificate is moved aside.
 
+### People the identity provider vouches for, over SFTP
+
+```hcl
+oidc {
+  issuer           = "https://login.example.org"
+  audience         = "fileshare"
+  ssh_ca_file      = "/etc/fileshare/bridge-ca.pub"   # go-authn/bridge's ssh_ca
+  opkssh_client_id = "opkssh"                         # OpenPubkey logins
+  opkssh_max_age   = "24h"                            # 12h, 24h, 48h, 1week
+}
+```
+
+- **A certificate the provider's SSH CA signed** -- `bridge ssh-cert` writes
+  one after a login through the federation. Its principal is the person, its
+  `groups@go-authn.org` extension their groups, so `oidc:groups:` rules
+  apply. It is *not* `trusted_user_ca_file`, whose certificates are about
+  local accounts: a local authority's certificate claiming the provider's
+  groups is read as the local account it names.
+- **An OpenPubkey certificate**, as `opkssh login` writes: signed by the
+  user's own key, with an ID token that commits to that key. It is checked as
+  `opkssh verify` checks it -- the [openpubkey](https://github.com/openpubkey/openpubkey)
+  verifier (the provider's signature against its published keys, the nonce
+  commitment, the client ID, the age), then the certificate's key against the
+  token's -- and the SSH user name must be the token's username, because there
+  is no auth_id file here to map one to the other:
+  `sftp alice@univ-example.fr@files.example.org`.
+
+⛔ Somebody the provider vouches for is still a stranger here unless a rule
+names them or `trust_all` says the provider is the directory -- the same test a
+token passes over WebDAV. A provider certificate with no principal, valid for
+*anybody* by the format's own definition, is refused.
+
 Without `host_key_file` a fresh identity is generated at every start, and the
 server says so: every client that has seen it before will warn about a changed
 key, which is the client doing its job.
@@ -233,12 +265,16 @@ A browser has a token and no password. So WebDAV accepts `Authorization:
 Bearer`, and the challenge it sends offers **both** — a client picks the one it
 can answer.
 
-⛔ **Only WebDAV.** SMB authenticates with NTLMv2, SFTP with a key or a
-certificate, NFS with nothing at all, and **S3 with a SigV4 signature** — an
-HMAC computed over the request, with no field a bearer token fits in. None of
-them has anywhere to put an Authorization header. That is a fact about the
-protocols, not a limit of this program, and a configuration naming a provider
-without serving WebDAV is refused rather than started.
+⛔ **A bearer token: only WebDAV.** SMB authenticates with NTLMv2, SFTP with a
+key or a certificate, NFS with nothing at all, and **S3 with a SigV4
+signature** — an HMAC computed over the request, with no field a bearer token
+fits in. None of them has anywhere to put an Authorization header. That is a
+fact about the protocols, not a limit of this program.
+
+**The provider's word over SFTP** arrives in a certificate instead, in two
+shapes (see below): one its SSH CA signed, or an opkssh one. A configuration
+naming a provider and serving neither WebDAV nor such an SFTP is refused rather
+than started.
 
 The usual way to reach S3 with an OIDC token is **STS
 `AssumeRoleWithWebIdentity`**, which exchanges the token for temporary
@@ -406,6 +442,7 @@ the three database drivers, `noldap` the LDAP client.
 | everything | 31.2 MB |
 | `-tags noldap` | 30.9 MB |
 | `-tags nosftp` | 30.6 MB |
+| `-tags noopenpubkey` (no opkssh logins over SFTP) | about 2 MB less |
 | `-tags nos3` | 31.1 MB |
 | `-tags nonfs,nowebdav,nosftp,nos3` (SMB only) | 28.1 MB |
 | `-tags nopartitioned` (no apfs, btrfs, xfs, zfs) | 29.2 MB |

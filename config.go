@@ -167,6 +167,22 @@ type oidcBlock struct {
 	// provider has", and it is spelled out because a token proves who the
 	// PROVIDER says somebody is -- not that this server has a share for them.
 	TrustAll bool `hcl:"trust_all,optional"`
+
+	// SSHCAFile is the provider's SSH certificate authority -- go-authn/bridge's
+	// ssh_ca -- whose certificates carry the provider's word over SFTP: the
+	// principal is the person, and the groups extension their groups. It is
+	// NOT trusted_user_ca_file, whose certificates are about local accounts.
+	SSHCAFile string `hcl:"ssh_ca_file,optional"`
+
+	// OpksshClientID accepts OpenPubkey (opkssh) certificates over SFTP: an
+	// ID token from this provider, for this client ID, committing to the
+	// SSH key. A client ID of its own, never another application's: the ID
+	// token travels to every server the person logs into.
+	OpksshClientID string `hcl:"opkssh_client_id,optional"`
+
+	// OpksshMaxAge is how long after its issue a PK Token is accepted: 12h,
+	// 24h (the default, as opkssh), 48h or 1week.
+	OpksshMaxAge string `hcl:"opkssh_max_age,optional"`
 }
 
 // The `users` block is go-authn/directory/hcldir's: a file server and an
@@ -460,11 +476,16 @@ func (c *config) check() error {
 		case o.Audience == "":
 			return fmt.Errorf("the oidc block has no audience: a token minted for another service is a " +
 				"valid token, and a server that does not check accepts every one that provider ever signed")
-		case !c.servesProtocol("webdav"):
+		case !c.servesProtocol("webdav") && !(c.servesProtocol("sftp") && (o.SSHCAFile != "" || o.OpksshClientID != "")):
 			// ⛔ Not a warning: a configuration that names a provider and
-			// serves nothing that can carry a token does not do what it says.
-			return fmt.Errorf("the oidc block is here and webdav is not served: a token can only arrive " +
-				"over webdav, because SMB, SFTP and NFS have nowhere to put one")
+			// serves nothing that can carry its word does not do what it says.
+			return fmt.Errorf("the oidc block is here and neither webdav nor a federated sftp is served: " +
+				"a token arrives over webdav, the provider's SSH certificates (ssh_ca_file) and " +
+				"opkssh ones (opkssh_client_id) over sftp, and SMB and NFS have nowhere to put either")
+		case o.OpksshClientID != "" && !haveOpenPubkey:
+			return fmt.Errorf("opkssh_client_id: this binary was built with -tags noopenpubkey, and would start without the way in the configuration asks for")
+		case o.OpksshMaxAge != "" && !knownMaxAge(o.OpksshMaxAge):
+			return fmt.Errorf("opkssh_max_age = %q: 12h, 24h, 48h or 1week", o.OpksshMaxAge)
 		case o.TrustAll && len(c.Users) == 0 && len(c.Directories) == 0:
 			// This is the legitimate shape for trust_all -- the provider IS
 			// the directory -- and it is allowed. Named here so the reader

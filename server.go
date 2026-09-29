@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/oidc"
@@ -32,8 +34,11 @@ import (
 
 // A server is everything the configuration asked for, opened and ready.
 type server struct {
-	name   string
-	shares []*share
+	name string
+	// shares is replaced whole when the admin API changes them, and read
+	// through currentShares; a *share is never modified once it is here.
+	sharesMu sync.RWMutex
+	shares   []*share
 	// who everybody is and what their source could give to prove them. The
 	// model is go-authn/directory's: no single credential answers all three
 	// protocols that authenticate.
@@ -58,6 +63,26 @@ type server struct {
 	stopping chan struct{}
 
 	closers []io.Closer
+
+	// What run keeps so the shares can be swapped under it; see
+	// generation.go.
+	runMu    sync.Mutex
+	feeds    []*feed
+	gen      *generation
+	genN     uint64
+	failures chan error
+	// ready is true while a generation is serving every feed.
+	ready atomic.Bool
+	stats serverStats
+	// mgr is the admin API's, when it runs.
+	mgr atomic.Pointer[manager]
+}
+
+// currentShares is the list being served now.
+func (s *server) currentShares() []*share {
+	s.sharesMu.RLock()
+	defer s.sharesMu.RUnlock()
+	return s.shares
 }
 
 // syncWriter is one writer several goroutines may use.
@@ -114,7 +139,7 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// announcing themselves -- and two goroutines writing one io.Writer
 		// is a data race whatever the writer is.
 		out: &syncWriter{w: out}, hostKeyFile: cfg.HostKeyFile, trustedCAFile: cfg.TrustedUserCAFile,
-		stopping: make(chan struct{})}
+		stopping: make(chan struct{}), stats: serverStats{started: time.Now()}}
 	if s.name == "" {
 		s.name = "FILESHARE"
 	}
@@ -148,93 +173,149 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		s.oidc = v
 	}
 
-	for _, b := range cfg.Shares {
+	shares, err := s.openShares(cfg.Shares, nil)
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	s.shares = shares
+	return s, nil
+}
+
+// openShares opens every share a list of blocks describes.
+//
+// previous is the shares being served now, when there are some: a share whose
+// IMAGE is unchanged -- same file, same filesystem, same partition -- takes
+// the driver that is already open instead of opening the image a second time.
+// That is not an economy. Two drivers over one image each believe they own
+// it, and the one that is about to be closed may still be writing; the new
+// share must see the same driver, not a second opinion of the same bytes.
+// Only who may use it, and whether it is read-only, are taken from the block.
+//
+// What was opened here and not taken by the result is closed before returning
+// an error, so a refused change leaves nothing open behind it.
+func (s *server) openShares(blocks []shareBlock, previous []*share) (_ []*share, err error) {
+	var opened []*share
+	defer func() {
+		if err != nil {
+			for _, sh := range opened {
+				sh.close()
+			}
+		}
+	}()
+	var out []*share
+	for _, b := range blocks {
 		// The lists are expanded HERE: by the time a protocol sees a share,
 		// "@staff" is the people in it. A group whose membership changes in
 		// the directory is picked up by a restart -- said plainly, because
 		// asking on every connection is a different design and this is not it.
 		allowNames, allowClaims, err := splitRules(b.Allow)
 		if err != nil {
-			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
 		writerNames, writerClaims, err := splitRules(b.Writers)
 		if err != nil {
-			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
 		allow, err := directory.Expand(allowNames, s.dir)
 		if err != nil {
-			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
 		writers, err := directory.Expand(writerNames, s.dir)
 		if err != nil {
-			s.Close()
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
 		sh := &share{
 			name:         b.Name,
-			image:        b.Image,
-			readOnly:     b.ReadOnly,
+			image:        b.source(),
+			readOnly:     b.ReadOnly || b.noWriters,
 			allow:        allow,
 			writers:      writers,
 			allowClaims:  allowClaims,
 			writerClaims: writerClaims,
 			protocols:    b.Protocols,
+			opened:       imageKeyOf(b),
 		}
-		f, ro, err := openImageFile(b.Image, b.ReadOnly)
-		if err != nil {
-			s.Close()
-			if hint := deviceOpenHint(b.Image, err); hint != "" {
-				return nil, fmt.Errorf("opening %s: %w\n       %s", b.Image, err, hint)
+		if prev := sameImage(previous, sh.opened); prev != nil {
+			if prev.openedReadOnly && !b.ReadOnly {
+				// The file itself was opened read-only, and a driver cannot be
+				// made writable after the fact. Reopening it here would put a
+				// second driver on an image the first is still serving.
+				return nil, fmt.Errorf("share %q: %s was opened read-only, so it cannot become writable "+
+					"while it is served; delete the share and create it again", b.Name, b.source())
 			}
-			return nil, fmt.Errorf("opening %s: %w", b.Image, err)
+			sh.adopt(prev)
+			out = append(out, sh)
+			continue
 		}
-		info, err := f.Stat()
-		if err != nil {
-			f.Close()
-			s.Close()
+		open := s.openImage
+		if b.Directory != "" {
+			open = s.openDirectory
+		}
+		if err := open(sh, b); err != nil {
 			return nil, err
 		}
-		// A device has no length in its inode, so it is asked. Doing this
-		// through Stat alone handed every driver a zero-length image.
-		size, err := imageLength(f, info)
-		if err != nil {
-			f.Close()
-			s.Close()
-			return nil, fmt.Errorf("%s: %w", b.Image, err)
+		opened = append(opened, sh)
+		out = append(out, sh)
+	}
+	return out, nil
+}
+
+// openImage opens a share's image and its filesystem, and says -- once, when
+// it happens -- every way the share ended up less writable than it asked.
+func (s *server) openImage(sh *share, b shareBlock) error {
+	out := s.out
+	f, ro, err := openImageFile(b.Image, b.ReadOnly)
+	if err != nil {
+		if hint := deviceOpenHint(b.Image, err); hint != "" {
+			return fmt.Errorf("opening %s: %w\n       %s", b.Image, err, hint)
 		}
-		// What the drivers read through. A raw device refuses an unaligned
-		// read -- and reading a two-byte field at offset 11 is what parsing a
-		// FAT BPB is -- so a device gets a reader that rounds out to whole
-		// blocks. Without it /dev/rdisk4 reported `unknown filesystem`, the
-		// EINVAL swallowed by a detector that found no magic number.
-		var r io.ReaderAt = f
-		if isDevice(info) {
-			r = alignedReaderAt{r: f, size: size}
-			if !sh.readOnly {
-				// The same reasoning as a share that picked a partition: it
-				// will be served, and it will not take a write. Writing to a
-				// live disk is not a decision to make silently.
-				fmt.Fprintf(out, "%s is a device, so %s is read-only\n", b.Image, b.Name)
-				sh.readOnly = true
-			}
-		}
-		fsys, kind, took, err := openShareImage(b, f, r, size, ro)
-		if err != nil {
-			f.Close()
-			s.Close()
-			return nil, fmt.Errorf("%s: %w", b.Image, err)
-		}
-		if ro && !sh.readOnly {
-			// Not what was asked for, so it is said out loud: the share works,
-			// and it will not take a write.
-			fmt.Fprintf(out, "%s could not be opened for writing: %s is read-only\n", b.Image, b.Name)
+		return fmt.Errorf("opening %s: %w", b.Image, err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return err
+	}
+	// A device has no length in its inode, so it is asked. Doing this
+	// through Stat alone handed every driver a zero-length image.
+	size, err := imageLength(f, info)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("%s: %w", b.Image, err)
+	}
+	// What the drivers read through. A raw device refuses an unaligned
+	// read -- and reading a two-byte field at offset 11 is what parsing a
+	// FAT BPB is -- so a device gets a reader that rounds out to whole
+	// blocks. Without it /dev/rdisk4 reported `unknown filesystem`, the
+	// EINVAL swallowed by a detector that found no magic number.
+	var r io.ReaderAt = f
+	if isDevice(info) {
+		r = alignedReaderAt{r: f, size: size}
+		if !sh.readOnly {
+			// The same reasoning as a share that picked a partition: it
+			// will be served, and it will not take a write. Writing to a
+			// live disk is not a decision to make silently.
+			fmt.Fprintf(out, "%s is a device, so %s is read-only\n", b.Image, b.Name)
 			sh.readOnly = true
-			sh.writers = nil
 		}
-		if took != "" && !sh.readOnly {
+		sh.forcedReadOnly = true
+	}
+	fsys, kind, took, err := openShareImage(b, f, r, size, ro)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("%s: %w", b.Image, err)
+	}
+	sh.openedReadOnly = ro
+	if ro && !sh.readOnly {
+		// Not what was asked for, so it is said out loud: the share works,
+		// and it will not take a write.
+		fmt.Fprintf(out, "%s could not be opened for writing: %s is read-only\n", b.Image, b.Name)
+		sh.readOnly = true
+		sh.writers = nil
+	}
+	if took != "" {
+		if !sh.readOnly {
 			// ⛔ A share that chose a partition is READ-ONLY, and saying so
 			// here is the whole point: the driver would be given the
 			// partition's offsets over a file that is the whole disk, so a
@@ -247,26 +328,36 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			sh.readOnly = true
 			sh.writers = nil
 		}
-		// The DRIVER is wrapped, not a wrapper around it. A struct that
-		// embeds filesystem.Filesystem has exactly that method set, so
-		// wrapping one for the sake of closing a file would erase Opener and
-		// WritableFile -- and with them the positional read and write paths,
-		// measured at ~70x the whole-file fallback. The file is closed
-		// alongside instead.
-		sh.fsys = lockFS(fsys)
-		sh.kind = kind
-		// Remembered so `check` can say it: a driver that was NAMED was not
-		// checked against the image's magic the way a found one was, and a
-		// reader deciding whether to trust the row should know which it is.
-		sh.named = b.Filesystem != ""
-		sh.partition = took
-		// size, not info.Size(): the latter is 0 for a device, and this is
-		// what `check` prints.
-		sh.size = uint64(size)
-		s.closers = append(s.closers, sh.fsys, f)
-		s.shares = append(s.shares, sh)
+		sh.forcedReadOnly = true
 	}
-	return s, nil
+	// The DRIVER is wrapped, not a wrapper around it. A struct that
+	// embeds filesystem.Filesystem has exactly that method set, so
+	// wrapping one for the sake of closing a file would erase Opener and
+	// WritableFile -- and with them the positional read and write paths,
+	// measured at ~70x the whole-file fallback. The file is closed
+	// alongside instead.
+	sh.fsys = lockFS(fsys)
+	sh.kind = kind
+	// Remembered so `check` can say it: a driver that was NAMED was not
+	// checked against the image's magic the way a found one was, and a
+	// reader deciding whether to trust the row should know which it is.
+	sh.named = b.Filesystem != ""
+	sh.partition = took
+	// size, not info.Size(): the latter is 0 for a device, and this is
+	// what `check` prints.
+	sh.size = uint64(size)
+	sh.closers = []io.Closer{sh.fsys, f}
+	return nil
+}
+
+// sameImage is the share among previous that has this image open, if any.
+func sameImage(previous []*share, k imageKey) *share {
+	for _, sh := range previous {
+		if sh.opened == k && sh.fsys != nil {
+			return sh
+		}
+	}
+	return nil
 }
 
 // openShareImage opens the filesystem in an image, either by finding out what
@@ -330,6 +421,11 @@ var detectOpen = detect.Open
 func (s *server) Close() error {
 	s.stop()
 	var err error
+	for _, sh := range s.currentShares() {
+		if cerr := sh.close(); err == nil {
+			err = cerr
+		}
+	}
 	for _, c := range s.closers {
 		if cerr := c.Close(); err == nil {
 			err = cerr
@@ -401,7 +497,7 @@ func (s *server) keysFor(user string) []ssh.PublicKey {
 // sharesFor is what this person may see, in the order the configuration gave.
 func (s *server) sharesFor(p principal) []*share {
 	var out []*share
-	for _, sh := range s.shares {
+	for _, sh := range s.currentShares() {
 		if sh.mayUse(p) {
 			out = append(out, sh)
 		}
@@ -410,7 +506,7 @@ func (s *server) sharesFor(p principal) []*share {
 }
 
 func (s *server) shareByName(name string) *share {
-	for _, sh := range s.shares {
+	for _, sh := range s.currentShares() {
 		if sh.name == name {
 			return sh
 		}
@@ -424,64 +520,110 @@ func (s *server) shareByName(name string) *share {
 // One failure stops the lot. A file server that is reachable over two of the
 // three protocols it was told to serve is a server nobody can reason about --
 // and the one that is missing is exactly the one somebody is waiting on.
+//
+// The sockets are bound once and outlive every change to the shares: see
+// generation.go for what a change does to the servers behind them.
 func (s *server) run(ctx context.Context, cfg *config) error {
-	type running struct {
-		p  *protocol
-		ln net.Listener
-	}
-	var started []running
+	var feeds []*feed
 	closeAll := func() {
-		for _, r := range started {
-			r.ln.Close()
+		for _, f := range feeds {
+			f.Close()
 		}
 	}
 	// Bind FIRST, announce second: a program that prints its address before
 	// it has one is a harness that lies about what failed.
 	for i := range cfg.Serves {
 		b := cfg.Serves[i]
-		p := protocolByName(b.Protocol)
 		ln, err := net.Listen("tcp", b.Addr)
 		if err != nil {
 			closeAll()
 			return fmt.Errorf("%s: %w", b.Protocol, err)
 		}
-		started = append(started, running{p, ln})
+		feeds = append(feeds, newFeed(b.Protocol, ln))
 	}
-	for _, r := range started {
-		s.announce(r.p, r.ln.Addr().String())
+	for _, f := range feeds {
+		s.announce(protocolByName(f.proto), f.ln.Addr().String())
 	}
 
-	errs := make(chan error, len(started))
-	var wg sync.WaitGroup
-	for _, r := range started {
-		wg.Add(1)
-		go func(r running) {
-			defer wg.Done()
-			err := r.p.serve(s, r.p, r.ln)
-			if err != nil && !errors.Is(err, net.ErrClosed) {
-				errs <- fmt.Errorf("%s: %w", r.p.name, err)
-				return
-			}
-			errs <- nil
-		}(r)
+	s.runMu.Lock()
+	s.feeds = feeds
+	s.failures = make(chan error, 1)
+	s.genN = 1
+	s.gen = s.startGeneration(s.genN, feeds, s.failures)
+	s.runMu.Unlock()
+	s.ready.Store(true)
+
+	// The control listeners come after the data ones, so a readiness probe
+	// never answers for a server that has not bound its ports.
+	ctl, err := s.startControl(ctx, cfg)
+	if err != nil {
+		s.shutdown(closeAll)
+		return err
 	}
+	defer ctl()
+
 	select {
 	case <-ctx.Done():
-		s.stop()
-		closeAll()
-		wg.Wait()
+		s.shutdown(closeAll)
 		return nil
-	case err := <-errs:
-		s.stop()
-		closeAll()
-		wg.Wait()
+	case err := <-s.failures:
+		s.shutdown(closeAll)
 		return err
 	}
 }
 
+// shutdown stops the current generation and closes the sockets.
+func (s *server) shutdown(closeFeeds func()) {
+	s.ready.Store(false)
+	s.stop()
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	closeFeeds()
+	if s.gen != nil {
+		s.gen.stop()
+		s.gen = nil
+	}
+}
+
+// swap serves a new list of shares: the running protocol servers are
+// stopped -- their connections with them -- and new ones start over the same
+// sockets. The shares no longer served are closed once nothing serves them.
+//
+// It is refused before run has bound anything, and after it has stopped.
+func (s *server) swap(next []*share) error {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	if s.gen == nil {
+		return errors.New("the server is not serving")
+	}
+	s.ready.Store(false)
+	s.gen.stop()
+	s.sharesMu.Lock()
+	prev := s.shares
+	s.shares = next
+	s.sharesMu.Unlock()
+	s.genN++
+	s.gen = s.startGeneration(s.genN, s.feeds, s.failures)
+	s.ready.Store(true)
+	// Closes only what nobody serves any more: a share carried over shares
+	// its driver with its successor.
+	release(prev, next)
+	for _, f := range s.feeds {
+		s.announce(protocolByName(f.proto), f.ln.Addr().String())
+	}
+	return nil
+}
+
+// generationNumber is how many share lists this server has served.
+func (s *server) generationNumber() uint64 {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	return s.genN
+}
+
 // announce says what is being served where, and -- as loudly -- what is NOT.
 func (s *server) announce(p *protocol, addr string) {
-	served, refused := p.exports(s.cfg, s.shares)
+	served, refused := p.exports(s.cfg, s.currentShares())
 	names := make([]string, 0, len(served))
 	for _, sh := range served {
 		names = append(names, sh.name)

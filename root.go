@@ -134,6 +134,13 @@ func serve(cmd *cobra.Command, o *options, args []string) error {
 			shares = append(shares, &share{name: b.Name, readOnly: b.ReadOnly,
 				allow: b.Allow, writers: b.Writers, protocols: b.Protocols})
 		}
+		if cfg.Admin != nil || cfg.Metrics != nil {
+			// The children open the images and the parent opens nothing, so
+			// there is no one process an API change could be applied to, or
+			// whose readiness a probe would be asking about.
+			return errors.New("--isolate does not go with an admin or a metrics block yet: " +
+				"each protocol would be its own process, and neither has one process to answer for")
+		}
 		if why := isolationRefusal(cfg, shares, cfg.Serves); why != "" {
 			return errors.New(why)
 		}
@@ -179,7 +186,14 @@ func configOf(o *options, args []string) (*config, error) {
 		if o.image != "" || o.user != "" || o.pwFile != "" {
 			return nil, fmt.Errorf("--config describes the shares and the users; --image, --user and --password-file do not go with it")
 		}
-		return loadConfig(files)
+		cfg, err := loadConfig(files)
+		if err != nil {
+			return nil, err
+		}
+		if err := withState(cfg); err != nil {
+			return nil, err
+		}
+		return cfg, nil
 	}
 	return o.oneImage()
 }

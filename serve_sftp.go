@@ -32,7 +32,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
-	served, _ := p.exports(s.cfg, s.shares)
+	served, _ := p.exports(s.cfg, s.currentShares())
 	d, err := sshd.New(nil, sshd.Config{
 		HostKeys:       []ssh.Signer{hostKey},
 		TrustedUserCAs: cas,
@@ -67,8 +67,16 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
+	// Closed when the server stops, or when this generation's listener does
+	// -- a change to the shares starts another daemon, and this one must not
+	// wait for the process to end to be let go of.
+	returned := make(chan struct{})
+	defer close(returned)
 	go func() {
-		<-s.stopping
+		select {
+		case <-s.stopping:
+		case <-returned:
+		}
 		d.Close()
 	}()
 	return d.Serve(ln)

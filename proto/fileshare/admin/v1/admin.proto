@@ -1,0 +1,210 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+// The admin API of fileshare: which shares exist, what they serve, and who may
+// use them.
+//
+// It manages the shares IT created. A share written in the configuration files
+// is listed, with the same fields, and every change to it is refused with
+// FAILED_PRECONDITION: a share defined in two places is a question nobody
+// wants to answer, and the file is where that one is defined.
+//
+// Every change is applied before the call returns, and applying one restarts
+// the protocol servers: their connections are closed, so a revocation reaches
+// the sessions that were already open. A change the server cannot honour --
+// an image that will not open, a name nobody in the directory has -- is
+// refused, and what was being served is left as it was.
+syntax = "proto3";
+
+package fileshare.admin.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/go-fileshare/fileshare/proto/fileshare/admin/v1;adminv1";
+
+service AdminService {
+  rpc GetServerInfo(GetServerInfoRequest) returns (ServerInfo);
+
+  rpc ListShares(ListSharesRequest) returns (ListSharesResponse);
+  rpc GetShare(GetShareRequest) returns (Share);
+  // CreateShare needs at least one grant. A share with none is open to
+  // anyone who authenticates, which the configuration file can say on
+  // purpose and an API call should not say by omission.
+  rpc CreateShare(CreateShareRequest) returns (Share);
+  rpc UpdateShare(UpdateShareRequest) returns (Share);
+  rpc DeleteShare(DeleteShareRequest) returns (DeleteShareResponse);
+
+  // Grant gives a subject access to a share, or changes the access it has.
+  rpc Grant(GrantRequest) returns (Share);
+  // Revoke takes it away. Revoking the last grant is refused, for the reason
+  // CreateShare needs one: delete the share instead.
+  rpc Revoke(RevokeRequest) returns (Share);
+
+  // Who a grant can name.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+}
+
+message GetServerInfoRequest {}
+
+message ServerInfo {
+  // What the server calls itself to a client.
+  string name = 1;
+  string version = 2;
+  google.protobuf.Timestamp started = 3;
+  // How many lists of shares have been served since the start; it goes up by
+  // one with every change applied.
+  uint64 generation = 4;
+  repeated Listener listeners = 5;
+}
+
+message Listener {
+  string protocol = 1;
+  string address = 2;
+}
+
+message ListSharesRequest {}
+
+message ListSharesResponse {
+  repeated Share shares = 1;
+}
+
+message GetShareRequest {
+  string name = 1;
+}
+
+enum Origin {
+  ORIGIN_UNSPECIFIED = 0;
+  // Written in a configuration file; read-only through this API.
+  ORIGIN_CONFIG = 1;
+  // Created through this API, and kept in its state file.
+  ORIGIN_API = 2;
+}
+
+enum Access {
+  ACCESS_UNSPECIFIED = 0;
+  ACCESS_READ = 1;
+  ACCESS_WRITE = 2;
+}
+
+// A Subject is who a grant is for, in the vocabulary the configuration file
+// uses: a person, @group, oidc:groups:<value> or oidc:user:<name>.
+message Subject {
+  oneof kind {
+    // Somebody in the directory.
+    string user = 1;
+    // A group of the directory, without the @.
+    string group = 2;
+    // A value of the identity provider's groups claim.
+    string oidc_group = 3;
+    // A name the identity provider vouches for.
+    string oidc_user = 4;
+  }
+}
+
+message Grant {
+  Subject subject = 1;
+  Access access = 2;
+}
+
+message Share {
+  string name = 1;
+  oneof source {
+    // A disk image, or a device.
+    string image = 2;
+    // A directory tree of the host.
+    string directory = 3;
+  }
+  Origin origin = 4;
+  // What was asked.
+  bool read_only = 5;
+  // What is served: read-only as asked, or because the source cannot take a
+  // write -- a device, a chosen partition, a file that would not open for
+  // writing -- or because nobody was granted ACCESS_WRITE.
+  bool effective_read_only = 6;
+  // The filesystem found or named in an image, or "directory".
+  string filesystem = 7;
+  // Which protocols may carry it; empty means every one that can honour it.
+  repeated string protocols = 8;
+  // For a configuration share, what its allow and writers lists mean.
+  repeated Grant grants = 9;
+  // Which protocols serve it now, and why the others do not.
+  repeated string served_over = 10;
+  repeated Refusal refusals = 11;
+  uint64 size_bytes = 12;
+}
+
+message Refusal {
+  string protocol = 1;
+  string reason = 2;
+}
+
+message CreateShareRequest {
+  string name = 1;
+  // Either one must lie under one of the admin block's source_roots.
+  oneof source {
+    string image = 2;
+    string directory = 3;
+  }
+  bool read_only = 4;
+  // For an image only: the same fields as a share block.
+  string filesystem = 5;
+  optional int32 partition = 6;
+  string partition_label = 7;
+  string partition_uuid = 8;
+  repeated string protocols = 9;
+  repeated Grant grants = 10;
+}
+
+// The fields of a share that can change without it becoming another share.
+// Its source cannot: delete it and create another.
+message UpdateShareRequest {
+  string name = 1;
+  optional bool read_only = 2;
+  // Replaces the list when present; an empty list means every protocol.
+  ProtocolList protocols = 3;
+}
+
+message ProtocolList {
+  repeated string names = 1;
+}
+
+message DeleteShareRequest {
+  string name = 1;
+}
+
+message DeleteShareResponse {}
+
+message GrantRequest {
+  string share = 1;
+  Grant grant = 2;
+}
+
+message RevokeRequest {
+  string share = 1;
+  Subject subject = 2;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message User {
+  string name = 1;
+  // Which source knows them.
+  string source = 2;
+  // The served protocols their credentials can answer.
+  repeated string can_use = 3;
+}
+
+message ListGroupsRequest {}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+}
+
+message Group {
+  string name = 1;
+  repeated string members = 2;
+}

@@ -59,6 +59,52 @@ type config struct {
 	Kerberos *kerberosBlock `hcl:"kerberos,block"`
 	Shares   []shareBlock   `hcl:"share,block"`
 	Serves   []serveBlock   `hcl:"serve,block"`
+	// Admin turns the gRPC admin API on; see admin.go. Metrics serves
+	// /healthz, /readyz and /metrics; see metrics.go. Neither is on unless
+	// its block is written.
+	Admin   *adminBlock   `hcl:"admin,block"`
+	Metrics *metricsBlock `hcl:"metrics,block"`
+
+	// managed is the names of the shares that came from the admin API's
+	// state file rather than from these files, upper-cased the way SMB
+	// compares them. Filled by withState.
+	managed map[string]bool
+}
+
+// An adminBlock turns on the gRPC admin API.
+//
+//	admin {
+//	  listen       = "unix:///run/fileshare/admin.sock"
+//	  state_file   = "/var/lib/fileshare/shares.json"
+//	  source_roots = ["/srv/images", "/data"]
+//	}
+//
+// ⛔ Over TCP it is mutual TLS or nothing: tls_cert_file, tls_key_file and
+// client_ca_file together, loopback included, because every local user can
+// reach loopback and the API decides who reads whose files. A unix socket is
+// made 0600, and its permissions are its access control.
+type adminBlock struct {
+	Listen       string `hcl:"listen"`
+	TLSCertFile  string `hcl:"tls_cert_file,optional"`
+	TLSKeyFile   string `hcl:"tls_key_file,optional"`
+	ClientCAFile string `hcl:"client_ca_file,optional"`
+	// StateFile is where the shares the API created are kept, so a restart
+	// serves them again.
+	StateFile string `hcl:"state_file"`
+	// SourceRoots is where a share the API creates may take its image or
+	// directory from. Empty means the API cannot create one: the process
+	// can read things -- /dev, /etc -- that nobody meant to hand to a
+	// caller who may create shares.
+	SourceRoots []string `hcl:"source_roots,optional"`
+	// Reflection turns on gRPC server reflection, for grpcurl.
+	Reflection bool `hcl:"reflection,optional"`
+}
+
+// A metricsBlock serves the endpoints a supervisor asks: whether the process
+// is alive, whether it is serving, and what it has done. It is its own
+// listener so that it never shares a port with a protocol the world reaches.
+type metricsBlock struct {
+	Listen string `hcl:"listen"`
 }
 
 // A userBlock is somebody written in this file rather than in a directory.
@@ -110,9 +156,12 @@ type oidcBlock struct {
 type usersBlock = hcldir.Block
 
 type shareBlock struct {
-	Name     string `hcl:"name,label"`
-	Image    string `hcl:"image"`
-	ReadOnly bool   `hcl:"read_only,optional"`
+	Name string `hcl:"name,label"`
+	// Image is a disk image or a device, and Directory a tree of the host --
+	// a container's volume, say. A share has one or the other.
+	Image     string `hcl:"image,optional"`
+	Directory string `hcl:"directory,optional"`
+	ReadOnly  bool   `hcl:"read_only,optional"`
 	// Filesystem names the driver instead of sniffing for it. It is needed
 	// for apfs, btrfs, xfs and zfs -- which open a DISK image and pick a
 	// partition, so there is no filesystem magic at offset zero to find --
@@ -141,6 +190,12 @@ type shareBlock struct {
 	// because one that cannot tell people apart is refused a restricted share
 	// whatever this says.
 	Protocols []string `hcl:"protocols,optional"`
+
+	// noWriters is an admin API share that nobody was granted write on: it
+	// is SERVED read-only, and still opened for writing unless ReadOnly
+	// says otherwise, so that a later grant of write does not need the
+	// image or the tree opened a second time.
+	noWriters bool
 }
 
 // A serveBlock turns one protocol on. The label is the protocol's name.
@@ -198,7 +253,10 @@ func expandConfigPaths(paths []string) []string {
 // check refuses a configuration that would start a server nobody can use, or
 // one that says two things at once.
 func (c *config) check() error {
-	if len(c.Shares) == 0 {
+	// A server the admin API manages may start with nothing and be given
+	// its shares afterwards; every other must be given them here.
+	managed := c.Admin != nil
+	if len(c.Shares) == 0 && !managed {
 		return fmt.Errorf("there are no shares: a server with nothing to serve is not one")
 	}
 	if len(c.Serves) == 0 {
@@ -211,9 +269,17 @@ func (c *config) check() error {
 		if where, taken := seen[key]; taken {
 			return fmt.Errorf("two shares answer to %q (the other is %s): SMB compares names without case", s.Name, where)
 		}
-		seen[key] = s.Image
-		if s.Image == "" {
-			return fmt.Errorf("share %q has no image", s.Name)
+		seen[key] = s.source()
+		switch {
+		case s.Image == "" && s.Directory == "":
+			return fmt.Errorf("share %q has neither an image nor a directory", s.Name)
+		case s.Image != "" && s.Directory != "":
+			return fmt.Errorf("share %q has an image and a directory: it serves one or the other", s.Name)
+		case s.Directory != "" && (s.Filesystem != "" || chosenPartitionWays(s) > 0):
+			// A tree of the host has no filesystem to name and no partition
+			// table to pick from; saying one means the share was meant to be
+			// an image.
+			return fmt.Errorf("share %q is a directory, and filesystem and partition are for an image", s.Name)
 		}
 		if strings.ContainsAny(s.Name, `\/`) {
 			return fmt.Errorf("share %q has a path separator in its name: it is a name, not a path", s.Name)
@@ -331,10 +397,14 @@ func (c *config) check() error {
 				why = append(why, fmt.Sprintf("%s names protocols = [%s]", sh.name, strings.Join(sb.Protocols, ", ")))
 			}
 		}
-		if !carried {
+		if !carried && !managed {
 			return fmt.Errorf("%s would carry nothing: %s. Remove the serve block, or let a share through",
 				b.Protocol, strings.Join(why, "; "))
 		}
+	}
+
+	if err := c.checkControl(); err != nil {
+		return err
 	}
 
 	// A `users` block that cannot be what it says it is. These are checked
@@ -532,6 +602,52 @@ func chosenPartitionWays(s shareBlock) int {
 		n++
 	}
 	return n
+}
+
+// source is the image or the directory, whichever the share has.
+func (b shareBlock) source() string {
+	if b.Directory != "" {
+		return b.Directory
+	}
+	return b.Image
+}
+
+// checkControl refuses an admin or metrics block that cannot be served safely.
+func (c *config) checkControl() error {
+	if a := c.Admin; a != nil {
+		if a.StateFile == "" {
+			return fmt.Errorf("the admin block has no state_file: the shares it creates would be lost at the next restart")
+		}
+		for _, r := range a.SourceRoots {
+			if !filepath.IsAbs(r) {
+				return fmt.Errorf("admin: source root %q is not an absolute path", r)
+			}
+		}
+		if err := checkAdminListen(a); err != nil {
+			return fmt.Errorf("admin: %w", err)
+		}
+	}
+	if m := c.Metrics; m != nil {
+		if _, _, err := metricsNetwork(m.Listen); err != nil {
+			return fmt.Errorf("metrics: %w", err)
+		}
+	}
+	return nil
+}
+
+// metricsNetwork is where the metrics block listens: "unix:///path" or
+// host:port.
+func metricsNetwork(listen string) (network, addr string, err error) {
+	if p, ok := strings.CutPrefix(listen, "unix://"); ok {
+		if !filepath.IsAbs(p) {
+			return "", "", fmt.Errorf("%q: a unix socket is named by an absolute path, unix:///like/this", listen)
+		}
+		return "unix", p, nil
+	}
+	if _, _, err := net.SplitHostPort(listen); err != nil {
+		return "", "", fmt.Errorf("%q is not an address to listen on: %w", listen, err)
+	}
+	return "tcp", listen, nil
 }
 
 // servesProtocol reports whether this configuration turns one on.

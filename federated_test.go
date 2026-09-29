@@ -10,37 +10,11 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/go-jose/go-jose/v4"
-	"github.com/go-jose/go-jose/v4/jwt"
 )
 
 // People a federation vouches for, named by what the provider says about
 // them rather than by an account here. The tokens are signed by go-jose,
 // which nobody in this repository wrote; go-authn/oidc verifies them.
-
-func (p *idp) joseSign(t *testing.T, claims map[string]any) string {
-	t.Helper()
-	sig, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: p.key},
-		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "k1"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := jwt.Signed(sig).Claims(claims).Serialize()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func federatedToken(t *testing.T, p *idp, user string, groups ...string) string {
-	return p.joseSign(t, map[string]any{
-		"iss": p.URL, "sub": "s-" + user, "aud": "fileshare",
-		"exp": time.Now().Add(time.Hour).Unix(), "preferred_username": user, "groups": groups,
-	})
-}
-
-const photosGroup = "urn:mace:univ-example.fr:fileshare:photos"
 
 func TestSharesNamedByTheProvider(t *testing.T) {
 	needUsers(t)
@@ -171,7 +145,7 @@ func TestProviderRulesAreChecked(t *testing.T) {
 share "x" {
   image = %q
   allow = ["oidc:roles:g"]
-}`, hclPath(img)), "oidc:groups:<value> or oidc:user:<name>"},
+}`, hclPath(img)), "oidc:groups:<value>, oidc:user:<name> or oidc:domain:<domain>"},
 		"a writer rule that may not connect": {fmt.Sprintf(`oidc {
   issuer   = "https://idp.example.org"
   audience = "fileshare"

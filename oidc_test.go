@@ -3,15 +3,10 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
@@ -177,8 +172,27 @@ share "open" { image = %q }
 serve %q {}
 `, hclPath(img), withoutWebdav.name)
 	_, err := loadConfig([]string{write(t, dir, "c.hcl", body)})
-	if err == nil || !strings.Contains(err.Error(), "only arrive over webdav") {
+	if err == nil || !strings.Contains(err.Error(), "neither webdav nor a federated sftp") {
 		t.Errorf("error = %v", err)
+	}
+	// SFTP carries the provider's word too, once the oidc block says how:
+	// its SSH CA, or opkssh.
+	if protocolByName("sftp") != nil {
+		ca := write(t, dir, "ca.pub", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzsRUMGgSpTy1SW6sfnPvRbiB5W8kL7LZ7mnxHgYgJv ca\n")
+		sftpOnly := fmt.Sprintf(`
+oidc {
+  issuer      = "https://login.example.test"
+  audience    = "fileshare"
+  ssh_ca_file = %q
+}
+
+share "open" { image = %q }
+
+serve "sftp" {}
+`, hclPath(ca), hclPath(img))
+		if _, err := loadConfig([]string{write(t, dir, "sftp.hcl", sftpOnly)}); err != nil {
+			t.Errorf("an oidc block for sftp alone was refused: %v", err)
+		}
 	}
 	// And a block that cannot verify anything is refused too.
 	for _, missing := range []string{"issuer", "audience"} {
@@ -223,38 +237,6 @@ share "open" { image = %q }
 			t.Errorf("check did not say %q:\n%s", want, out)
 		}
 	}
-}
-
-// idp is an identity provider: the two documents, and a way to sign.
-type idp struct {
-	*httptest.Server
-	key *rsa.PrivateKey
-}
-
-func newIDP(t *testing.T) *idp {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := &idp{key: key}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
-			"issuer": p.URL, "jwks_uri": p.URL + "/keys",
-		})
-	})
-	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
-		pub := key.PublicKey
-		json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{
-			"kty": "RSA", "kid": "k1", "use": "sig", "alg": "RS256",
-			"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
-			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
-		}}})
-	})
-	p.Server = httptest.NewServer(mux)
-	t.Cleanup(p.Close)
-	return p
 }
 
 // sign mints a token with pyjwt: an implementation nobody in this repository

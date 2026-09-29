@@ -209,6 +209,84 @@ The signature, the validity window and the principals are checked by
 `x/crypto/ssh`'s `CertChecker`; verified against OpenSSH's own client, which
 also refuses the same key once its certificate is moved aside.
 
+### People the identity provider vouches for, over SFTP
+
+```hcl
+oidc {
+  issuer           = "https://login.example.org"
+  audience         = "fileshare"
+  ssh_ca_file      = "/etc/fileshare/bridge-ca.pub"   # go-authn/bridge's ssh_ca
+  opkssh_client_id = "opkssh"                         # OpenPubkey logins
+  opkssh_max_age   = "24h"                            # 12h, 24h, 48h, 1week
+}
+```
+
+- **A certificate the provider's SSH CA signed** -- `bridge ssh-cert` writes
+  one after a login through the federation. Its principal is the person, its
+  `groups@go-authn.org` extension their groups, so `oidc:groups:` rules
+  apply. It is *not* `trusted_user_ca_file`, whose certificates are about
+  local accounts: a local authority's certificate claiming the provider's
+  groups is read as the local account it names.
+- **An OpenPubkey certificate**, as `opkssh login` writes: signed by the
+  user's own key, with an ID token that commits to that key. It is checked as
+  `opkssh verify` checks it -- the [openpubkey](https://github.com/openpubkey/openpubkey)
+  verifier (the provider's signature against its published keys, the nonce
+  commitment, the client ID, the age), then the certificate's key against the
+  token's -- and the SSH user name must be the token's username, because there
+  is no auth_id file here to map one to the other:
+  `sftp alice@univ-example.fr@files.example.org`.
+
+⛔ **A certificate is checked at login, and revoking the person does not
+revoke it.** Disabling somebody in go-authn/bridge revokes their tokens and
+deletes their application passwords -- which a directory reload applies here,
+closing their SMB, WebDAV and S3 sessions -- but a certificate already issued
+still opens SFTP until it expires, and an SFTP session already open stays
+open: these people are not in the directory, so no reload concerns them. The
+window is the certificate's lifetime: bridge's `ssh_ca { validity }` (12h by
+default, at most 168h, and never past the IdP session's end) and
+`opkssh_max_age` here. Keep it as short as the clients' re-login allows --
+`bridge token` and opkssh fetch a new one without asking the person.
+
+#### Which institutions, and which groups
+
+```hcl
+oidc {
+  # ...
+  domains = ["univ-a.fr", "univ-b.fr"]   # nobody else from the federation gets in
+}
+
+share "projet-x" {
+  image   = "/srv/projet-x.img"
+  allow   = ["oidc:groups:urn:mace:univ-a.fr:projet-x", "oidc:domain:univ-b.fr"]
+  writers = ["oidc:groups:urn:mace:univ-a.fr:projet-x"]
+}
+```
+
+`domains` is checked at authentication, over SFTP and WebDAV alike: a name
+must be `<something>@<one of them>`, compared whole (`evilunivb.fr` is not
+`univb.fr`). `oidc:domain:` is the same test for one share. The domain can be
+trusted as far as the provider: go-authn/bridge drops an eppn or subject-id
+whose scope the IdP's federation metadata does not grant it.
+
+**Groups** are what the institution's IdP releases, turned into the `groups`
+claim by go-authn/bridge's `claims { groups = [...] }`: `eduPersonEntitlement`
+by default (a lab's or a VO's groups, as eduTEAMS or an institution's group
+manager publishes them), or `eduPersonScopedAffiliation` (`staff@univ-a.fr`,
+`student@univ-b.fr`). They travel in the token over WebDAV and in the
+certificate's `groups@go-authn.org` extension over SFTP. To see them:
+
+```sh
+ssh-keygen -L -f ~/.ssh/id_ed25519-cert.pub     # the Extensions section
+```
+
+and this server says, at every federated SFTP login,
+`sftp: alice@univ-a.fr, vouched for by the provider, in groups [...]`.
+
+⛔ Somebody the provider vouches for is still a stranger here unless a rule
+names them or `trust_all` says the provider is the directory -- the same test a
+token passes over WebDAV. A provider certificate with no principal, valid for
+*anybody* by the format's own definition, is refused.
+
 Without `host_key_file` a fresh identity is generated at every start, and the
 server says so: every client that has seen it before will warn about a changed
 key, which is the client doing its job.
@@ -233,12 +311,16 @@ A browser has a token and no password. So WebDAV accepts `Authorization:
 Bearer`, and the challenge it sends offers **both** — a client picks the one it
 can answer.
 
-⛔ **Only WebDAV.** SMB authenticates with NTLMv2, SFTP with a key or a
-certificate, NFS with nothing at all, and **S3 with a SigV4 signature** — an
-HMAC computed over the request, with no field a bearer token fits in. None of
-them has anywhere to put an Authorization header. That is a fact about the
-protocols, not a limit of this program, and a configuration naming a provider
-without serving WebDAV is refused rather than started.
+⛔ **A bearer token: only WebDAV.** SMB authenticates with NTLMv2, SFTP with a
+key or a certificate, NFS with nothing at all, and **S3 with a SigV4
+signature** — an HMAC computed over the request, with no field a bearer token
+fits in. None of them has anywhere to put an Authorization header. That is a
+fact about the protocols, not a limit of this program.
+
+**The provider's word over SFTP** arrives in a certificate instead, in two
+shapes (see below): one its SSH CA signed, or an opkssh one. A configuration
+naming a provider and serving neither WebDAV nor such an SFTP is refused rather
+than started.
 
 The usual way to reach S3 with an OIDC token is **STS
 `AssumeRoleWithWebIdentity`**, which exchanges the token for temporary
@@ -406,6 +488,7 @@ the three database drivers, `noldap` the LDAP client.
 | everything | 31.2 MB |
 | `-tags noldap` | 30.9 MB |
 | `-tags nosftp` | 30.6 MB |
+| `-tags noopenpubkey` (no opkssh logins over SFTP) | about 2 MB less |
 | `-tags nos3` | 31.1 MB |
 | `-tags nonfs,nowebdav,nosftp,nos3` (SMB only) | 28.1 MB |
 | `-tags nopartitioned` (no apfs, btrfs, xfs, zfs) | 29.2 MB |

@@ -4,8 +4,6 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync"
 	"testing"
@@ -124,34 +122,4 @@ share "open" {
 			}
 		}
 	})
-}
-
-func webdavGet(r *running, user, password, path string) ([]byte, error) {
-	req, _ := http.NewRequest(http.MethodGet, "http://"+r.addrs["webdav"]+path, nil)
-	req.SetBasicAuth(user, password)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %d", path, res.StatusCode)
-	}
-	return body, nil
-}
-
-func webdavPut(r *running, user, password, path, body string) error {
-	req, _ := http.NewRequest(http.MethodPut, "http://"+r.addrs["webdav"]+path, strings.NewReader(body))
-	req.SetBasicAuth(user, password)
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	io.Copy(io.Discard, res.Body)
-	if res.StatusCode >= 300 {
-		return fmt.Errorf("%s: %d", path, res.StatusCode)
-	}
-	return nil
 }

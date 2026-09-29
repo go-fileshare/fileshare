@@ -55,6 +55,31 @@ type share struct {
 	// closers are the driver and the file under it, owned by whichever
 	// share holds them last.
 	closers []io.Closer
+	// block is what the share was opened from, for a reload to expand its
+	// lists again.
+	block shareBlock
+	// allowNamed and writersNamed say the configuration WROTE names in the
+	// two lists, whatever they expand to now.
+	//
+	// ⛔ An empty allow means "anyone who authenticates", and a list whose
+	// only group has emptied expands to exactly that -- so a share written
+	// for @engineers would open to everybody the moment the last engineer
+	// left. What decides whether a share is open is what was written; what
+	// it expands to decides only who is in it.
+	allowNamed, writersNamed bool
+}
+
+// allowsAnyone reports whether this share is for anyone who authenticates:
+// nothing was written in allow, rather than what was written expanding to
+// nobody.
+func (s *share) allowsAnyone() bool {
+	return !s.allowNamed && len(s.allow) == 0 && len(s.allowClaims) == 0
+}
+
+// anyAllowedWrites reports whether everybody allowed may write, because
+// nothing was written in writers.
+func (s *share) anyAllowedWrites() bool {
+	return !s.writersNamed && len(s.writers) == 0 && len(s.writerClaims) == 0
 }
 
 // An imageKey is what makes two shares the same opened image.
@@ -111,12 +136,12 @@ func (s *share) close() error {
 // restricted reports whether this share names anybody. A restricted share
 // cannot be served by a protocol that does not know who is asking.
 func (s *share) restricted() bool {
-	return len(s.allow) > 0 || len(s.writers) > 0 || len(s.allowClaims) > 0 || len(s.writerClaims) > 0
+	return !s.allowsAnyone() || !s.anyAllowedWrites()
 }
 
 // mayUse reports whether somebody may reach this share at all.
 func (s *share) mayUse(p principal) bool {
-	if len(s.allow) == 0 && len(s.allowClaims) == 0 {
+	if s.allowsAnyone() {
 		return true
 	}
 	return slices.Contains(s.allow, p.name) || p.matches(s.allowClaims)
@@ -127,7 +152,7 @@ func (s *share) readOnlyFor(p principal) bool {
 	if s.readOnly {
 		return true
 	}
-	if len(s.writers) == 0 && len(s.writerClaims) == 0 {
+	if s.anyAllowedWrites() {
 		return false
 	}
 	return !slices.Contains(s.writers, p.name) && !p.matches(s.writerClaims)
@@ -139,8 +164,11 @@ func (s *share) anyoneWrites() bool { return !s.readOnly && !s.restricted() }
 
 // users is who this share is for, as a person reads it.
 func (s *share) who() string {
-	if len(s.allow) == 0 && len(s.allowClaims) == 0 {
+	if s.allowsAnyone() {
 		return "anyone who authenticates"
+	}
+	if len(s.allow) == 0 && len(s.allowClaims) == 0 {
+		return "nobody: every name it was written for is gone from the directory"
 	}
 	return list(withRules(s.allow, s.allowClaims))
 }
@@ -160,10 +188,13 @@ func (s *share) writeAccess() string {
 	switch {
 	case s.readOnly:
 		return "nobody (read_only)"
-	case len(s.writers) > 0 || len(s.writerClaims) > 0:
+	case !s.anyAllowedWrites():
+		if len(s.writers) == 0 && len(s.writerClaims) == 0 {
+			return "nobody: every name it was written for is gone from the directory"
+		}
 		return list(withRules(s.writers, s.writerClaims))
-	case len(s.allow) > 0 || len(s.allowClaims) > 0:
-		return list(withRules(s.allow, s.allowClaims))
+	case !s.allowsAnyone():
+		return s.who()
 	}
 	return "anyone who authenticates"
 }

@@ -344,9 +344,11 @@ func (m *manager) apply(next *stateFile) (applied, error) {
 		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
 	// Against the people who exist, exactly as a startup checks them.
-	if err := cfg.resolve(m.srv.dir, m.srv.who); err != nil {
+	if err := cfg.resolve(m.srv.dir, m.srv.people()); err != nil {
 		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
+	m.srv.changeMu.Lock()
+	defer m.srv.changeMu.Unlock()
 	prev := m.srv.currentShares()
 	shares, err := m.srv.openShares(serve, prev)
 	if err != nil {

@@ -36,6 +36,7 @@ type serverStats struct {
 	started time.Time
 	applied atomic.Uint64
 	refused atomic.Uint64
+	reloads reloadStats
 	// rpcs counts admin calls by method and status code; filled in by the
 	// gRPC layer, when there is one.
 	rpcs func(w *endpoint.Writer)
@@ -72,6 +73,13 @@ func (s *server) collect(w *endpoint.Writer) {
 		endpoint.S(float64(api), endpoint.L("origin", "api")))
 	w.Gauge("fileshare_shares_disabled", "Shares defined and taken offline through the admin API.",
 		endpoint.S(float64(offline)))
+	w.Gauge("fileshare_directory_people", "People the directory held at its last read.",
+		endpoint.S(float64(len(s.people()))))
+	w.Counter("fileshare_directory_reloads_total", "Directory reloads, by what they did.",
+		endpoint.S(float64(s.stats.reloads.unchanged.Load()), endpoint.L("result", "unchanged")),
+		endpoint.S(float64(s.stats.reloads.added.Load()), endpoint.L("result", "added")),
+		endpoint.S(float64(s.stats.reloads.swapped.Load()), endpoint.L("result", "swapped")),
+		endpoint.S(float64(s.stats.reloads.failed.Load()), endpoint.L("result", "failed")))
 	w.Counter("fileshare_admin_changes_total", "Changes asked of the admin API, by outcome.",
 		endpoint.S(float64(s.stats.applied.Load()), endpoint.L("result", "applied")),
 		endpoint.S(float64(s.stats.refused.Load()), endpoint.L("result", "refused")))

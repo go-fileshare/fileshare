@@ -587,7 +587,8 @@ A gRPC service, [`fileshare.admin.v1.AdminService`](proto/fileshare/admin/v1/adm
 create, update and delete shares, **disable** and **enable** them, **grant** a
 user, a `@group`, an `oidc:groups:` value or an `oidc:user:` name read or write
 access, and **revoke** it; list the shares, the users (with the protocols their
-credentials can answer) and the groups. Every change answers with what serving
+credentials can answer) and the groups, and **reload the directory** now. Every
+change answers with what serving
 it did — the generation now served and how many connections were closed.
 `grpc.health.v1` answers on the same listener.
 
@@ -655,10 +656,39 @@ listener of its own, never a public port.
 `fileshare_shares{origin}`, `fileshare_generation`,
 `fileshare_connections_accepted_total{protocol}`,
 `fileshare_connections_open{protocol}`, `fileshare_admin_changes_total{result}`,
-`fileshare_admin_requests_total{method,code}`, the Go runtime, build info.
+`fileshare_admin_requests_total{method,code}`, `fileshare_directory_people`,
+`fileshare_directory_reloads_total{result}`, the Go runtime, build info.
 ⛔ **No metric names a share or a person**: WebDAV answers 404 for a share
 somebody may not use, so that it is not confirmed to exist, and a scrape must
 not confirm it either.
+
+## Reading the directory again
+
+```hcl
+reload = "5m"   # and on SIGHUP, and on the admin API's ReloadDirectory
+```
+
+The people come from directories other things change — go-authn/bridge
+writes an application password into a table, and deletes the row when the
+person is disabled. A reload reads them again, and what it does depends on
+what changed:
+
+- **only additions** — somebody new: added in place, SMB's running server
+  included, and **no connection is touched**;
+- **anything taken away** — somebody gone, a credential changed, a share whose
+  expanded lists changed: a new generation, and the old one's connections
+  closed, so a removal reaches the sessions already open;
+- **a directory that cannot be read** — nothing changes. An outage must not
+  empty a file server.
+
+⛔ A share written for `@engineers` whose last engineer has left is served to
+**nobody**, not to everybody: an empty `allow` means "anyone who
+authenticates", so what decides whether a share is open is what was
+*written*, not what it expands to now. Such a share is not offered over SMB at
+all, whose empty `AllowUsers` would read as everyone.
+
+It is the `users` blocks — SQL, LDAP — that are read again; the `user` blocks
+of the configuration file are the configuration, read at the start.
 
 ## TLS, and certificates from ACME
 

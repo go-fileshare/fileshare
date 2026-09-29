@@ -17,7 +17,7 @@ import (
 func serveSMB(s *server, p *protocol, ln net.Listener) error {
 	srv := smb.New()
 	srv.SetName(s.name)
-	for name := range s.who {
+	for name := range s.people() {
 		// Only the people NTLMv2 can be computed for. The KEY is what goes in,
 		// not the password: it is the same value either way, and it is what a
 		// directory publishes for exactly this reason. The rest are told by
@@ -28,17 +28,32 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 			}
 		}
 	}
+	// Somebody a directory reload adds is added here too, while this
+	// generation serves: an addition needs no new generation.
+	add := func(name string, key []byte) { srv.AddUserHash(name, key) }
+	s.smbAddUser.Store(&add)
+
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		var opts []smb.ShareOption
 		if sh.readOnly {
 			opts = append(opts, smb.ReadOnly())
 		}
-		if len(sh.allow) > 0 {
+		if !sh.allowsAnyone() {
+			if len(sh.allow) == 0 {
+				// Written for somebody, and nobody is left: an empty
+				// AllowUsers would be read as "everyone", so the share is
+				// not offered at all.
+				continue
+			}
 			opts = append(opts, smb.AllowUsers(sh.allow...))
 		}
-		if len(sh.writers) > 0 {
-			opts = append(opts, smb.WriteUsers(sh.writers...))
+		if !sh.anyAllowedWrites() {
+			if len(sh.writers) == 0 {
+				opts = append(opts, smb.ReadOnly())
+			} else {
+				opts = append(opts, smb.WriteUsers(sh.writers...))
+			}
 		}
 		if err := srv.Share(sh.name, sh.fsys, opts...); err != nil {
 			return err

@@ -403,6 +403,19 @@ func (m *manager) managed(st *stateFile, name string) (int, error) {
 	return i, nil
 }
 
+func (a *adminService) ReloadDirectory(ctx context.Context, _ *adminv1.ReloadDirectoryRequest) (*adminv1.ReloadDirectoryResponse, error) {
+	srv := a.m.srv
+	r, err := srv.reload()
+	if err != nil && !errors.Is(err, errUnchanged) {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	srv.sayReload(r, err)
+	fmt.Fprintf(a.m.audit, "admin (%s): reloaded the directory\n", control.Caller(ctx))
+	return &adminv1.ReloadDirectoryResponse{Added: r.added, Removed: r.removed, Changed: r.changed,
+		NewGeneration: r.swapped, Notes: r.notes,
+		Applied: &adminv1.Applied{Generation: srv.generationNumber(), ConnectionsClosed: r.closed}}, nil
+}
+
 func (a *adminService) ListUsers(ctx context.Context, _ *adminv1.ListUsersRequest) (*adminv1.ListUsersResponse, error) {
 	s := a.m.srv
 	var out adminv1.ListUsersResponse

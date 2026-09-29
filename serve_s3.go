@@ -109,7 +109,7 @@ func (s *server) s3Secret(user string) func(string) (string, bool) {
 		if id != user {
 			return "", false
 		}
-		idn, ok := s.who[user]
+		idn, ok := s.person(user)
 		if !ok {
 			return "", false
 		}

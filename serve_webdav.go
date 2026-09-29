@@ -80,7 +80,7 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // server with credentials should not hand its contents to somebody who never
 // gave any. Without users at all, everyone is anonymous and everyone gets in.
 func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (principal, bool) {
-	if len(b.server.who) == 0 && b.server.oidc == nil {
+	if !b.server.anybody() && b.server.oidc == nil {
 		return principal{}, true
 	}
 	// A token first, because a client that sent one meant it: falling back to
@@ -111,7 +111,7 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			return
 		}
 		var user principal
-		if len(s.who) > 0 || s.oidc != nil {
+		if s.anybody() || s.oidc != nil {
 			u, ok := s.bearer(r)
 			if !ok {
 				name, pw, basic := r.BasicAuth()

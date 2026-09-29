@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/directory/hcldir"
@@ -47,6 +48,10 @@ import (
 //	serve "nfs"    { addr = "127.0.0.1:2049" }
 type config struct {
 	Name string `hcl:"name,optional"`
+	// Reload is how often the directory is read again, as a Go duration:
+	// "5m". Empty, the default, reads it only at the start, on SIGHUP and on
+	// the admin API's ReloadDirectory; see reload.go.
+	Reload string `hcl:"reload,optional"`
 	// HostKeyFile is the SFTP server's own identity. Without one a fresh key
 	// is generated at every start, and every client that has seen the server
 	// before warns about it.
@@ -433,6 +438,9 @@ func (c *config) check() error {
 	if err := c.checkTLS(); err != nil {
 		return err
 	}
+	if _, err := c.reloadEvery(); err != nil {
+		return err
+	}
 
 	// A `users` block that cannot be what it says it is. These are checked
 	// before anything connects, because a directory that is unreachable and a
@@ -629,6 +637,23 @@ func chosenPartitionWays(s shareBlock) int {
 		n++
 	}
 	return n
+}
+
+// reloadEvery is the reload interval; zero when there is none.
+func (c *config) reloadEvery() (time.Duration, error) {
+	if c.Reload == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(c.Reload)
+	if err != nil {
+		return 0, fmt.Errorf("reload = %q is not a duration like \"5m\": %w", c.Reload, err)
+	}
+	if d < time.Second {
+		// A directory read many times a second is a load on somebody's
+		// database, not a fresher server.
+		return 0, fmt.Errorf("reload = %q: read the directory at most once a second", c.Reload)
+	}
+	return d, nil
 }
 
 // source is the image or the directory, whichever the share has.

@@ -236,6 +236,17 @@ oidc {
   is no auth_id file here to map one to the other:
   `sftp alice@univ-example.fr@files.example.org`.
 
+⛔ **A certificate is checked at login, and revoking the person does not
+revoke it.** Disabling somebody in go-authn/bridge revokes their tokens and
+deletes their application passwords -- which a directory reload applies here,
+closing their SMB, WebDAV and S3 sessions -- but a certificate already issued
+still opens SFTP until it expires, and an SFTP session already open stays
+open: these people are not in the directory, so no reload concerns them. The
+window is the certificate's lifetime: bridge's `ssh_ca { validity }` (12h by
+default, at most 168h, and never past the IdP session's end) and
+`opkssh_max_age` here. Keep it as short as the clients' re-login allows --
+`bridge token` and opkssh fetch a new one without asking the person.
+
 #### Which institutions, and which groups
 
 ```hcl

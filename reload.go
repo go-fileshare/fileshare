@@ -26,10 +26,12 @@ import (
 // What a reload does depends on what changed, and the line is drawn at
 // REVOCATION:
 //
-//	only additions        somebody new, and nothing else: they are added in
-//	                      place -- SMB's running server included -- and no
-//	                      connection is touched. A bridge creating
-//	                      application passwords all day disturbs nobody.
+//	only additions        somebody new, whose arrival changes no share's
+//	                      expanded lists: added in place -- SMB's running
+//	                      server included -- and no connection is touched. A
+//	                      bridge creating application passwords all day
+//	                      disturbs nobody. Somebody who joins a group a share
+//	                      names changes that share, and is a new generation.
 //	anything taken away   somebody gone, a credential changed, a share's
 //	                      expanded lists different: a new generation, and the
 //	                      old one's connections closed, exactly as an admin

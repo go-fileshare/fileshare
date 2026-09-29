@@ -756,8 +756,12 @@ writes an application password into a table, and deletes the row when the
 person is disabled. A reload reads them again, and what it does depends on
 what changed:
 
-- **only additions** — somebody new: added in place, SMB's running server
-  included, and **no connection is touched**;
+- **only additions** — somebody new, who changes no share's lists (a new
+  application password, a person the shares reach through `oidc:` rules or
+  none at all): added in place, SMB's running server included, and **no
+  connection is touched**. Somebody new who joins a group a share names *does*
+  change that share, and goes through a new generation like any other change
+  to it: SMB fixes a share's lists when it starts;
 - **anything taken away** — somebody gone, a credential changed, a share whose
   expanded lists changed: a new generation, and the old one's connections
   closed, so a removal reaches the sessions already open;

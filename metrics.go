@@ -104,6 +104,14 @@ func (s *server) startControl(ctx context.Context, cfg *config) (func(), error) 
 	}
 	// The admin API first: it registers the collector of its own calls, and
 	// the metrics listener must not be reading that field while it is set.
+	if t := cfg.TLS; t != nil && t.ACME != nil && t.ACME.HTTPChallenge != "" {
+		stop, err := s.serveHTTPChallenge(t.ACME.HTTPChallenge)
+		if err != nil {
+			stopAll()
+			return nil, fmt.Errorf("tls: http_challenge: %w", err)
+		}
+		stops = append(stops, stop)
+	}
 	if cfg.Admin != nil {
 		stop, err := startAdmin(ctx, s, cfg)
 		if err != nil {
@@ -120,6 +128,23 @@ func (s *server) startControl(ctx context.Context, cfg *config) (func(), error) 
 		stops = append(stops, stop)
 	}
 	return stopAll, nil
+}
+
+// serveHTTPChallenge answers ACME's http-01 on the address the CA's port 80
+// reaches, and redirects everything else to HTTPS.
+func (s *server) serveHTTPChallenge(addr string) (func(), error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	hs := &http.Server{Handler: s.certs.HTTPHandler(nil), ReadHeaderTimeout: 10 * time.Second}
+	go hs.Serve(ln)
+	fmt.Fprintf(s.out, "%-6s on %s — ACME http-01\n", "acme", ln.Addr())
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		hs.Shutdown(ctx)
+	}, nil
 }
 
 func (s *server) serveMetrics(m *metricsBlock) (func(), error) {

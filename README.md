@@ -156,8 +156,16 @@ share "scratch" {
   image = "/srv/scratch.img"   # anyone who authenticates, read-write
 }
 
+tls {
+  cert_file = "/etc/fileshare/tls/fullchain.pem"
+  key_file  = "/etc/fileshare/tls/key.pem"
+}
+
 serve "smb"    { addr = "0.0.0.0:445" }
-serve "webdav" { addr = "0.0.0.0:8080" }
+serve "webdav" {
+  addr = "0.0.0.0:443"
+  tls  = true
+}
 serve "sftp"   { addr = "0.0.0.0:2222" }
 serve "nfs"    { addr = "0.0.0.0:2049" }
 ```
@@ -651,6 +659,67 @@ listener of its own, never a public port.
 ⛔ **No metric names a share or a person**: WebDAV answers 404 for a share
 somebody may not use, so that it is not confirmed to exist, and a scrape must
 not confirm it either.
+
+## TLS, and certificates from ACME
+
+WebDAV and S3 are served over HTTPS, and NFS over RPC-with-TLS (RFC 9289),
+with `tls = true` on their serve block and one `tls` block saying where the
+certificate comes from — files, reloaded when they change:
+
+```hcl
+tls {
+  cert_file = "/etc/fileshare/tls/fullchain.pem"
+  key_file  = "/etc/fileshare/tls/key.pem"
+}
+
+serve "webdav" {
+  addr = "0.0.0.0:443"
+  tls  = true
+}
+```
+
+— or an ACME CA, through [go-authn/servercert](https://github.com/go-authn/servercert).
+Let's Encrypt by default; a CA that knows you through external account
+binding, such as GÉANT TCS through HARICA:
+
+```hcl
+tls {
+  acme {
+    directory_url     = "https://acme.harica.gr/<alias>/directory"
+    domains           = ["files.example.org"]
+    cache_dir         = "/var/lib/fileshare/acme"
+    eab_key_id        = "…"
+    eab_hmac_key_file = "/etc/fileshare/tls/eab.key"   # a secret: a file, never the config
+  }
+}
+```
+
+What decides whether ACME can work is how the CA checks the name:
+
+| challenge | the CA connects to | so |
+|---|---|---|
+| tls-alpn-01 (RFC 8737) | port **443** | a TLS protocol must be served on 443 |
+| http-01 (RFC 8555 §8.3) | port **80** | `http_challenge = "0.0.0.0:80"` answers it |
+| none | nothing | a CA account with the domain **pre-validated** asks for no challenge: HARICA's enterprise EAB accounts for GÉANT TCS — so a server nobody outside can reach still gets its certificate |
+
+A certificate is asked for at the first TLS connection that names the host
+(SNI); a client connecting by IP address gets none.
+
+⛔ **WebDAV with passwords is no longer served in the clear** on an address
+other machines can reach. HTTP Basic is the password on every request and a
+bearer token is as good as one, so such a configuration is refused, not
+warned about. Serve it with `tls = true`, or — when TLS is terminated in front
+of it, by a proxy — say so with `plaintext = true`. Loopback addresses, and a
+server with nobody to authenticate, are unaffected. `fileshare check` says, per
+protocol, what is encrypted and what is in the clear on purpose.
+
+**NFS over TLS proves the machine, not the person.** `client_ca_file` makes a
+client present a certificate from that authority — which host is mounting —
+and RFC 9289 leaves user authentication as it was: the uid inside is still the
+one AUTH_SYS claims. So a share that names who may use it is still refused over
+NFS without a `kerberos` block. TLS is offered, not required: a client that
+never asks for it is still served the open shares. SMB and SFTP do not take
+`tls`: SMB 3 encrypts with its own keys, and SFTP is SSH.
 
 ## One image, several protocols, one lock
 

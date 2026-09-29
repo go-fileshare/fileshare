@@ -34,8 +34,16 @@ import (
 //	  writers = ["alice"]
 //	}
 //
+//	tls {
+//	  cert_file = "/etc/fileshare/tls/fullchain.pem"
+//	  key_file  = "/etc/fileshare/tls/key.pem"
+//	}
+//
 //	serve "smb"    { addr = "0.0.0.0:445" }
-//	serve "webdav" { addr = "0.0.0.0:8080" }
+//	serve "webdav" {
+//	  addr = "0.0.0.0:443"
+//	  tls  = true
+//	}
 //	serve "nfs"    { addr = "127.0.0.1:2049" }
 type config struct {
 	Name string `hcl:"name,optional"`
@@ -64,6 +72,9 @@ type config struct {
 	// its block is written.
 	Admin   *adminBlock   `hcl:"admin,block"`
 	Metrics *metricsBlock `hcl:"metrics,block"`
+	// TLS is where the certificate of the protocols that speak TLS comes
+	// from; see tls.go.
+	TLS *tlsBlock `hcl:"tls,block"`
 
 	// managed is the names of the shares that came from the admin API's
 	// state file rather than from these files, upper-cased the way SMB
@@ -206,6 +217,15 @@ type shareBlock struct {
 type serveBlock struct {
 	Protocol string `hcl:"protocol,label"`
 	Addr     string `hcl:"addr,optional"`
+	// TLS serves this protocol over TLS, with the tls block's certificate.
+	TLS bool `hcl:"tls,optional"`
+	// ClientCAFile makes NFS clients present a certificate signed by one of
+	// these. It proves the MACHINE, not the person: see tls.go.
+	ClientCAFile string `hcl:"client_ca_file,optional"`
+	// Plaintext says WebDAV is served in the clear on purpose -- because TLS
+	// is terminated in front of it. Without it, WebDAV with passwords on an
+	// address other machines can reach is refused.
+	Plaintext bool `hcl:"plaintext,optional"`
 }
 
 // loadConfig reads every file named, and every .hcl file in every directory
@@ -408,6 +428,9 @@ func (c *config) check() error {
 	}
 
 	if err := c.checkControl(); err != nil {
+		return err
+	}
+	if err := c.checkTLS(); err != nil {
 		return err
 	}
 

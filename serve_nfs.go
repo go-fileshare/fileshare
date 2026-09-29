@@ -43,6 +43,16 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 		}
 	}
 
+	if c := s.tlsConfigs["nfs"]; c != nil {
+		// Offered, not required: go-filesystems/nfs answers the AUTH_TLS
+		// probe and upgrades, and still serves a client that never asks. A
+		// client certificate, when client_ca_file asks for one, proves the
+		// machine -- which is why a restricted share still needs kerberos.
+		if err := srv.SetTLS(c); err != nil {
+			return err
+		}
+	}
+
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		opts := []nfs.ExportOption{

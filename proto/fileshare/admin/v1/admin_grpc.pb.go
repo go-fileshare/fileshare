@@ -41,6 +41,8 @@ const (
 	AdminService_CreateShare_FullMethodName   = "/fileshare.admin.v1.AdminService/CreateShare"
 	AdminService_UpdateShare_FullMethodName   = "/fileshare.admin.v1.AdminService/UpdateShare"
 	AdminService_DeleteShare_FullMethodName   = "/fileshare.admin.v1.AdminService/DeleteShare"
+	AdminService_DisableShare_FullMethodName  = "/fileshare.admin.v1.AdminService/DisableShare"
+	AdminService_EnableShare_FullMethodName   = "/fileshare.admin.v1.AdminService/EnableShare"
 	AdminService_Grant_FullMethodName         = "/fileshare.admin.v1.AdminService/Grant"
 	AdminService_Revoke_FullMethodName        = "/fileshare.admin.v1.AdminService/Revoke"
 	AdminService_ListUsers_FullMethodName     = "/fileshare.admin.v1.AdminService/ListUsers"
@@ -51,20 +53,31 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AdminServiceClient interface {
-	GetServerInfo(ctx context.Context, in *GetServerInfoRequest, opts ...grpc.CallOption) (*ServerInfo, error)
+	GetServerInfo(ctx context.Context, in *GetServerInfoRequest, opts ...grpc.CallOption) (*GetServerInfoResponse, error)
 	ListShares(ctx context.Context, in *ListSharesRequest, opts ...grpc.CallOption) (*ListSharesResponse, error)
-	GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*Share, error)
+	GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*GetShareResponse, error)
 	// CreateShare needs at least one grant. A share with none is open to
 	// anyone who authenticates, which the configuration file can say on
 	// purpose and an API call should not say by omission.
-	CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*Share, error)
-	UpdateShare(ctx context.Context, in *UpdateShareRequest, opts ...grpc.CallOption) (*Share, error)
+	CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*CreateShareResponse, error)
+	UpdateShare(ctx context.Context, in *UpdateShareRequest, opts ...grpc.CallOption) (*UpdateShareResponse, error)
 	DeleteShare(ctx context.Context, in *DeleteShareRequest, opts ...grpc.CallOption) (*DeleteShareResponse, error)
+	// DisableShare stops serving a share and keeps its definition, the way
+	// Samba's `available = no` does: every attempt to connect fails, the
+	// connections already open are closed, and its image or directory is let
+	// go of -- so the file can be replaced while it is disabled. EnableShare
+	// serves it again, and is refused when its source can no longer be opened.
+	//
+	// Unlike every other change, these apply to a share of the configuration
+	// too: taking a share offline is an operation, not a definition. It is
+	// kept in the state file, and a restart does not bring the share back.
+	DisableShare(ctx context.Context, in *DisableShareRequest, opts ...grpc.CallOption) (*DisableShareResponse, error)
+	EnableShare(ctx context.Context, in *EnableShareRequest, opts ...grpc.CallOption) (*EnableShareResponse, error)
 	// Grant gives a subject access to a share, or changes the access it has.
-	Grant(ctx context.Context, in *GrantRequest, opts ...grpc.CallOption) (*Share, error)
+	Grant(ctx context.Context, in *GrantRequest, opts ...grpc.CallOption) (*GrantResponse, error)
 	// Revoke takes it away. Revoking the last grant is refused, for the reason
 	// CreateShare needs one: delete the share instead.
-	Revoke(ctx context.Context, in *RevokeRequest, opts ...grpc.CallOption) (*Share, error)
+	Revoke(ctx context.Context, in *RevokeRequest, opts ...grpc.CallOption) (*RevokeResponse, error)
 	// Who a grant can name.
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
@@ -78,9 +91,9 @@ func NewAdminServiceClient(cc grpc.ClientConnInterface) AdminServiceClient {
 	return &adminServiceClient{cc}
 }
 
-func (c *adminServiceClient) GetServerInfo(ctx context.Context, in *GetServerInfoRequest, opts ...grpc.CallOption) (*ServerInfo, error) {
+func (c *adminServiceClient) GetServerInfo(ctx context.Context, in *GetServerInfoRequest, opts ...grpc.CallOption) (*GetServerInfoResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ServerInfo)
+	out := new(GetServerInfoResponse)
 	err := c.cc.Invoke(ctx, AdminService_GetServerInfo_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -98,9 +111,9 @@ func (c *adminServiceClient) ListShares(ctx context.Context, in *ListSharesReque
 	return out, nil
 }
 
-func (c *adminServiceClient) GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*Share, error) {
+func (c *adminServiceClient) GetShare(ctx context.Context, in *GetShareRequest, opts ...grpc.CallOption) (*GetShareResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Share)
+	out := new(GetShareResponse)
 	err := c.cc.Invoke(ctx, AdminService_GetShare_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -108,9 +121,9 @@ func (c *adminServiceClient) GetShare(ctx context.Context, in *GetShareRequest, 
 	return out, nil
 }
 
-func (c *adminServiceClient) CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*Share, error) {
+func (c *adminServiceClient) CreateShare(ctx context.Context, in *CreateShareRequest, opts ...grpc.CallOption) (*CreateShareResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Share)
+	out := new(CreateShareResponse)
 	err := c.cc.Invoke(ctx, AdminService_CreateShare_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -118,9 +131,9 @@ func (c *adminServiceClient) CreateShare(ctx context.Context, in *CreateShareReq
 	return out, nil
 }
 
-func (c *adminServiceClient) UpdateShare(ctx context.Context, in *UpdateShareRequest, opts ...grpc.CallOption) (*Share, error) {
+func (c *adminServiceClient) UpdateShare(ctx context.Context, in *UpdateShareRequest, opts ...grpc.CallOption) (*UpdateShareResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Share)
+	out := new(UpdateShareResponse)
 	err := c.cc.Invoke(ctx, AdminService_UpdateShare_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -138,9 +151,29 @@ func (c *adminServiceClient) DeleteShare(ctx context.Context, in *DeleteShareReq
 	return out, nil
 }
 
-func (c *adminServiceClient) Grant(ctx context.Context, in *GrantRequest, opts ...grpc.CallOption) (*Share, error) {
+func (c *adminServiceClient) DisableShare(ctx context.Context, in *DisableShareRequest, opts ...grpc.CallOption) (*DisableShareResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Share)
+	out := new(DisableShareResponse)
+	err := c.cc.Invoke(ctx, AdminService_DisableShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) EnableShare(ctx context.Context, in *EnableShareRequest, opts ...grpc.CallOption) (*EnableShareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnableShareResponse)
+	err := c.cc.Invoke(ctx, AdminService_EnableShare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) Grant(ctx context.Context, in *GrantRequest, opts ...grpc.CallOption) (*GrantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GrantResponse)
 	err := c.cc.Invoke(ctx, AdminService_Grant_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -148,9 +181,9 @@ func (c *adminServiceClient) Grant(ctx context.Context, in *GrantRequest, opts .
 	return out, nil
 }
 
-func (c *adminServiceClient) Revoke(ctx context.Context, in *RevokeRequest, opts ...grpc.CallOption) (*Share, error) {
+func (c *adminServiceClient) Revoke(ctx context.Context, in *RevokeRequest, opts ...grpc.CallOption) (*RevokeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Share)
+	out := new(RevokeResponse)
 	err := c.cc.Invoke(ctx, AdminService_Revoke_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -182,20 +215,31 @@ func (c *adminServiceClient) ListGroups(ctx context.Context, in *ListGroupsReque
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
 type AdminServiceServer interface {
-	GetServerInfo(context.Context, *GetServerInfoRequest) (*ServerInfo, error)
+	GetServerInfo(context.Context, *GetServerInfoRequest) (*GetServerInfoResponse, error)
 	ListShares(context.Context, *ListSharesRequest) (*ListSharesResponse, error)
-	GetShare(context.Context, *GetShareRequest) (*Share, error)
+	GetShare(context.Context, *GetShareRequest) (*GetShareResponse, error)
 	// CreateShare needs at least one grant. A share with none is open to
 	// anyone who authenticates, which the configuration file can say on
 	// purpose and an API call should not say by omission.
-	CreateShare(context.Context, *CreateShareRequest) (*Share, error)
-	UpdateShare(context.Context, *UpdateShareRequest) (*Share, error)
+	CreateShare(context.Context, *CreateShareRequest) (*CreateShareResponse, error)
+	UpdateShare(context.Context, *UpdateShareRequest) (*UpdateShareResponse, error)
 	DeleteShare(context.Context, *DeleteShareRequest) (*DeleteShareResponse, error)
+	// DisableShare stops serving a share and keeps its definition, the way
+	// Samba's `available = no` does: every attempt to connect fails, the
+	// connections already open are closed, and its image or directory is let
+	// go of -- so the file can be replaced while it is disabled. EnableShare
+	// serves it again, and is refused when its source can no longer be opened.
+	//
+	// Unlike every other change, these apply to a share of the configuration
+	// too: taking a share offline is an operation, not a definition. It is
+	// kept in the state file, and a restart does not bring the share back.
+	DisableShare(context.Context, *DisableShareRequest) (*DisableShareResponse, error)
+	EnableShare(context.Context, *EnableShareRequest) (*EnableShareResponse, error)
 	// Grant gives a subject access to a share, or changes the access it has.
-	Grant(context.Context, *GrantRequest) (*Share, error)
+	Grant(context.Context, *GrantRequest) (*GrantResponse, error)
 	// Revoke takes it away. Revoking the last grant is refused, for the reason
 	// CreateShare needs one: delete the share instead.
-	Revoke(context.Context, *RevokeRequest) (*Share, error)
+	Revoke(context.Context, *RevokeRequest) (*RevokeResponse, error)
 	// Who a grant can name.
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
@@ -209,28 +253,34 @@ type AdminServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAdminServiceServer struct{}
 
-func (UnimplementedAdminServiceServer) GetServerInfo(context.Context, *GetServerInfoRequest) (*ServerInfo, error) {
+func (UnimplementedAdminServiceServer) GetServerInfo(context.Context, *GetServerInfoRequest) (*GetServerInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetServerInfo not implemented")
 }
 func (UnimplementedAdminServiceServer) ListShares(context.Context, *ListSharesRequest) (*ListSharesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListShares not implemented")
 }
-func (UnimplementedAdminServiceServer) GetShare(context.Context, *GetShareRequest) (*Share, error) {
+func (UnimplementedAdminServiceServer) GetShare(context.Context, *GetShareRequest) (*GetShareResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetShare not implemented")
 }
-func (UnimplementedAdminServiceServer) CreateShare(context.Context, *CreateShareRequest) (*Share, error) {
+func (UnimplementedAdminServiceServer) CreateShare(context.Context, *CreateShareRequest) (*CreateShareResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateShare not implemented")
 }
-func (UnimplementedAdminServiceServer) UpdateShare(context.Context, *UpdateShareRequest) (*Share, error) {
+func (UnimplementedAdminServiceServer) UpdateShare(context.Context, *UpdateShareRequest) (*UpdateShareResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateShare not implemented")
 }
 func (UnimplementedAdminServiceServer) DeleteShare(context.Context, *DeleteShareRequest) (*DeleteShareResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteShare not implemented")
 }
-func (UnimplementedAdminServiceServer) Grant(context.Context, *GrantRequest) (*Share, error) {
+func (UnimplementedAdminServiceServer) DisableShare(context.Context, *DisableShareRequest) (*DisableShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DisableShare not implemented")
+}
+func (UnimplementedAdminServiceServer) EnableShare(context.Context, *EnableShareRequest) (*EnableShareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EnableShare not implemented")
+}
+func (UnimplementedAdminServiceServer) Grant(context.Context, *GrantRequest) (*GrantResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Grant not implemented")
 }
-func (UnimplementedAdminServiceServer) Revoke(context.Context, *RevokeRequest) (*Share, error) {
+func (UnimplementedAdminServiceServer) Revoke(context.Context, *RevokeRequest) (*RevokeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Revoke not implemented")
 }
 func (UnimplementedAdminServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
@@ -368,6 +418,42 @@ func _AdminService_DeleteShare_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_DisableShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DisableShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DisableShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DisableShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DisableShare(ctx, req.(*DisableShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_EnableShare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnableShareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).EnableShare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_EnableShare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).EnableShare(ctx, req.(*EnableShareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_Grant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GrantRequest)
 	if err := dec(in); err != nil {
@@ -470,6 +556,14 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteShare",
 			Handler:    _AdminService_DeleteShare_Handler,
+		},
+		{
+			MethodName: "DisableShare",
+			Handler:    _AdminService_DisableShare_Handler,
+		},
+		{
+			MethodName: "EnableShare",
+			Handler:    _AdminService_EnableShare_Handler,
 		},
 		{
 			MethodName: "Grant",

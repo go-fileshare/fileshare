@@ -389,6 +389,16 @@ func report(cmd *cobra.Command, cfg *config) error {
 		fmt.Fprintf(out, "%s\n", who)
 	}
 
+	// Offline is not absent: whoever reads this before a restart should see
+	// that a share they expect is defined and deliberately not served.
+	if len(cfg.offline) > 0 {
+		names := make([]string, 0, len(cfg.offline))
+		for _, b := range cfg.offline {
+			names = append(names, b.Name)
+		}
+		fmt.Fprintf(out, "\n%s: taken offline through the admin API (DisableShare), and not served\n", list(names))
+	}
+
 	fmt.Fprintln(out, "\nthis configuration can be served")
 	return nil
 }

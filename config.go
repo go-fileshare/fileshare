@@ -67,8 +67,12 @@ type config struct {
 
 	// managed is the names of the shares that came from the admin API's
 	// state file rather than from these files, upper-cased the way SMB
-	// compares them. Filled by withState.
-	managed map[string]bool
+	// compares them. fromFiles is every share the files define, and offline
+	// the shares DisableShare took offline, which are not in Shares. All
+	// three are filled by withState.
+	managed   map[string]bool
+	fromFiles []shareBlock
+	offline   []shareBlock
 }
 
 // An adminBlock turns on the gRPC admin API.

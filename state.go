@@ -32,6 +32,29 @@ const stateVersion = 1
 type stateFile struct {
 	Version int            `json:"version"`
 	Shares  []managedShare `json:"shares"`
+	// Disabled names the shares DisableShare took offline, whichever file
+	// defines them. A name that no longer matches any share is kept: a share
+	// taken offline and later written back into the configuration comes back
+	// offline, which is what whoever took it offline asked for.
+	Disabled []string `json:"disabled,omitempty"`
+}
+
+// isDisabled reports whether a share is taken offline, comparing names the
+// way SMB does.
+func (st *stateFile) isDisabled(name string) bool {
+	return slices.ContainsFunc(st.Disabled, func(d string) bool { return strings.EqualFold(d, name) })
+}
+
+// split sorts blocks into the ones served and the ones taken offline.
+func (st *stateFile) split(blocks []shareBlock) (serve, offline []shareBlock) {
+	for _, b := range blocks {
+		if st.isDisabled(b.Name) {
+			offline = append(offline, b)
+			continue
+		}
+		serve = append(serve, b)
+	}
+	return serve, offline
 }
 
 // A managedShare is a share block the API wrote, with its grants in place of
@@ -143,8 +166,12 @@ func writeState(path string, st *stateFile) error {
 	return nil
 }
 
-// withState adds the API's shares to a configuration read from files, and
-// remembers which they are.
+// withState adds the API's shares to a configuration read from files, takes
+// out the ones DisableShare took offline, and remembers which are which.
+//
+// Every share is CHECKED, served or not: a disabled share must still be one
+// that EnableShare can bring back, and a configuration that says two things
+// at once is refused whether or not one of them is being served.
 func withState(cfg *config) error {
 	if cfg.Admin == nil {
 		return nil
@@ -153,20 +180,27 @@ func withState(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	cfg.fromFiles = slices.Clone(cfg.Shares)
 	fromFiles := map[string]string{}
 	for _, b := range cfg.Shares {
 		fromFiles[strings.ToUpper(b.Name)] = b.Name
 	}
 	cfg.managed = map[string]bool{}
+	all := slices.Clone(cfg.Shares)
 	for _, m := range st.Shares {
 		if other, taken := fromFiles[strings.ToUpper(m.Name)]; taken {
 			return fmt.Errorf("share %q is in the admin state file %s and share %q is in the configuration: "+
 				"one name, two definitions. Remove one of them", m.Name, cfg.Admin.StateFile, other)
 		}
-		cfg.Shares = append(cfg.Shares, m.block())
+		all = append(all, m.block())
 		cfg.managed[strings.ToUpper(m.Name)] = true
 	}
-	return cfg.check()
+	cfg.Shares = all
+	if err := cfg.check(); err != nil {
+		return err
+	}
+	cfg.Shares, cfg.offline = st.split(all)
+	return nil
 }
 
 // A manager applies the admin API's changes: one at a time, each one checked
@@ -183,9 +217,24 @@ type manager struct {
 	path  string
 	roots []string
 	audit io.Writer
-	// count is len(state.Shares), readable without waiting for a change
-	// in progress -- a scrape must not stall behind a swap.
-	count atomic.Int64
+	// servedAPI and offline count the API's shares being served and the
+	// shares taken offline, readable without waiting for a change in
+	// progress -- a scrape must not stall behind a swap.
+	servedAPI atomic.Int64
+	offline   atomic.Int64
+}
+
+// recount sets the counts a scrape reads, from a state.
+func (m *manager) recount(st *stateFile) {
+	all, serve := m.blocks(st)
+	var api int64
+	for _, b := range serve {
+		if indexOf(st, b.Name) >= 0 {
+			api++
+		}
+	}
+	m.servedAPI.Store(api)
+	m.offline.Store(int64(len(all) - len(serve)))
 }
 
 func newManager(srv *server, cfg *config) (*manager, error) {
@@ -194,15 +243,10 @@ func newManager(srv *server, cfg *config) (*manager, error) {
 		return nil, err
 	}
 	files := *cfg
-	files.Shares = nil
-	for _, b := range cfg.Shares {
-		if !cfg.managed[strings.ToUpper(b.Name)] {
-			files.Shares = append(files.Shares, b)
-		}
-	}
+	files.Shares = slices.Clone(cfg.fromFiles)
 	m := &manager{srv: srv, files: &files, state: st, path: cfg.Admin.StateFile,
 		roots: cfg.Admin.SourceRoots, audit: srv.out}
-	m.count.Store(int64(len(st.Shares)))
+	m.recount(st)
 	return m, nil
 }
 
@@ -233,68 +277,94 @@ func indexOf(st *stateFile, name string) int {
 	return slices.IndexFunc(st.Shares, func(s managedShare) bool { return strings.EqualFold(s.Name, name) })
 }
 
+// exists reports whether a state, with the files, defines a share.
+func (m *manager) exists(st *stateFile, name string) bool {
+	return m.fromFiles(name) || indexOf(st, name) >= 0
+}
+
 func (m *manager) fromFiles(name string) bool {
 	return slices.ContainsFunc(m.files.Shares, func(b shareBlock) bool { return strings.EqualFold(b.Name, name) })
+}
+
+// applied is what serving a change did, for the caller to be told.
+type applied struct {
+	generation uint64
+	closed     uint64
 }
 
 // change applies edit to a copy of the state and, when the server can honour
 // the result, serves it. who is the caller, for the audit line; what says what
 // was done, in words.
-func (m *manager) change(who, what string, edit func(st *stateFile) error) error {
+func (m *manager) change(who, what string, edit func(st *stateFile) error) (applied, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	next := &stateFile{Version: stateVersion}
+	next := &stateFile{Version: stateVersion, Disabled: slices.Clone(m.state.Disabled)}
 	for _, s := range m.state.Shares {
 		next.Shares = append(next.Shares, s.clone())
 	}
 	if err := edit(next); err != nil {
 		m.srv.stats.refused.Add(1)
-		return err
+		return applied{}, err
 	}
-	if err := m.apply(next); err != nil {
+	a, err := m.apply(next)
+	if err != nil {
 		m.srv.stats.refused.Add(1)
-		return err
+		return applied{}, err
 	}
 	m.state = next
-	m.count.Store(int64(len(next.Shares)))
+	m.recount(next)
 	m.srv.stats.applied.Add(1)
-	fmt.Fprintf(m.audit, "admin (%s): %s\n", who, what)
-	return nil
+	fmt.Fprintf(m.audit, "admin (%s): %s -- generation %d, %d connection(s) closed\n",
+		who, what, a.generation, a.closed)
+	return a, nil
+}
+
+// blocks is every share a state defines together with the files: the ones
+// to serve, and the ones taken offline.
+func (m *manager) blocks(st *stateFile) (all, serve []shareBlock) {
+	all = slices.Clone(m.files.Shares)
+	for _, s := range st.Shares {
+		all = append(all, s.block())
+	}
+	serve, _ = st.split(all)
+	return all, serve
 }
 
 // apply checks a state against the configuration, opens what it needs,
 // writes it down, and serves it -- in that order, so that every way it can
 // fail leaves what was served, and what was written, as they were.
-func (m *manager) apply(next *stateFile) error {
+//
+// Every share is checked and resolved, offline or not; only the ones served
+// are opened.
+func (m *manager) apply(next *stateFile) (applied, error) {
+	all, serve := m.blocks(next)
 	cfg := *m.files
-	cfg.Shares = slices.Clone(m.files.Shares)
-	for _, s := range next.Shares {
-		cfg.Shares = append(cfg.Shares, s.block())
-	}
+	cfg.Shares = all
 	if err := cfg.check(); err != nil {
-		return refuse(refusedInvalid, "%v", err)
+		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
 	// Against the people who exist, exactly as a startup checks them.
 	if err := cfg.resolve(m.srv.dir, m.srv.who); err != nil {
-		return refuse(refusedInvalid, "%v", err)
+		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
 	prev := m.srv.currentShares()
-	shares, err := m.srv.openShares(cfg.Shares, prev)
+	shares, err := m.srv.openShares(serve, prev)
 	if err != nil {
-		return refuse(refusedPrecondition, "%v", err)
+		return applied{}, refuse(refusedPrecondition, "%v", err)
 	}
 	if err := writeState(m.path, next); err != nil {
 		release(shares, prev)
-		return fmt.Errorf("writing %s: %w", m.path, err)
+		return applied{}, fmt.Errorf("writing %s: %w", m.path, err)
 	}
-	if err := m.srv.swap(shares); err != nil {
+	closed, err := m.srv.swap(shares)
+	if err != nil {
 		release(shares, prev)
 		// The file now says what is not served. Put it back, so the next
 		// start does not serve what this call said it refused.
 		writeState(m.path, m.state)
-		return err
+		return applied{}, err
 	}
-	return nil
+	return applied{generation: m.srv.generationNumber(), closed: closed}, nil
 }
 
 // withinRoots refuses a source outside every source root, and returns the

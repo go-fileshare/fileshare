@@ -41,15 +41,13 @@ type serverStats struct {
 	rpcs func(w *endpoint.Writer)
 }
 
-// managedCount is how many of the shares served the admin API defined.
-func (s *server) managedCount() int {
+// shareCounts is how many of the shares served the admin API defined, and
+// how many are taken offline.
+func (s *server) shareCounts() (api, offline int) {
 	if m := s.mgr.Load(); m != nil {
-		return int(m.count.Load())
+		return int(m.servedAPI.Load()), int(m.offline.Load())
 	}
-	if s.cfg != nil {
-		return len(s.cfg.managed)
-	}
-	return 0
+	return 0, 0
 }
 
 // readiness says whether the server should receive traffic, and when not,
@@ -67,11 +65,13 @@ func (s *server) collect(w *endpoint.Writer) {
 		endpoint.S(float64(s.stats.started.Unix())))
 	w.Gauge("fileshare_generation", "How many lists of shares have been served since the start.",
 		endpoint.S(float64(s.generationNumber())))
-	api := float64(s.managedCount())
-	total := float64(len(s.currentShares()))
+	api, offline := s.shareCounts()
+	total := len(s.currentShares())
 	w.Gauge("fileshare_shares", "Shares being served, by where they are defined.",
-		endpoint.S(total-api, endpoint.L("origin", "config")),
-		endpoint.S(api, endpoint.L("origin", "api")))
+		endpoint.S(float64(total-api), endpoint.L("origin", "config")),
+		endpoint.S(float64(api), endpoint.L("origin", "api")))
+	w.Gauge("fileshare_shares_disabled", "Shares defined and taken offline through the admin API.",
+		endpoint.S(float64(offline)))
 	w.Counter("fileshare_admin_changes_total", "Changes asked of the admin API, by outcome.",
 		endpoint.S(float64(s.stats.applied.Load()), endpoint.L("result", "applied")),
 		endpoint.S(float64(s.stats.refused.Load()), endpoint.L("result", "refused")))

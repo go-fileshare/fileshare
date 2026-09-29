@@ -127,7 +127,7 @@ func grpcError(err error) error {
 	return status.Error(codes.InvalidArgument, r.msg)
 }
 
-func (a *adminService) GetServerInfo(ctx context.Context, _ *adminv1.GetServerInfoRequest) (*adminv1.ServerInfo, error) {
+func (a *adminService) GetServerInfo(ctx context.Context, _ *adminv1.GetServerInfoRequest) (*adminv1.GetServerInfoResponse, error) {
 	s := a.m.srv
 	info := &adminv1.ServerInfo{Name: s.name, Version: version(),
 		Started: timestamppb.New(s.stats.started), Generation: s.generationNumber()}
@@ -136,38 +136,42 @@ func (a *adminService) GetServerInfo(ctx context.Context, _ *adminv1.GetServerIn
 		info.Listeners = append(info.Listeners, &adminv1.Listener{Protocol: f.proto, Address: f.ln.Addr().String()})
 	}
 	s.runMu.Unlock()
-	return info, nil
+	return &adminv1.GetServerInfoResponse{Info: info}, nil
 }
 
 func (a *adminService) ListShares(ctx context.Context, _ *adminv1.ListSharesRequest) (*adminv1.ListSharesResponse, error) {
-	a.m.mu.Lock()
-	defer a.m.mu.Unlock()
+	m := a.m
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var out adminv1.ListSharesResponse
-	for _, sh := range a.m.srv.currentShares() {
-		out.Shares = append(out.Shares, a.m.view(sh))
+	all, _ := m.blocks(m.state)
+	for _, b := range all {
+		out.Shares = append(out.Shares, m.view(b.Name))
 	}
 	return &out, nil
 }
 
-func (a *adminService) GetShare(ctx context.Context, req *adminv1.GetShareRequest) (*adminv1.Share, error) {
+func (a *adminService) GetShare(ctx context.Context, req *adminv1.GetShareRequest) (*adminv1.GetShareResponse, error) {
 	a.m.mu.Lock()
 	defer a.m.mu.Unlock()
-	sh := a.m.srv.shareByName(req.GetName())
-	if sh == nil {
-		// shareByName compares exactly; SMB does not, and neither does this.
-		for _, c := range a.m.srv.currentShares() {
-			if strings.EqualFold(c.name, req.GetName()) {
-				sh = c
-			}
-		}
-	}
-	if sh == nil {
+	if !a.m.exists(a.m.state, req.GetName()) {
 		return nil, status.Errorf(codes.NotFound, "there is no share %q", req.GetName())
 	}
-	return a.m.view(sh), nil
+	return &adminv1.GetShareResponse{Share: a.m.view(req.GetName())}, nil
 }
 
-func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShareRequest) (*adminv1.Share, error) {
+// shareNow is a share as it is after a change, with what the change did.
+func (a *adminService) shareNow(name string) *adminv1.Share {
+	a.m.mu.Lock()
+	defer a.m.mu.Unlock()
+	return a.m.view(name)
+}
+
+func appliedOf(ap applied) *adminv1.Applied {
+	return &adminv1.Applied{Generation: ap.generation, ConnectionsClosed: ap.closed}
+}
+
+func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShareRequest) (*adminv1.CreateShareResponse, error) {
 	m := a.m
 	name := req.GetName()
 	if name == "" {
@@ -209,7 +213,11 @@ func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShare
 		return nil, status.Error(codes.InvalidArgument, "the share is read_only and a grant says write: say one or the other")
 	}
 	ms.Grants = grants
-	err = m.change(control.Caller(ctx), fmt.Sprintf("created share %s from %s for %s", name, from, describeGrants(grants)),
+	what := fmt.Sprintf("created share %s from %s for %s", name, from, describeGrants(grants))
+	if req.GetDisabled() {
+		what += ", disabled"
+	}
+	ap, err := m.change(control.Caller(ctx), what,
 		func(st *stateFile) error {
 			if m.fromFiles(name) {
 				return refuse(refusedExists, "share %q is defined in the configuration files", name)
@@ -218,15 +226,21 @@ func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShare
 				return refuse(refusedExists, "there is already a share %q", name)
 			}
 			st.Shares = append(st.Shares, ms)
+			// A name left disabled by a share deleted earlier must not
+			// silently decide whether this new one is served.
+			st.Disabled = slices.DeleteFunc(st.Disabled, func(d string) bool { return strings.EqualFold(d, name) })
+			if req.GetDisabled() {
+				st.Disabled = append(st.Disabled, name)
+			}
 			return nil
 		})
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return a.GetShare(ctx, &adminv1.GetShareRequest{Name: name})
+	return &adminv1.CreateShareResponse{Share: a.shareNow(name), Applied: appliedOf(ap)}, nil
 }
 
-func (a *adminService) UpdateShare(ctx context.Context, req *adminv1.UpdateShareRequest) (*adminv1.Share, error) {
+func (a *adminService) UpdateShare(ctx context.Context, req *adminv1.UpdateShareRequest) (*adminv1.UpdateShareResponse, error) {
 	var said []string
 	if req.ReadOnly != nil {
 		said = append(said, fmt.Sprintf("read_only=%t", req.GetReadOnly()))
@@ -237,7 +251,7 @@ func (a *adminService) UpdateShare(ctx context.Context, req *adminv1.UpdateShare
 	if len(said) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "nothing to change: say read_only, protocols, or both")
 	}
-	err := a.edit(ctx, req.GetName(), "updated share "+req.GetName()+": "+strings.Join(said, ", "),
+	ap, err := a.edit(ctx, req.GetName(), "updated share "+req.GetName()+": "+strings.Join(said, ", "),
 		func(ms *managedShare) error {
 			if req.ReadOnly != nil {
 				if req.GetReadOnly() && slices.ContainsFunc(ms.Grants, func(g grant) bool { return g.Write }) {
@@ -253,32 +267,77 @@ func (a *adminService) UpdateShare(ctx context.Context, req *adminv1.UpdateShare
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return a.GetShare(ctx, &adminv1.GetShareRequest{Name: req.GetName()})
+	return &adminv1.UpdateShareResponse{Share: a.shareNow(req.GetName()), Applied: appliedOf(ap)}, nil
 }
 
 func (a *adminService) DeleteShare(ctx context.Context, req *adminv1.DeleteShareRequest) (*adminv1.DeleteShareResponse, error) {
 	name := req.GetName()
-	err := a.m.change(control.Caller(ctx), "deleted share "+name, func(st *stateFile) error {
+	ap, err := a.m.change(control.Caller(ctx), "deleted share "+name, func(st *stateFile) error {
 		i, err := a.m.managed(st, name)
 		if err != nil {
 			return err
 		}
 		st.Shares = slices.Delete(st.Shares, i, i+1)
+		st.Disabled = slices.DeleteFunc(st.Disabled, func(d string) bool { return strings.EqualFold(d, name) })
 		return nil
 	})
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &adminv1.DeleteShareResponse{}, nil
+	return &adminv1.DeleteShareResponse{Applied: appliedOf(ap)}, nil
 }
 
-func (a *adminService) Grant(ctx context.Context, req *adminv1.GrantRequest) (*adminv1.Share, error) {
+func (a *adminService) DisableShare(ctx context.Context, req *adminv1.DisableShareRequest) (*adminv1.DisableShareResponse, error) {
+	ap, err := a.setDisabled(ctx, req.GetName(), true)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &adminv1.DisableShareResponse{Share: a.shareNow(req.GetName()), Applied: appliedOf(ap)}, nil
+}
+
+func (a *adminService) EnableShare(ctx context.Context, req *adminv1.EnableShareRequest) (*adminv1.EnableShareResponse, error) {
+	ap, err := a.setDisabled(ctx, req.GetName(), false)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &adminv1.EnableShareResponse{Share: a.shareNow(req.GetName()), Applied: appliedOf(ap)}, nil
+}
+
+// setDisabled takes a share offline or brings it back. It is the one change
+// a share of the configuration takes too. Asking for what already is, is
+// refused rather than applied: applying it would close every connection for
+// nothing.
+func (a *adminService) setDisabled(ctx context.Context, name string, off bool) (applied, error) {
+	what := "disabled share " + name
+	if !off {
+		what = "enabled share " + name
+	}
+	return a.m.change(control.Caller(ctx), what, func(st *stateFile) error {
+		if !a.m.exists(st, name) {
+			return refuse(refusedNotFound, "there is no share %q", name)
+		}
+		if st.isDisabled(name) == off {
+			if off {
+				return refuse(refusedPrecondition, "share %q is already disabled", name)
+			}
+			return refuse(refusedPrecondition, "share %q is not disabled", name)
+		}
+		if off {
+			st.Disabled = append(st.Disabled, name)
+		} else {
+			st.Disabled = slices.DeleteFunc(st.Disabled, func(d string) bool { return strings.EqualFold(d, name) })
+		}
+		return nil
+	})
+}
+
+func (a *adminService) Grant(ctx context.Context, req *adminv1.GrantRequest) (*adminv1.GrantResponse, error) {
 	gs, err := grantsOf([]*adminv1.Grant{req.GetGrant()})
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	g := gs[0]
-	err = a.edit(ctx, req.GetShare(), fmt.Sprintf("granted %s on %s to %s", accessWord(g.Write), req.GetShare(), g.Subject),
+	ap, err := a.edit(ctx, req.GetShare(), fmt.Sprintf("granted %s on %s to %s", accessWord(g.Write), req.GetShare(), g.Subject),
 		func(ms *managedShare) error {
 			if g.Write && ms.ReadOnly {
 				return refuse(refusedPrecondition, "share %q is read_only: nobody can be granted write on it", ms.Name)
@@ -293,15 +352,15 @@ func (a *adminService) Grant(ctx context.Context, req *adminv1.GrantRequest) (*a
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return a.GetShare(ctx, &adminv1.GetShareRequest{Name: req.GetShare()})
+	return &adminv1.GrantResponse{Share: a.shareNow(req.GetShare()), Applied: appliedOf(ap)}, nil
 }
 
-func (a *adminService) Revoke(ctx context.Context, req *adminv1.RevokeRequest) (*adminv1.Share, error) {
+func (a *adminService) Revoke(ctx context.Context, req *adminv1.RevokeRequest) (*adminv1.RevokeResponse, error) {
 	subject, err := subjectOf(req.GetSubject())
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	err = a.edit(ctx, req.GetShare(), fmt.Sprintf("revoked %s on %s", subject, req.GetShare()),
+	ap, err := a.edit(ctx, req.GetShare(), fmt.Sprintf("revoked %s on %s", subject, req.GetShare()),
 		func(ms *managedShare) error {
 			i := slices.IndexFunc(ms.Grants, func(o grant) bool { return o.Subject == subject })
 			if i < 0 {
@@ -317,11 +376,11 @@ func (a *adminService) Revoke(ctx context.Context, req *adminv1.RevokeRequest) (
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return a.GetShare(ctx, &adminv1.GetShareRequest{Name: req.GetShare()})
+	return &adminv1.RevokeResponse{Share: a.shareNow(req.GetShare()), Applied: appliedOf(ap)}, nil
 }
 
 // edit changes one share the API manages.
-func (a *adminService) edit(ctx context.Context, name, what string, fn func(*managedShare) error) error {
+func (a *adminService) edit(ctx context.Context, name, what string, fn func(*managedShare) error) (applied, error) {
 	return a.m.change(control.Caller(ctx), what, func(st *stateFile) error {
 		i, err := a.m.managed(st, name)
 		if err != nil {
@@ -375,13 +434,13 @@ func (a *adminService) ListGroups(ctx context.Context, _ *adminv1.ListGroupsRequ
 	return &out, nil
 }
 
-// view is a share as the API describes it. The caller holds m.mu, so the
-// state and the served list agree.
-func (m *manager) view(sh *share) *adminv1.Share {
-	v := &adminv1.Share{Name: sh.name, EffectiveReadOnly: sh.readOnly, Filesystem: string(sh.kind),
-		Protocols: slices.Clone(sh.protocols), SizeBytes: sh.size}
+// view is a share as the API describes it: its definition, and -- when it is
+// served -- what serving it found. The caller holds m.mu, so the state and
+// the served list agree.
+func (m *manager) view(name string) *adminv1.Share {
 	var b shareBlock
-	if i := indexOf(m.state, sh.name); i >= 0 {
+	v := &adminv1.Share{}
+	if i := indexOf(m.state, name); i >= 0 {
 		ms := m.state.Shares[i]
 		v.Origin = adminv1.Origin_ORIGIN_API
 		v.ReadOnly = ms.ReadOnly
@@ -392,7 +451,7 @@ func (m *manager) view(sh *share) *adminv1.Share {
 	} else {
 		v.Origin = adminv1.Origin_ORIGIN_CONFIG
 		for _, fb := range m.files.Shares {
-			if fb.Name == sh.name {
+			if strings.EqualFold(fb.Name, name) {
 				b = fb
 			}
 		}
@@ -401,11 +460,29 @@ func (m *manager) view(sh *share) *adminv1.Share {
 			v.Grants = append(v.Grants, grantView(g))
 		}
 	}
+	v.Name = b.Name
+	v.Protocols = slices.Clone(b.Protocols)
 	if b.Directory != "" {
 		v.Source = &adminv1.Share_Directory{Directory: b.Directory}
 	} else {
 		v.Source = &adminv1.Share_Image{Image: b.Image}
 	}
+	var sh *share
+	for _, c := range m.srv.currentShares() {
+		if strings.EqualFold(c.name, name) {
+			sh = c
+		}
+	}
+	if sh == nil {
+		// Taken offline: nothing is open, so there is nothing found to say,
+		// and nothing is served over anything.
+		v.EffectiveReadOnly = true
+		return v
+	}
+	v.Enabled = true
+	v.EffectiveReadOnly = sh.readOnly
+	v.Filesystem = string(sh.kind)
+	v.SizeBytes = sh.size
 	for _, sb := range m.srv.cfg.Serves {
 		p := protocolByName(sb.Protocol)
 		served, refused := p.exports(m.srv.cfg, []*share{sh})

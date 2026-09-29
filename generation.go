@@ -127,6 +127,13 @@ func (l *genListener) Accept() (net.Conn, error) {
 // Close stops this generation taking connections and closes every one it
 // took. The socket underneath stays open for the next generation.
 func (l *genListener) Close() error {
+	l.shut()
+	return nil
+}
+
+// shut is Close, saying how many open connections it closed; the second call
+// closes none.
+func (l *genListener) shut() (closed int) {
 	l.once.Do(func() {
 		l.mu.Lock()
 		close(l.stop)
@@ -136,8 +143,9 @@ func (l *genListener) Close() error {
 		for c := range conns {
 			c.Close()
 		}
+		closed = len(conns)
 	})
-	return nil
+	return closed
 }
 
 func (l *genListener) Addr() net.Addr { return l.f.ln.Addr() }
@@ -200,14 +208,15 @@ func (s *server) startGeneration(n uint64, feeds []*feed, failures chan<- error)
 	return g
 }
 
-// stop closes this generation's listeners and connections and waits for its
-// protocol servers to return.
-func (g *generation) stop() {
+// stop closes this generation's listeners and connections, waits for its
+// protocol servers to return, and says how many connections were open.
+func (g *generation) stop() (closed uint64) {
 	g.stopped.Store(true)
 	for _, l := range g.lns {
-		l.Close()
+		closed += uint64(l.shut())
 	}
 	g.wg.Wait()
+	return closed
 }
 
 type protocolError struct {

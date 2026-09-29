@@ -203,11 +203,15 @@ func TestAdminManagesADirectoryShare(t *testing.T) {
 	if code, _ := m.get("alice", "hunter2", "/photos/a.txt"); code != http.StatusNotFound {
 		t.Fatalf("before creation: %d", code)
 	}
-	sh, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "photos",
+	created, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "photos",
 		Source: &adminv1.CreateShareRequest_Directory{Directory: tree},
 		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_READ)}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	sh := created.GetShare()
+	if !sh.GetEnabled() || created.GetApplied().GetGeneration() != 2 {
+		t.Fatalf("applied: %v", created.GetApplied())
 	}
 	if sh.GetOrigin() != adminv1.Origin_ORIGIN_API || !sh.GetEffectiveReadOnly() || sh.GetFilesystem() != "directory" {
 		t.Fatalf("created: %v", sh)
@@ -378,7 +382,8 @@ func TestAdminRefusals(t *testing.T) {
 	wantCode(t, create("O", inside, alice), codes.AlreadyExists)
 
 	// A share of the configuration is listed, and not changed here.
-	sh, err := m.client.GetShare(ctx, &adminv1.GetShareRequest{Name: "configured"})
+	got, err := m.client.GetShare(ctx, &adminv1.GetShareRequest{Name: "configured"})
+	sh := got.GetShare()
 	if err != nil || sh.GetOrigin() != adminv1.Origin_ORIGIN_CONFIG || len(sh.GetGrants()) != 1 {
 		t.Fatalf("configured: %v %v", sh, err)
 	}
@@ -398,7 +403,8 @@ func TestAdminRefusals(t *testing.T) {
 	wantCode(t, err, codes.FailedPrecondition)
 
 	// After every refusal, what is served is what was: one change applied.
-	info, err := m.client.GetServerInfo(ctx, &adminv1.GetServerInfoRequest{})
+	res, err := m.client.GetServerInfo(ctx, &adminv1.GetServerInfoRequest{})
+	info := res.GetInfo()
 	if err != nil || info.GetGeneration() != 3 {
 		t.Fatalf("generation %d (%v): the refusals were served", info.GetGeneration(), err)
 	}
@@ -512,7 +518,8 @@ func TestAdminListings(t *testing.T) {
 	m := startManaged(t, dir, "")
 	ctx := context.Background()
 
-	info, err := m.client.GetServerInfo(ctx, &adminv1.GetServerInfoRequest{})
+	res, err := m.client.GetServerInfo(ctx, &adminv1.GetServerInfoRequest{})
+	info := res.GetInfo()
 	if err != nil || info.GetName() != "TESTFS" || len(info.GetListeners()) != 1 ||
 		info.GetListeners()[0].GetProtocol() != "webdav" || info.GetGeneration() != 1 {
 		t.Fatalf("server info: %v %v", info, err)
@@ -591,4 +598,157 @@ func mustEval(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// DisableShare takes a share offline -- one the API created, or one of the
+// configuration -- and EnableShare brings it back; each checked where a client
+// sees it.
+func TestDisableAndEnableAShare(t *testing.T) {
+	dir := t.TempDir()
+	img := image(t, dir, "cfg.img", map[string]string{"/x.txt": "first image"})
+	extra := fmt.Sprintf("share \"configured\" {\n  image = %q\n  allow = [\"alice\"]\n}\n", hclPath(img))
+	m := startManaged(t, dir, extra)
+	ctx := context.Background()
+	tree := filepath.Join(m.roots, "t")
+	os.MkdirAll(tree, 0o755)
+	write(t, tree, "a.txt", "in the tree")
+	if _, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "t",
+		Source: &adminv1.CreateShareRequest_Directory{Directory: tree},
+		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_READ)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A connection open before the share is taken offline.
+	c, err := net.Dial("tcp", m.webdav)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	auth := base64.StdEncoding.EncodeToString([]byte("alice:hunter2"))
+	fmt.Fprintf(c, "GET /t/a.txt HTTP/1.1\r\nHost: x\r\nAuthorization: Basic %s\r\n\r\n", auth)
+	r := bufio.NewReader(c)
+	if res, err := http.ReadResponse(r, nil); err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("control: %v %v", res, err)
+	} else {
+		io.ReadAll(res.Body)
+	}
+
+	off, err := m.client.DisableShare(ctx, &adminv1.DisableShareRequest{Name: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.GetShare().GetEnabled() || len(off.GetShare().GetServedOver()) != 0 || off.GetApplied().GetConnectionsClosed() < 1 {
+		t.Fatalf("disabled: %v %v", off.GetShare(), off.GetApplied())
+	}
+	fmt.Fprintf(c, "GET /t/a.txt HTTP/1.1\r\nHost: x\r\nAuthorization: Basic %s\r\n\r\n", auth)
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := http.ReadResponse(r, nil); err == nil {
+		t.Fatal("a connection opened before DisableShare still answers")
+	}
+	if code, _ := m.get("alice", "hunter2", "/t/a.txt"); code != http.StatusNotFound {
+		t.Fatalf("a disabled share answered %d", code)
+	}
+	_, err = m.client.DisableShare(ctx, &adminv1.DisableShareRequest{Name: "t"})
+	wantCode(t, err, codes.FailedPrecondition)
+	_, err = m.client.EnableShare(ctx, &adminv1.EnableShareRequest{Name: "ghost"})
+	wantCode(t, err, codes.NotFound)
+
+	// A share of the configuration can be taken offline too, and its image
+	// is LET GO OF -- its driver and file closed, which is asked of the share
+	// itself, since a reopen alone would serve a replaced file even if the
+	// old descriptor leaked -- and, replaced while it is offline, the new one
+	// is what comes back.
+	was := m.srv.shareByName("configured")
+	if _, err := m.client.DisableShare(ctx, &adminv1.DisableShareRequest{Name: "configured"}); err != nil {
+		t.Fatal(err)
+	}
+	m.srv.runMu.Lock() // the swap released it under this lock
+	leaked := was.closers != nil
+	m.srv.runMu.Unlock()
+	if leaked {
+		t.Fatal("the image of a disabled share is still open")
+	}
+	if code, _ := m.get("alice", "hunter2", "/configured/x.txt"); code != http.StatusNotFound {
+		t.Fatalf("a disabled configured share answered %d", code)
+	}
+	os.Remove(img)
+	image(t, dir, "cfg.img", map[string]string{"/x.txt": "second image"})
+
+	list, err := m.client.ListShares(ctx, &adminv1.ListSharesRequest{})
+	if err != nil || len(list.GetShares()) != 2 {
+		t.Fatalf("list: %v %v", list, err)
+	}
+	for _, sh := range list.GetShares() {
+		if sh.GetEnabled() {
+			t.Fatalf("listed as enabled: %v", sh)
+		}
+	}
+	_, body := m.scrape(t, "/metrics")
+	if !strings.Contains(body, "fileshare_shares_disabled 2") ||
+		!strings.Contains(body, `fileshare_shares{origin="api"} 0`) ||
+		!strings.Contains(body, `fileshare_shares{origin="config"} 0`) {
+		t.Fatalf("metrics:\n%s", body)
+	}
+
+	// It survives a restart, and `check` says so.
+	m.stop()
+	m.stop = nil
+	cfgPath := filepath.Join(dir, "test.hcl")
+	cfg, err := loadConfig([]string{cfgPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := withState(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Shares) != 0 || len(cfg.offline) != 2 {
+		t.Fatalf("after a restart: served %v, offline %v", cfg.Shares, cfg.offline)
+	}
+	m = startManaged(t, dir, extra)
+	if code, _ := m.get("alice", "hunter2", "/t/a.txt"); code != http.StatusNotFound {
+		t.Fatalf("a restart brought a disabled share back: %d", code)
+	}
+
+	on, err := m.client.EnableShare(ctx, &adminv1.EnableShareRequest{Name: "configured"})
+	if err != nil || !on.GetShare().GetEnabled() {
+		t.Fatalf("enable: %v %v", on, err)
+	}
+	if code, body := m.get("alice", "hunter2", "/configured/x.txt"); code != http.StatusOK || body != "second image" {
+		t.Fatalf("after EnableShare: %d %q", code, body)
+	}
+
+	// Enabling a share whose source is gone is refused, and changes nothing.
+	os.RemoveAll(tree)
+	stateBefore, _ := os.ReadFile(m.state)
+	_, err = m.client.EnableShare(ctx, &adminv1.EnableShareRequest{Name: "t"})
+	wantCode(t, err, codes.FailedPrecondition)
+	if got, _ := os.ReadFile(m.state); string(got) != string(stateBefore) {
+		t.Fatal("a refused EnableShare was written down")
+	}
+	if code, _ := m.get("alice", "hunter2", "/configured/x.txt"); code != http.StatusOK {
+		t.Fatalf("a refused EnableShare disturbed another share: %d", code)
+	}
+
+	// Created disabled: defined, listed, not served. Deleted: forgotten.
+	os.MkdirAll(tree, 0o755)
+	created, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "later",
+		Source: &adminv1.CreateShareRequest_Directory{Directory: tree}, Disabled: true,
+		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_READ)}})
+	if err != nil || created.GetShare().GetEnabled() {
+		t.Fatalf("created disabled: %v %v", created, err)
+	}
+	if code, _ := m.get("alice", "hunter2", "/later/"); code != http.StatusNotFound {
+		t.Fatalf("a share created disabled answered %d", code)
+	}
+	for _, n := range []string{"later", "t"} {
+		if _, err := m.client.DeleteShare(ctx, &adminv1.DeleteShareRequest{Name: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var st stateFile
+	data, _ := os.ReadFile(m.state)
+	json.Unmarshal(data, &st)
+	if len(st.Shares) != 0 || len(st.Disabled) != 0 {
+		t.Fatalf("state after deleting: %s", data)
+	}
 }

@@ -161,6 +161,9 @@ jobs:
             proto/fileshare/admin/v1/admin.proto
           git diff --exit-code -- proto || {
             echo "::error::proto/ is not what protoc generates from admin.proto: regenerate it (see the README)"; exit 1; }
+      # buf's STANDARD rules; see proto/buf.yaml for why its response naming
+      # is the one kept over AIP-131's.
+      - run: cd proto && go run github.com/bufbuild/buf/cmd/buf@v1.73.0 lint
 
   # THE ORG STANDARD IS 100%, AND THIS PROGRAM DOES NOT MEET IT.
   #

@@ -590,14 +590,14 @@ func (s *server) shutdown(closeFeeds func()) {
 // sockets. The shares no longer served are closed once nothing serves them.
 //
 // It is refused before run has bound anything, and after it has stopped.
-func (s *server) swap(next []*share) error {
+func (s *server) swap(next []*share) (closed uint64, err error) {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 	if s.gen == nil {
-		return errors.New("the server is not serving")
+		return 0, errors.New("the server is not serving")
 	}
 	s.ready.Store(false)
-	s.gen.stop()
+	closed = s.gen.stop()
 	s.sharesMu.Lock()
 	prev := s.shares
 	s.shares = next
@@ -611,7 +611,7 @@ func (s *server) swap(next []*share) error {
 	for _, f := range s.feeds {
 		s.announce(protocolByName(f.proto), f.ln.Addr().String())
 	}
-	return nil
+	return closed, nil
 }
 
 // generationNumber is how many share lists this server has served.

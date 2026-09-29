@@ -4,9 +4,11 @@
 // use them.
 //
 // It manages the shares IT created. A share written in the configuration files
-// is listed, with the same fields, and every change to it is refused with
-// FAILED_PRECONDITION: a share defined in two places is a question nobody
-// wants to answer, and the file is where that one is defined.
+// is listed, with the same fields, and a change to its definition is refused
+// with FAILED_PRECONDITION: a share defined in two places is a question nobody
+// wants to answer, and the file is where that one is defined. Taking it
+// offline and back -- DisableShare, EnableShare -- is not a definition, and is
+// allowed.
 //
 // Every change is applied before the call returns, and applying one restarts
 // the protocol servers: their connections are closed, so a revocation reaches
@@ -22,29 +24,53 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/go-fileshare/fileshare/proto/fileshare/admin/v1;adminv1";
 
 service AdminService {
-  rpc GetServerInfo(GetServerInfoRequest) returns (ServerInfo);
+  rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
 
   rpc ListShares(ListSharesRequest) returns (ListSharesResponse);
-  rpc GetShare(GetShareRequest) returns (Share);
+  rpc GetShare(GetShareRequest) returns (GetShareResponse);
   // CreateShare needs at least one grant. A share with none is open to
   // anyone who authenticates, which the configuration file can say on
   // purpose and an API call should not say by omission.
-  rpc CreateShare(CreateShareRequest) returns (Share);
-  rpc UpdateShare(UpdateShareRequest) returns (Share);
+  rpc CreateShare(CreateShareRequest) returns (CreateShareResponse);
+  rpc UpdateShare(UpdateShareRequest) returns (UpdateShareResponse);
   rpc DeleteShare(DeleteShareRequest) returns (DeleteShareResponse);
 
+  // DisableShare stops serving a share and keeps its definition, the way
+  // Samba's `available = no` does: every attempt to connect fails, the
+  // connections already open are closed, and its image or directory is let
+  // go of -- so the file can be replaced while it is disabled. EnableShare
+  // serves it again, and is refused when its source can no longer be opened.
+  //
+  // Unlike every other change, these apply to a share of the configuration
+  // too: taking a share offline is an operation, not a definition. It is
+  // kept in the state file, and a restart does not bring the share back.
+  rpc DisableShare(DisableShareRequest) returns (DisableShareResponse);
+  rpc EnableShare(EnableShareRequest) returns (EnableShareResponse);
+
   // Grant gives a subject access to a share, or changes the access it has.
-  rpc Grant(GrantRequest) returns (Share);
+  rpc Grant(GrantRequest) returns (GrantResponse);
   // Revoke takes it away. Revoking the last grant is refused, for the reason
   // CreateShare needs one: delete the share instead.
-  rpc Revoke(RevokeRequest) returns (Share);
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
 
   // Who a grant can name.
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
 }
 
+// Applied is what serving a change did.
+message Applied {
+  // The generation now being served; see ServerInfo.generation.
+  uint64 generation = 1;
+  // How many connections the previous generation had open, and closed.
+  uint64 connections_closed = 2;
+}
+
 message GetServerInfoRequest {}
+
+message GetServerInfoResponse {
+  ServerInfo info = 1;
+}
 
 message ServerInfo {
   // What the server calls itself to a client.
@@ -70,6 +96,10 @@ message ListSharesResponse {
 
 message GetShareRequest {
   string name = 1;
+}
+
+message GetShareResponse {
+  Share share = 1;
 }
 
 enum Origin {
@@ -131,6 +161,9 @@ message Share {
   repeated string served_over = 10;
   repeated Refusal refusals = 11;
   uint64 size_bytes = 12;
+  // False when DisableShare took it offline. A disabled share is listed with
+  // what it would serve, and serves nothing.
+  bool enabled = 13;
 }
 
 message Refusal {
@@ -153,6 +186,13 @@ message CreateShareRequest {
   string partition_uuid = 8;
   repeated string protocols = 9;
   repeated Grant grants = 10;
+  // Create it disabled: defined, checked, and not served until EnableShare.
+  bool disabled = 11;
+}
+
+message CreateShareResponse {
+  Share share = 1;
+  Applied applied = 2;
 }
 
 // The fields of a share that can change without it becoming another share.
@@ -164,6 +204,11 @@ message UpdateShareRequest {
   ProtocolList protocols = 3;
 }
 
+message UpdateShareResponse {
+  Share share = 1;
+  Applied applied = 2;
+}
+
 message ProtocolList {
   repeated string names = 1;
 }
@@ -172,16 +217,46 @@ message DeleteShareRequest {
   string name = 1;
 }
 
-message DeleteShareResponse {}
+message DeleteShareResponse {
+  Applied applied = 1;
+}
+
+message DisableShareRequest {
+  string name = 1;
+}
+
+message DisableShareResponse {
+  Share share = 1;
+  Applied applied = 2;
+}
+
+message EnableShareRequest {
+  string name = 1;
+}
+
+message EnableShareResponse {
+  Share share = 1;
+  Applied applied = 2;
+}
 
 message GrantRequest {
   string share = 1;
   Grant grant = 2;
 }
 
+message GrantResponse {
+  Share share = 1;
+  Applied applied = 2;
+}
+
 message RevokeRequest {
   string share = 1;
   Subject subject = 2;
+}
+
+message RevokeResponse {
+  Share share = 1;
+  Applied applied = 2;
 }
 
 message ListUsersRequest {}

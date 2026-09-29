@@ -576,10 +576,19 @@ admin {
 ```
 
 A gRPC service, [`fileshare.admin.v1.AdminService`](proto/fileshare/admin/v1/admin.proto):
-create, update and delete shares, **grant** a user, a `@group`, an
-`oidc:groups:` value or an `oidc:user:` name read or write access, and
-**revoke** it; list the shares, the users (with the protocols their credentials
-can answer) and the groups. `grpc.health.v1` answers on the same listener.
+create, update and delete shares, **disable** and **enable** them, **grant** a
+user, a `@group`, an `oidc:groups:` value or an `oidc:user:` name read or write
+access, and **revoke** it; list the shares, the users (with the protocols their
+credentials can answer) and the groups. Every change answers with what serving
+it did — the generation now served and how many connections were closed.
+`grpc.health.v1` answers on the same listener.
+
+- **Disabling is Samba's `available = no`**: the share stays defined and every
+  attempt to connect fails; its open connections are closed and its image or
+  directory is let go of, so the file can be replaced while it is offline.
+  Unlike every other change it applies to a share of the configuration too —
+  taking a share offline is an operation, not a definition — and it survives a
+  restart; `fileshare check` lists what is offline.
 
 - **Over TCP it is mutual TLS or nothing**: `tls_cert_file`, `tls_key_file` and
   `client_ca_file` together, loopback included — any local user can reach

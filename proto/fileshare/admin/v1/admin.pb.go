@@ -138,6 +138,61 @@ func (Access) EnumDescriptor() ([]byte, []int) {
 	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{1}
 }
 
+// Applied is what serving a change did.
+type Applied struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The generation now being served; see ServerInfo.generation.
+	Generation uint64 `protobuf:"varint,1,opt,name=generation,proto3" json:"generation,omitempty"`
+	// How many connections the previous generation had open, and closed.
+	ConnectionsClosed uint64 `protobuf:"varint,2,opt,name=connections_closed,json=connectionsClosed,proto3" json:"connections_closed,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *Applied) Reset() {
+	*x = Applied{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Applied) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Applied) ProtoMessage() {}
+
+func (x *Applied) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Applied.ProtoReflect.Descriptor instead.
+func (*Applied) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Applied) GetGeneration() uint64 {
+	if x != nil {
+		return x.Generation
+	}
+	return 0
+}
+
+func (x *Applied) GetConnectionsClosed() uint64 {
+	if x != nil {
+		return x.ConnectionsClosed
+	}
+	return 0
+}
+
 type GetServerInfoRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -146,7 +201,7 @@ type GetServerInfoRequest struct {
 
 func (x *GetServerInfoRequest) Reset() {
 	*x = GetServerInfoRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[0]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -158,7 +213,7 @@ func (x *GetServerInfoRequest) String() string {
 func (*GetServerInfoRequest) ProtoMessage() {}
 
 func (x *GetServerInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[0]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -171,7 +226,51 @@ func (x *GetServerInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetServerInfoRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{0}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{1}
+}
+
+type GetServerInfoResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Info          *ServerInfo            `protobuf:"bytes,1,opt,name=info,proto3" json:"info,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServerInfoResponse) Reset() {
+	*x = GetServerInfoResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServerInfoResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServerInfoResponse) ProtoMessage() {}
+
+func (x *GetServerInfoResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServerInfoResponse.ProtoReflect.Descriptor instead.
+func (*GetServerInfoResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetServerInfoResponse) GetInfo() *ServerInfo {
+	if x != nil {
+		return x.Info
+	}
+	return nil
 }
 
 type ServerInfo struct {
@@ -190,7 +289,7 @@ type ServerInfo struct {
 
 func (x *ServerInfo) Reset() {
 	*x = ServerInfo{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[1]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -202,7 +301,7 @@ func (x *ServerInfo) String() string {
 func (*ServerInfo) ProtoMessage() {}
 
 func (x *ServerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[1]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -215,7 +314,7 @@ func (x *ServerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerInfo.ProtoReflect.Descriptor instead.
 func (*ServerInfo) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{1}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ServerInfo) GetName() string {
@@ -263,7 +362,7 @@ type Listener struct {
 
 func (x *Listener) Reset() {
 	*x = Listener{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[2]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -275,7 +374,7 @@ func (x *Listener) String() string {
 func (*Listener) ProtoMessage() {}
 
 func (x *Listener) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[2]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -288,7 +387,7 @@ func (x *Listener) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Listener.ProtoReflect.Descriptor instead.
 func (*Listener) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{2}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Listener) GetProtocol() string {
@@ -313,7 +412,7 @@ type ListSharesRequest struct {
 
 func (x *ListSharesRequest) Reset() {
 	*x = ListSharesRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[3]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +424,7 @@ func (x *ListSharesRequest) String() string {
 func (*ListSharesRequest) ProtoMessage() {}
 
 func (x *ListSharesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[3]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +437,7 @@ func (x *ListSharesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharesRequest.ProtoReflect.Descriptor instead.
 func (*ListSharesRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{3}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{5}
 }
 
 type ListSharesResponse struct {
@@ -350,7 +449,7 @@ type ListSharesResponse struct {
 
 func (x *ListSharesResponse) Reset() {
 	*x = ListSharesResponse{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[4]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -362,7 +461,7 @@ func (x *ListSharesResponse) String() string {
 func (*ListSharesResponse) ProtoMessage() {}
 
 func (x *ListSharesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[4]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -375,7 +474,7 @@ func (x *ListSharesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharesResponse.ProtoReflect.Descriptor instead.
 func (*ListSharesResponse) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{4}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListSharesResponse) GetShares() []*Share {
@@ -394,7 +493,7 @@ type GetShareRequest struct {
 
 func (x *GetShareRequest) Reset() {
 	*x = GetShareRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[5]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +505,7 @@ func (x *GetShareRequest) String() string {
 func (*GetShareRequest) ProtoMessage() {}
 
 func (x *GetShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[5]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +518,7 @@ func (x *GetShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetShareRequest.ProtoReflect.Descriptor instead.
 func (*GetShareRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{5}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetShareRequest) GetName() string {
@@ -427,6 +526,50 @@ func (x *GetShareRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+type GetShareResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetShareResponse) Reset() {
+	*x = GetShareResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetShareResponse) ProtoMessage() {}
+
+func (x *GetShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetShareResponse.ProtoReflect.Descriptor instead.
+func (*GetShareResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GetShareResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
 }
 
 // A Subject is who a grant is for, in the vocabulary the configuration file
@@ -446,7 +589,7 @@ type Subject struct {
 
 func (x *Subject) Reset() {
 	*x = Subject{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[6]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -458,7 +601,7 @@ func (x *Subject) String() string {
 func (*Subject) ProtoMessage() {}
 
 func (x *Subject) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[6]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -471,7 +614,7 @@ func (x *Subject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Subject.ProtoReflect.Descriptor instead.
 func (*Subject) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{6}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Subject) GetKind() isSubject_Kind {
@@ -559,7 +702,7 @@ type Grant struct {
 
 func (x *Grant) Reset() {
 	*x = Grant{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[7]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +714,7 @@ func (x *Grant) String() string {
 func (*Grant) ProtoMessage() {}
 
 func (x *Grant) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[7]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,7 +727,7 @@ func (x *Grant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Grant.ProtoReflect.Descriptor instead.
 func (*Grant) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{7}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Grant) GetSubject() *Subject {
@@ -623,16 +766,19 @@ type Share struct {
 	// For a configuration share, what its allow and writers lists mean.
 	Grants []*Grant `protobuf:"bytes,9,rep,name=grants,proto3" json:"grants,omitempty"`
 	// Which protocols serve it now, and why the others do not.
-	ServedOver    []string   `protobuf:"bytes,10,rep,name=served_over,json=servedOver,proto3" json:"served_over,omitempty"`
-	Refusals      []*Refusal `protobuf:"bytes,11,rep,name=refusals,proto3" json:"refusals,omitempty"`
-	SizeBytes     uint64     `protobuf:"varint,12,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	ServedOver []string   `protobuf:"bytes,10,rep,name=served_over,json=servedOver,proto3" json:"served_over,omitempty"`
+	Refusals   []*Refusal `protobuf:"bytes,11,rep,name=refusals,proto3" json:"refusals,omitempty"`
+	SizeBytes  uint64     `protobuf:"varint,12,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// False when DisableShare took it offline. A disabled share is listed with
+	// what it would serve, and serves nothing.
+	Enabled       bool `protobuf:"varint,13,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Share) Reset() {
 	*x = Share{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[8]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -644,7 +790,7 @@ func (x *Share) String() string {
 func (*Share) ProtoMessage() {}
 
 func (x *Share) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[8]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -657,7 +803,7 @@ func (x *Share) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Share.ProtoReflect.Descriptor instead.
 func (*Share) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{8}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Share) GetName() string {
@@ -755,6 +901,13 @@ func (x *Share) GetSizeBytes() uint64 {
 	return 0
 }
 
+func (x *Share) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
 type isShare_Source interface {
 	isShare_Source()
 }
@@ -783,7 +936,7 @@ type Refusal struct {
 
 func (x *Refusal) Reset() {
 	*x = Refusal{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[9]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +948,7 @@ func (x *Refusal) String() string {
 func (*Refusal) ProtoMessage() {}
 
 func (x *Refusal) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[9]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +961,7 @@ func (x *Refusal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Refusal.ProtoReflect.Descriptor instead.
 func (*Refusal) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{9}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Refusal) GetProtocol() string {
@@ -843,13 +996,15 @@ type CreateShareRequest struct {
 	PartitionUuid  string   `protobuf:"bytes,8,opt,name=partition_uuid,json=partitionUuid,proto3" json:"partition_uuid,omitempty"`
 	Protocols      []string `protobuf:"bytes,9,rep,name=protocols,proto3" json:"protocols,omitempty"`
 	Grants         []*Grant `protobuf:"bytes,10,rep,name=grants,proto3" json:"grants,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Create it disabled: defined, checked, and not served until EnableShare.
+	Disabled      bool `protobuf:"varint,11,opt,name=disabled,proto3" json:"disabled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateShareRequest) Reset() {
 	*x = CreateShareRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[10]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +1016,7 @@ func (x *CreateShareRequest) String() string {
 func (*CreateShareRequest) ProtoMessage() {}
 
 func (x *CreateShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[10]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +1029,7 @@ func (x *CreateShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateShareRequest.ProtoReflect.Descriptor instead.
 func (*CreateShareRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{10}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CreateShareRequest) GetName() string {
@@ -958,6 +1113,13 @@ func (x *CreateShareRequest) GetGrants() []*Grant {
 	return nil
 }
 
+func (x *CreateShareRequest) GetDisabled() bool {
+	if x != nil {
+		return x.Disabled
+	}
+	return false
+}
+
 type isCreateShareRequest_Source interface {
 	isCreateShareRequest_Source()
 }
@@ -974,6 +1136,58 @@ func (*CreateShareRequest_Image) isCreateShareRequest_Source() {}
 
 func (*CreateShareRequest_Directory) isCreateShareRequest_Source() {}
 
+type CreateShareResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateShareResponse) Reset() {
+	*x = CreateShareResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateShareResponse) ProtoMessage() {}
+
+func (x *CreateShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateShareResponse.ProtoReflect.Descriptor instead.
+func (*CreateShareResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CreateShareResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *CreateShareResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
 // The fields of a share that can change without it becoming another share.
 // Its source cannot: delete it and create another.
 type UpdateShareRequest struct {
@@ -988,7 +1202,7 @@ type UpdateShareRequest struct {
 
 func (x *UpdateShareRequest) Reset() {
 	*x = UpdateShareRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[11]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1000,7 +1214,7 @@ func (x *UpdateShareRequest) String() string {
 func (*UpdateShareRequest) ProtoMessage() {}
 
 func (x *UpdateShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[11]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1013,7 +1227,7 @@ func (x *UpdateShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateShareRequest.ProtoReflect.Descriptor instead.
 func (*UpdateShareRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{11}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UpdateShareRequest) GetName() string {
@@ -1037,6 +1251,58 @@ func (x *UpdateShareRequest) GetProtocols() *ProtocolList {
 	return nil
 }
 
+type UpdateShareResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateShareResponse) Reset() {
+	*x = UpdateShareResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateShareResponse) ProtoMessage() {}
+
+func (x *UpdateShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateShareResponse.ProtoReflect.Descriptor instead.
+func (*UpdateShareResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *UpdateShareResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *UpdateShareResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
 type ProtocolList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Names         []string               `protobuf:"bytes,1,rep,name=names,proto3" json:"names,omitempty"`
@@ -1046,7 +1312,7 @@ type ProtocolList struct {
 
 func (x *ProtocolList) Reset() {
 	*x = ProtocolList{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[12]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1324,7 @@ func (x *ProtocolList) String() string {
 func (*ProtocolList) ProtoMessage() {}
 
 func (x *ProtocolList) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[12]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1337,7 @@ func (x *ProtocolList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProtocolList.ProtoReflect.Descriptor instead.
 func (*ProtocolList) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{12}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ProtocolList) GetNames() []string {
@@ -1090,7 +1356,7 @@ type DeleteShareRequest struct {
 
 func (x *DeleteShareRequest) Reset() {
 	*x = DeleteShareRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[13]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1102,7 +1368,7 @@ func (x *DeleteShareRequest) String() string {
 func (*DeleteShareRequest) ProtoMessage() {}
 
 func (x *DeleteShareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[13]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1115,7 +1381,7 @@ func (x *DeleteShareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteShareRequest.ProtoReflect.Descriptor instead.
 func (*DeleteShareRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{13}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DeleteShareRequest) GetName() string {
@@ -1127,13 +1393,14 @@ func (x *DeleteShareRequest) GetName() string {
 
 type DeleteShareResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Applied       *Applied               `protobuf:"bytes,1,opt,name=applied,proto3" json:"applied,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteShareResponse) Reset() {
 	*x = DeleteShareResponse{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[14]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1145,7 +1412,7 @@ func (x *DeleteShareResponse) String() string {
 func (*DeleteShareResponse) ProtoMessage() {}
 
 func (x *DeleteShareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[14]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1158,7 +1425,206 @@ func (x *DeleteShareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteShareResponse.ProtoReflect.Descriptor instead.
 func (*DeleteShareResponse) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{14}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *DeleteShareResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
+type DisableShareRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisableShareRequest) Reset() {
+	*x = DisableShareRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisableShareRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisableShareRequest) ProtoMessage() {}
+
+func (x *DisableShareRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisableShareRequest.ProtoReflect.Descriptor instead.
+func (*DisableShareRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *DisableShareRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type DisableShareResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisableShareResponse) Reset() {
+	*x = DisableShareResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DisableShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DisableShareResponse) ProtoMessage() {}
+
+func (x *DisableShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DisableShareResponse.ProtoReflect.Descriptor instead.
+func (*DisableShareResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *DisableShareResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *DisableShareResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
+type EnableShareRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnableShareRequest) Reset() {
+	*x = EnableShareRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnableShareRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnableShareRequest) ProtoMessage() {}
+
+func (x *EnableShareRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnableShareRequest.ProtoReflect.Descriptor instead.
+func (*EnableShareRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *EnableShareRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type EnableShareResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnableShareResponse) Reset() {
+	*x = EnableShareResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnableShareResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnableShareResponse) ProtoMessage() {}
+
+func (x *EnableShareResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnableShareResponse.ProtoReflect.Descriptor instead.
+func (*EnableShareResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *EnableShareResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *EnableShareResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
 }
 
 type GrantRequest struct {
@@ -1171,7 +1637,7 @@ type GrantRequest struct {
 
 func (x *GrantRequest) Reset() {
 	*x = GrantRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[15]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1183,7 +1649,7 @@ func (x *GrantRequest) String() string {
 func (*GrantRequest) ProtoMessage() {}
 
 func (x *GrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[15]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1196,7 +1662,7 @@ func (x *GrantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrantRequest.ProtoReflect.Descriptor instead.
 func (*GrantRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{15}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GrantRequest) GetShare() string {
@@ -1213,6 +1679,58 @@ func (x *GrantRequest) GetGrant() *Grant {
 	return nil
 }
 
+type GrantResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrantResponse) Reset() {
+	*x = GrantResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantResponse) ProtoMessage() {}
+
+func (x *GrantResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrantResponse.ProtoReflect.Descriptor instead.
+func (*GrantResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GrantResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *GrantResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
 type RevokeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Share         string                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
@@ -1223,7 +1741,7 @@ type RevokeRequest struct {
 
 func (x *RevokeRequest) Reset() {
 	*x = RevokeRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[16]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1235,7 +1753,7 @@ func (x *RevokeRequest) String() string {
 func (*RevokeRequest) ProtoMessage() {}
 
 func (x *RevokeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[16]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1248,7 +1766,7 @@ func (x *RevokeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeRequest.ProtoReflect.Descriptor instead.
 func (*RevokeRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{16}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RevokeRequest) GetShare() string {
@@ -1265,6 +1783,58 @@ func (x *RevokeRequest) GetSubject() *Subject {
 	return nil
 }
 
+type RevokeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Share         *Share                 `protobuf:"bytes,1,opt,name=share,proto3" json:"share,omitempty"`
+	Applied       *Applied               `protobuf:"bytes,2,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevokeResponse) Reset() {
+	*x = RevokeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevokeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevokeResponse) ProtoMessage() {}
+
+func (x *RevokeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevokeResponse.ProtoReflect.Descriptor instead.
+func (*RevokeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *RevokeResponse) GetShare() *Share {
+	if x != nil {
+		return x.Share
+	}
+	return nil
+}
+
+func (x *RevokeResponse) GetApplied() *Applied {
+	if x != nil {
+		return x.Applied
+	}
+	return nil
+}
+
 type ListUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1273,7 +1843,7 @@ type ListUsersRequest struct {
 
 func (x *ListUsersRequest) Reset() {
 	*x = ListUsersRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[17]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1285,7 +1855,7 @@ func (x *ListUsersRequest) String() string {
 func (*ListUsersRequest) ProtoMessage() {}
 
 func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[17]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1298,7 +1868,7 @@ func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListUsersRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{17}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{28}
 }
 
 type ListUsersResponse struct {
@@ -1310,7 +1880,7 @@ type ListUsersResponse struct {
 
 func (x *ListUsersResponse) Reset() {
 	*x = ListUsersResponse{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[18]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1322,7 +1892,7 @@ func (x *ListUsersResponse) String() string {
 func (*ListUsersResponse) ProtoMessage() {}
 
 func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[18]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1335,7 +1905,7 @@ func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListUsersResponse) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{18}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListUsersResponse) GetUsers() []*User {
@@ -1358,7 +1928,7 @@ type User struct {
 
 func (x *User) Reset() {
 	*x = User{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[19]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1370,7 +1940,7 @@ func (x *User) String() string {
 func (*User) ProtoMessage() {}
 
 func (x *User) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[19]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1383,7 +1953,7 @@ func (x *User) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use User.ProtoReflect.Descriptor instead.
 func (*User) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{19}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *User) GetName() string {
@@ -1415,7 +1985,7 @@ type ListGroupsRequest struct {
 
 func (x *ListGroupsRequest) Reset() {
 	*x = ListGroupsRequest{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[20]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1427,7 +1997,7 @@ func (x *ListGroupsRequest) String() string {
 func (*ListGroupsRequest) ProtoMessage() {}
 
 func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[20]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1440,7 +2010,7 @@ func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsRequest.ProtoReflect.Descriptor instead.
 func (*ListGroupsRequest) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{20}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{31}
 }
 
 type ListGroupsResponse struct {
@@ -1452,7 +2022,7 @@ type ListGroupsResponse struct {
 
 func (x *ListGroupsResponse) Reset() {
 	*x = ListGroupsResponse{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[21]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1464,7 +2034,7 @@ func (x *ListGroupsResponse) String() string {
 func (*ListGroupsResponse) ProtoMessage() {}
 
 func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[21]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1477,7 +2047,7 @@ func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsResponse.ProtoReflect.Descriptor instead.
 func (*ListGroupsResponse) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{21}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ListGroupsResponse) GetGroups() []*Group {
@@ -1497,7 +2067,7 @@ type Group struct {
 
 func (x *Group) Reset() {
 	*x = Group{}
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[22]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +2079,7 @@ func (x *Group) String() string {
 func (*Group) ProtoMessage() {}
 
 func (x *Group) ProtoReflect() protoreflect.Message {
-	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[22]
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +2092,7 @@ func (x *Group) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Group.ProtoReflect.Descriptor instead.
 func (*Group) Descriptor() ([]byte, []int) {
-	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{22}
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *Group) GetName() string {
@@ -1543,8 +2113,15 @@ var File_fileshare_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\n" +
-	"\x1efileshare/admin/v1/admin.proto\x12\x12fileshare.admin.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x16\n" +
-	"\x14GetServerInfoRequest\"\xcc\x01\n" +
+	"\x1efileshare/admin/v1/admin.proto\x12\x12fileshare.admin.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"X\n" +
+	"\aApplied\x12\x1e\n" +
+	"\n" +
+	"generation\x18\x01 \x01(\x04R\n" +
+	"generation\x12-\n" +
+	"\x12connections_closed\x18\x02 \x01(\x04R\x11connectionsClosed\"\x16\n" +
+	"\x14GetServerInfoRequest\"K\n" +
+	"\x15GetServerInfoResponse\x122\n" +
+	"\x04info\x18\x01 \x01(\v2\x1e.fileshare.admin.v1.ServerInfoR\x04info\"\xcc\x01\n" +
 	"\n" +
 	"ServerInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
@@ -1561,7 +2138,9 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x12ListSharesResponse\x121\n" +
 	"\x06shares\x18\x01 \x03(\v2\x19.fileshare.admin.v1.ShareR\x06shares\"%\n" +
 	"\x0fGetShareRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x7f\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"C\n" +
+	"\x10GetShareResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\"\x7f\n" +
 	"\aSubject\x12\x14\n" +
 	"\x04user\x18\x01 \x01(\tH\x00R\x04user\x12\x16\n" +
 	"\x05group\x18\x02 \x01(\tH\x00R\x05group\x12\x1f\n" +
@@ -1571,7 +2150,7 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x04kind\"r\n" +
 	"\x05Grant\x125\n" +
 	"\asubject\x18\x01 \x01(\v2\x1b.fileshare.admin.v1.SubjectR\asubject\x122\n" +
-	"\x06access\x18\x02 \x01(\x0e2\x1a.fileshare.admin.v1.AccessR\x06access\"\xc8\x03\n" +
+	"\x06access\x18\x02 \x01(\x0e2\x1a.fileshare.admin.v1.AccessR\x06access\"\xe2\x03\n" +
 	"\x05Share\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x05image\x18\x02 \x01(\tH\x00R\x05image\x12\x1e\n" +
@@ -1589,11 +2168,12 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"servedOver\x127\n" +
 	"\brefusals\x18\v \x03(\v2\x1b.fileshare.admin.v1.RefusalR\brefusals\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\f \x01(\x04R\tsizeBytesB\b\n" +
+	"size_bytes\x18\f \x01(\x04R\tsizeBytes\x12\x18\n" +
+	"\aenabled\x18\r \x01(\bR\aenabledB\b\n" +
 	"\x06source\"=\n" +
 	"\aRefusal\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xf9\x02\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x95\x03\n" +
 	"\x12CreateShareRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x05image\x18\x02 \x01(\tH\x00R\x05image\x12\x1e\n" +
@@ -1607,27 +2187,51 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x0epartition_uuid\x18\b \x01(\tR\rpartitionUuid\x12\x1c\n" +
 	"\tprotocols\x18\t \x03(\tR\tprotocols\x121\n" +
 	"\x06grants\x18\n" +
-	" \x03(\v2\x19.fileshare.admin.v1.GrantR\x06grantsB\b\n" +
+	" \x03(\v2\x19.fileshare.admin.v1.GrantR\x06grants\x12\x1a\n" +
+	"\bdisabled\x18\v \x01(\bR\bdisabledB\b\n" +
 	"\x06sourceB\f\n" +
 	"\n" +
-	"_partition\"\x98\x01\n" +
+	"_partition\"}\n" +
+	"\x13CreateShareResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"\x98\x01\n" +
 	"\x12UpdateShareRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\tread_only\x18\x02 \x01(\bH\x00R\breadOnly\x88\x01\x01\x12>\n" +
 	"\tprotocols\x18\x03 \x01(\v2 .fileshare.admin.v1.ProtocolListR\tprotocolsB\f\n" +
 	"\n" +
-	"_read_only\"$\n" +
+	"_read_only\"}\n" +
+	"\x13UpdateShareResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"$\n" +
 	"\fProtocolList\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\"(\n" +
 	"\x12DeleteShareRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\x15\n" +
-	"\x13DeleteShareResponse\"U\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"L\n" +
+	"\x13DeleteShareResponse\x125\n" +
+	"\aapplied\x18\x01 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\")\n" +
+	"\x13DisableShareRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"~\n" +
+	"\x14DisableShareResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"(\n" +
+	"\x12EnableShareRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"}\n" +
+	"\x13EnableShareResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"U\n" +
 	"\fGrantRequest\x12\x14\n" +
 	"\x05share\x18\x01 \x01(\tR\x05share\x12/\n" +
-	"\x05grant\x18\x02 \x01(\v2\x19.fileshare.admin.v1.GrantR\x05grant\"\\\n" +
+	"\x05grant\x18\x02 \x01(\v2\x19.fileshare.admin.v1.GrantR\x05grant\"w\n" +
+	"\rGrantResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"\\\n" +
 	"\rRevokeRequest\x12\x14\n" +
 	"\x05share\x18\x01 \x01(\tR\x05share\x125\n" +
-	"\asubject\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.SubjectR\asubject\"\x12\n" +
+	"\asubject\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.SubjectR\asubject\"x\n" +
+	"\x0eRevokeResponse\x12/\n" +
+	"\x05share\x18\x01 \x01(\v2\x19.fileshare.admin.v1.ShareR\x05share\x125\n" +
+	"\aapplied\x18\x02 \x01(\v2\x1b.fileshare.admin.v1.AppliedR\aapplied\"\x12\n" +
 	"\x10ListUsersRequest\"C\n" +
 	"\x11ListUsersResponse\x12.\n" +
 	"\x05users\x18\x01 \x03(\v2\x18.fileshare.admin.v1.UserR\x05users\"K\n" +
@@ -1649,17 +2253,19 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x06Access\x12\x16\n" +
 	"\x12ACCESS_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vACCESS_READ\x10\x01\x12\x10\n" +
-	"\fACCESS_WRITE\x10\x022\xdb\x06\n" +
-	"\fAdminService\x12Y\n" +
-	"\rGetServerInfo\x12(.fileshare.admin.v1.GetServerInfoRequest\x1a\x1e.fileshare.admin.v1.ServerInfo\x12[\n" +
+	"\fACCESS_WRITE\x10\x022\xe1\b\n" +
+	"\fAdminService\x12d\n" +
+	"\rGetServerInfo\x12(.fileshare.admin.v1.GetServerInfoRequest\x1a).fileshare.admin.v1.GetServerInfoResponse\x12[\n" +
 	"\n" +
-	"ListShares\x12%.fileshare.admin.v1.ListSharesRequest\x1a&.fileshare.admin.v1.ListSharesResponse\x12J\n" +
-	"\bGetShare\x12#.fileshare.admin.v1.GetShareRequest\x1a\x19.fileshare.admin.v1.Share\x12P\n" +
-	"\vCreateShare\x12&.fileshare.admin.v1.CreateShareRequest\x1a\x19.fileshare.admin.v1.Share\x12P\n" +
-	"\vUpdateShare\x12&.fileshare.admin.v1.UpdateShareRequest\x1a\x19.fileshare.admin.v1.Share\x12^\n" +
-	"\vDeleteShare\x12&.fileshare.admin.v1.DeleteShareRequest\x1a'.fileshare.admin.v1.DeleteShareResponse\x12D\n" +
-	"\x05Grant\x12 .fileshare.admin.v1.GrantRequest\x1a\x19.fileshare.admin.v1.Share\x12F\n" +
-	"\x06Revoke\x12!.fileshare.admin.v1.RevokeRequest\x1a\x19.fileshare.admin.v1.Share\x12X\n" +
+	"ListShares\x12%.fileshare.admin.v1.ListSharesRequest\x1a&.fileshare.admin.v1.ListSharesResponse\x12U\n" +
+	"\bGetShare\x12#.fileshare.admin.v1.GetShareRequest\x1a$.fileshare.admin.v1.GetShareResponse\x12^\n" +
+	"\vCreateShare\x12&.fileshare.admin.v1.CreateShareRequest\x1a'.fileshare.admin.v1.CreateShareResponse\x12^\n" +
+	"\vUpdateShare\x12&.fileshare.admin.v1.UpdateShareRequest\x1a'.fileshare.admin.v1.UpdateShareResponse\x12^\n" +
+	"\vDeleteShare\x12&.fileshare.admin.v1.DeleteShareRequest\x1a'.fileshare.admin.v1.DeleteShareResponse\x12a\n" +
+	"\fDisableShare\x12'.fileshare.admin.v1.DisableShareRequest\x1a(.fileshare.admin.v1.DisableShareResponse\x12^\n" +
+	"\vEnableShare\x12&.fileshare.admin.v1.EnableShareRequest\x1a'.fileshare.admin.v1.EnableShareResponse\x12L\n" +
+	"\x05Grant\x12 .fileshare.admin.v1.GrantRequest\x1a!.fileshare.admin.v1.GrantResponse\x12O\n" +
+	"\x06Revoke\x12!.fileshare.admin.v1.RevokeRequest\x1a\".fileshare.admin.v1.RevokeResponse\x12X\n" +
 	"\tListUsers\x12$.fileshare.admin.v1.ListUsersRequest\x1a%.fileshare.admin.v1.ListUsersResponse\x12[\n" +
 	"\n" +
 	"ListGroups\x12%.fileshare.admin.v1.ListGroupsRequest\x1a&.fileshare.admin.v1.ListGroupsResponseBDZBgithub.com/go-fileshare/fileshare/proto/fileshare/admin/v1;adminv1b\x06proto3"
@@ -1677,75 +2283,105 @@ func file_fileshare_admin_v1_admin_proto_rawDescGZIP() []byte {
 }
 
 var file_fileshare_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_fileshare_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_fileshare_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_fileshare_admin_v1_admin_proto_goTypes = []any{
 	(Origin)(0),                   // 0: fileshare.admin.v1.Origin
 	(Access)(0),                   // 1: fileshare.admin.v1.Access
-	(*GetServerInfoRequest)(nil),  // 2: fileshare.admin.v1.GetServerInfoRequest
-	(*ServerInfo)(nil),            // 3: fileshare.admin.v1.ServerInfo
-	(*Listener)(nil),              // 4: fileshare.admin.v1.Listener
-	(*ListSharesRequest)(nil),     // 5: fileshare.admin.v1.ListSharesRequest
-	(*ListSharesResponse)(nil),    // 6: fileshare.admin.v1.ListSharesResponse
-	(*GetShareRequest)(nil),       // 7: fileshare.admin.v1.GetShareRequest
-	(*Subject)(nil),               // 8: fileshare.admin.v1.Subject
-	(*Grant)(nil),                 // 9: fileshare.admin.v1.Grant
-	(*Share)(nil),                 // 10: fileshare.admin.v1.Share
-	(*Refusal)(nil),               // 11: fileshare.admin.v1.Refusal
-	(*CreateShareRequest)(nil),    // 12: fileshare.admin.v1.CreateShareRequest
-	(*UpdateShareRequest)(nil),    // 13: fileshare.admin.v1.UpdateShareRequest
-	(*ProtocolList)(nil),          // 14: fileshare.admin.v1.ProtocolList
-	(*DeleteShareRequest)(nil),    // 15: fileshare.admin.v1.DeleteShareRequest
-	(*DeleteShareResponse)(nil),   // 16: fileshare.admin.v1.DeleteShareResponse
-	(*GrantRequest)(nil),          // 17: fileshare.admin.v1.GrantRequest
-	(*RevokeRequest)(nil),         // 18: fileshare.admin.v1.RevokeRequest
-	(*ListUsersRequest)(nil),      // 19: fileshare.admin.v1.ListUsersRequest
-	(*ListUsersResponse)(nil),     // 20: fileshare.admin.v1.ListUsersResponse
-	(*User)(nil),                  // 21: fileshare.admin.v1.User
-	(*ListGroupsRequest)(nil),     // 22: fileshare.admin.v1.ListGroupsRequest
-	(*ListGroupsResponse)(nil),    // 23: fileshare.admin.v1.ListGroupsResponse
-	(*Group)(nil),                 // 24: fileshare.admin.v1.Group
-	(*timestamppb.Timestamp)(nil), // 25: google.protobuf.Timestamp
+	(*Applied)(nil),               // 2: fileshare.admin.v1.Applied
+	(*GetServerInfoRequest)(nil),  // 3: fileshare.admin.v1.GetServerInfoRequest
+	(*GetServerInfoResponse)(nil), // 4: fileshare.admin.v1.GetServerInfoResponse
+	(*ServerInfo)(nil),            // 5: fileshare.admin.v1.ServerInfo
+	(*Listener)(nil),              // 6: fileshare.admin.v1.Listener
+	(*ListSharesRequest)(nil),     // 7: fileshare.admin.v1.ListSharesRequest
+	(*ListSharesResponse)(nil),    // 8: fileshare.admin.v1.ListSharesResponse
+	(*GetShareRequest)(nil),       // 9: fileshare.admin.v1.GetShareRequest
+	(*GetShareResponse)(nil),      // 10: fileshare.admin.v1.GetShareResponse
+	(*Subject)(nil),               // 11: fileshare.admin.v1.Subject
+	(*Grant)(nil),                 // 12: fileshare.admin.v1.Grant
+	(*Share)(nil),                 // 13: fileshare.admin.v1.Share
+	(*Refusal)(nil),               // 14: fileshare.admin.v1.Refusal
+	(*CreateShareRequest)(nil),    // 15: fileshare.admin.v1.CreateShareRequest
+	(*CreateShareResponse)(nil),   // 16: fileshare.admin.v1.CreateShareResponse
+	(*UpdateShareRequest)(nil),    // 17: fileshare.admin.v1.UpdateShareRequest
+	(*UpdateShareResponse)(nil),   // 18: fileshare.admin.v1.UpdateShareResponse
+	(*ProtocolList)(nil),          // 19: fileshare.admin.v1.ProtocolList
+	(*DeleteShareRequest)(nil),    // 20: fileshare.admin.v1.DeleteShareRequest
+	(*DeleteShareResponse)(nil),   // 21: fileshare.admin.v1.DeleteShareResponse
+	(*DisableShareRequest)(nil),   // 22: fileshare.admin.v1.DisableShareRequest
+	(*DisableShareResponse)(nil),  // 23: fileshare.admin.v1.DisableShareResponse
+	(*EnableShareRequest)(nil),    // 24: fileshare.admin.v1.EnableShareRequest
+	(*EnableShareResponse)(nil),   // 25: fileshare.admin.v1.EnableShareResponse
+	(*GrantRequest)(nil),          // 26: fileshare.admin.v1.GrantRequest
+	(*GrantResponse)(nil),         // 27: fileshare.admin.v1.GrantResponse
+	(*RevokeRequest)(nil),         // 28: fileshare.admin.v1.RevokeRequest
+	(*RevokeResponse)(nil),        // 29: fileshare.admin.v1.RevokeResponse
+	(*ListUsersRequest)(nil),      // 30: fileshare.admin.v1.ListUsersRequest
+	(*ListUsersResponse)(nil),     // 31: fileshare.admin.v1.ListUsersResponse
+	(*User)(nil),                  // 32: fileshare.admin.v1.User
+	(*ListGroupsRequest)(nil),     // 33: fileshare.admin.v1.ListGroupsRequest
+	(*ListGroupsResponse)(nil),    // 34: fileshare.admin.v1.ListGroupsResponse
+	(*Group)(nil),                 // 35: fileshare.admin.v1.Group
+	(*timestamppb.Timestamp)(nil), // 36: google.protobuf.Timestamp
 }
 var file_fileshare_admin_v1_admin_proto_depIdxs = []int32{
-	25, // 0: fileshare.admin.v1.ServerInfo.started:type_name -> google.protobuf.Timestamp
-	4,  // 1: fileshare.admin.v1.ServerInfo.listeners:type_name -> fileshare.admin.v1.Listener
-	10, // 2: fileshare.admin.v1.ListSharesResponse.shares:type_name -> fileshare.admin.v1.Share
-	8,  // 3: fileshare.admin.v1.Grant.subject:type_name -> fileshare.admin.v1.Subject
-	1,  // 4: fileshare.admin.v1.Grant.access:type_name -> fileshare.admin.v1.Access
-	0,  // 5: fileshare.admin.v1.Share.origin:type_name -> fileshare.admin.v1.Origin
-	9,  // 6: fileshare.admin.v1.Share.grants:type_name -> fileshare.admin.v1.Grant
-	11, // 7: fileshare.admin.v1.Share.refusals:type_name -> fileshare.admin.v1.Refusal
-	9,  // 8: fileshare.admin.v1.CreateShareRequest.grants:type_name -> fileshare.admin.v1.Grant
-	14, // 9: fileshare.admin.v1.UpdateShareRequest.protocols:type_name -> fileshare.admin.v1.ProtocolList
-	9,  // 10: fileshare.admin.v1.GrantRequest.grant:type_name -> fileshare.admin.v1.Grant
-	8,  // 11: fileshare.admin.v1.RevokeRequest.subject:type_name -> fileshare.admin.v1.Subject
-	21, // 12: fileshare.admin.v1.ListUsersResponse.users:type_name -> fileshare.admin.v1.User
-	24, // 13: fileshare.admin.v1.ListGroupsResponse.groups:type_name -> fileshare.admin.v1.Group
-	2,  // 14: fileshare.admin.v1.AdminService.GetServerInfo:input_type -> fileshare.admin.v1.GetServerInfoRequest
-	5,  // 15: fileshare.admin.v1.AdminService.ListShares:input_type -> fileshare.admin.v1.ListSharesRequest
-	7,  // 16: fileshare.admin.v1.AdminService.GetShare:input_type -> fileshare.admin.v1.GetShareRequest
-	12, // 17: fileshare.admin.v1.AdminService.CreateShare:input_type -> fileshare.admin.v1.CreateShareRequest
-	13, // 18: fileshare.admin.v1.AdminService.UpdateShare:input_type -> fileshare.admin.v1.UpdateShareRequest
-	15, // 19: fileshare.admin.v1.AdminService.DeleteShare:input_type -> fileshare.admin.v1.DeleteShareRequest
-	17, // 20: fileshare.admin.v1.AdminService.Grant:input_type -> fileshare.admin.v1.GrantRequest
-	18, // 21: fileshare.admin.v1.AdminService.Revoke:input_type -> fileshare.admin.v1.RevokeRequest
-	19, // 22: fileshare.admin.v1.AdminService.ListUsers:input_type -> fileshare.admin.v1.ListUsersRequest
-	22, // 23: fileshare.admin.v1.AdminService.ListGroups:input_type -> fileshare.admin.v1.ListGroupsRequest
-	3,  // 24: fileshare.admin.v1.AdminService.GetServerInfo:output_type -> fileshare.admin.v1.ServerInfo
-	6,  // 25: fileshare.admin.v1.AdminService.ListShares:output_type -> fileshare.admin.v1.ListSharesResponse
-	10, // 26: fileshare.admin.v1.AdminService.GetShare:output_type -> fileshare.admin.v1.Share
-	10, // 27: fileshare.admin.v1.AdminService.CreateShare:output_type -> fileshare.admin.v1.Share
-	10, // 28: fileshare.admin.v1.AdminService.UpdateShare:output_type -> fileshare.admin.v1.Share
-	16, // 29: fileshare.admin.v1.AdminService.DeleteShare:output_type -> fileshare.admin.v1.DeleteShareResponse
-	10, // 30: fileshare.admin.v1.AdminService.Grant:output_type -> fileshare.admin.v1.Share
-	10, // 31: fileshare.admin.v1.AdminService.Revoke:output_type -> fileshare.admin.v1.Share
-	20, // 32: fileshare.admin.v1.AdminService.ListUsers:output_type -> fileshare.admin.v1.ListUsersResponse
-	23, // 33: fileshare.admin.v1.AdminService.ListGroups:output_type -> fileshare.admin.v1.ListGroupsResponse
-	24, // [24:34] is the sub-list for method output_type
-	14, // [14:24] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	5,  // 0: fileshare.admin.v1.GetServerInfoResponse.info:type_name -> fileshare.admin.v1.ServerInfo
+	36, // 1: fileshare.admin.v1.ServerInfo.started:type_name -> google.protobuf.Timestamp
+	6,  // 2: fileshare.admin.v1.ServerInfo.listeners:type_name -> fileshare.admin.v1.Listener
+	13, // 3: fileshare.admin.v1.ListSharesResponse.shares:type_name -> fileshare.admin.v1.Share
+	13, // 4: fileshare.admin.v1.GetShareResponse.share:type_name -> fileshare.admin.v1.Share
+	11, // 5: fileshare.admin.v1.Grant.subject:type_name -> fileshare.admin.v1.Subject
+	1,  // 6: fileshare.admin.v1.Grant.access:type_name -> fileshare.admin.v1.Access
+	0,  // 7: fileshare.admin.v1.Share.origin:type_name -> fileshare.admin.v1.Origin
+	12, // 8: fileshare.admin.v1.Share.grants:type_name -> fileshare.admin.v1.Grant
+	14, // 9: fileshare.admin.v1.Share.refusals:type_name -> fileshare.admin.v1.Refusal
+	12, // 10: fileshare.admin.v1.CreateShareRequest.grants:type_name -> fileshare.admin.v1.Grant
+	13, // 11: fileshare.admin.v1.CreateShareResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 12: fileshare.admin.v1.CreateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	19, // 13: fileshare.admin.v1.UpdateShareRequest.protocols:type_name -> fileshare.admin.v1.ProtocolList
+	13, // 14: fileshare.admin.v1.UpdateShareResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 15: fileshare.admin.v1.UpdateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	2,  // 16: fileshare.admin.v1.DeleteShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	13, // 17: fileshare.admin.v1.DisableShareResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 18: fileshare.admin.v1.DisableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	13, // 19: fileshare.admin.v1.EnableShareResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 20: fileshare.admin.v1.EnableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	12, // 21: fileshare.admin.v1.GrantRequest.grant:type_name -> fileshare.admin.v1.Grant
+	13, // 22: fileshare.admin.v1.GrantResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 23: fileshare.admin.v1.GrantResponse.applied:type_name -> fileshare.admin.v1.Applied
+	11, // 24: fileshare.admin.v1.RevokeRequest.subject:type_name -> fileshare.admin.v1.Subject
+	13, // 25: fileshare.admin.v1.RevokeResponse.share:type_name -> fileshare.admin.v1.Share
+	2,  // 26: fileshare.admin.v1.RevokeResponse.applied:type_name -> fileshare.admin.v1.Applied
+	32, // 27: fileshare.admin.v1.ListUsersResponse.users:type_name -> fileshare.admin.v1.User
+	35, // 28: fileshare.admin.v1.ListGroupsResponse.groups:type_name -> fileshare.admin.v1.Group
+	3,  // 29: fileshare.admin.v1.AdminService.GetServerInfo:input_type -> fileshare.admin.v1.GetServerInfoRequest
+	7,  // 30: fileshare.admin.v1.AdminService.ListShares:input_type -> fileshare.admin.v1.ListSharesRequest
+	9,  // 31: fileshare.admin.v1.AdminService.GetShare:input_type -> fileshare.admin.v1.GetShareRequest
+	15, // 32: fileshare.admin.v1.AdminService.CreateShare:input_type -> fileshare.admin.v1.CreateShareRequest
+	17, // 33: fileshare.admin.v1.AdminService.UpdateShare:input_type -> fileshare.admin.v1.UpdateShareRequest
+	20, // 34: fileshare.admin.v1.AdminService.DeleteShare:input_type -> fileshare.admin.v1.DeleteShareRequest
+	22, // 35: fileshare.admin.v1.AdminService.DisableShare:input_type -> fileshare.admin.v1.DisableShareRequest
+	24, // 36: fileshare.admin.v1.AdminService.EnableShare:input_type -> fileshare.admin.v1.EnableShareRequest
+	26, // 37: fileshare.admin.v1.AdminService.Grant:input_type -> fileshare.admin.v1.GrantRequest
+	28, // 38: fileshare.admin.v1.AdminService.Revoke:input_type -> fileshare.admin.v1.RevokeRequest
+	30, // 39: fileshare.admin.v1.AdminService.ListUsers:input_type -> fileshare.admin.v1.ListUsersRequest
+	33, // 40: fileshare.admin.v1.AdminService.ListGroups:input_type -> fileshare.admin.v1.ListGroupsRequest
+	4,  // 41: fileshare.admin.v1.AdminService.GetServerInfo:output_type -> fileshare.admin.v1.GetServerInfoResponse
+	8,  // 42: fileshare.admin.v1.AdminService.ListShares:output_type -> fileshare.admin.v1.ListSharesResponse
+	10, // 43: fileshare.admin.v1.AdminService.GetShare:output_type -> fileshare.admin.v1.GetShareResponse
+	16, // 44: fileshare.admin.v1.AdminService.CreateShare:output_type -> fileshare.admin.v1.CreateShareResponse
+	18, // 45: fileshare.admin.v1.AdminService.UpdateShare:output_type -> fileshare.admin.v1.UpdateShareResponse
+	21, // 46: fileshare.admin.v1.AdminService.DeleteShare:output_type -> fileshare.admin.v1.DeleteShareResponse
+	23, // 47: fileshare.admin.v1.AdminService.DisableShare:output_type -> fileshare.admin.v1.DisableShareResponse
+	25, // 48: fileshare.admin.v1.AdminService.EnableShare:output_type -> fileshare.admin.v1.EnableShareResponse
+	27, // 49: fileshare.admin.v1.AdminService.Grant:output_type -> fileshare.admin.v1.GrantResponse
+	29, // 50: fileshare.admin.v1.AdminService.Revoke:output_type -> fileshare.admin.v1.RevokeResponse
+	31, // 51: fileshare.admin.v1.AdminService.ListUsers:output_type -> fileshare.admin.v1.ListUsersResponse
+	34, // 52: fileshare.admin.v1.AdminService.ListGroups:output_type -> fileshare.admin.v1.ListGroupsResponse
+	41, // [41:53] is the sub-list for method output_type
+	29, // [29:41] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_fileshare_admin_v1_admin_proto_init() }
@@ -1753,28 +2389,28 @@ func file_fileshare_admin_v1_admin_proto_init() {
 	if File_fileshare_admin_v1_admin_proto != nil {
 		return
 	}
-	file_fileshare_admin_v1_admin_proto_msgTypes[6].OneofWrappers = []any{
+	file_fileshare_admin_v1_admin_proto_msgTypes[9].OneofWrappers = []any{
 		(*Subject_User)(nil),
 		(*Subject_Group)(nil),
 		(*Subject_OidcGroup)(nil),
 		(*Subject_OidcUser)(nil),
 	}
-	file_fileshare_admin_v1_admin_proto_msgTypes[8].OneofWrappers = []any{
+	file_fileshare_admin_v1_admin_proto_msgTypes[11].OneofWrappers = []any{
 		(*Share_Image)(nil),
 		(*Share_Directory)(nil),
 	}
-	file_fileshare_admin_v1_admin_proto_msgTypes[10].OneofWrappers = []any{
+	file_fileshare_admin_v1_admin_proto_msgTypes[13].OneofWrappers = []any{
 		(*CreateShareRequest_Image)(nil),
 		(*CreateShareRequest_Directory)(nil),
 	}
-	file_fileshare_admin_v1_admin_proto_msgTypes[11].OneofWrappers = []any{}
+	file_fileshare_admin_v1_admin_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fileshare_admin_v1_admin_proto_rawDesc), len(file_fileshare_admin_v1_admin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   23,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

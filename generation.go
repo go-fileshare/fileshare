@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"errors"
 	"net"
 	"sync"
@@ -188,10 +189,18 @@ func (s *server) startGeneration(n uint64, feeds []*feed, failures chan<- error)
 		p := protocolByName(f.proto)
 		l := f.listener()
 		g.lns = append(g.lns, l)
+		// WebDAV and S3 are HTTP, and HTTPS is HTTP over a TLS listener --
+		// wrapped here, over the generation's listener, so that closing the
+		// generation still closes every connection under the TLS. NFS starts
+		// TLS inside its own protocol (RFC 9289), so it is not wrapped.
+		var ln net.Listener = l
+		if c := s.tlsConfigs[f.proto]; c != nil && f.proto != "nfs" {
+			ln = tls.NewListener(l, c)
+		}
 		g.wg.Add(1)
 		go func() {
 			defer g.wg.Done()
-			err := p.serve(s, p, l)
+			err := p.serve(s, p, ln)
 			if g.stopped.Load() {
 				return
 			}

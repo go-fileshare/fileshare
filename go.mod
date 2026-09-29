@@ -12,6 +12,7 @@ require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.8.0
 	github.com/go-authn/oidc v0.1.0
+	github.com/go-authn/servercert v0.1.0
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a

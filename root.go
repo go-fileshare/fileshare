@@ -389,6 +389,25 @@ func report(cmd *cobra.Command, cfg *config) error {
 		fmt.Fprintf(out, "%s\n", who)
 	}
 
+	// Which protocols a password or a file crosses the network encrypted
+	// over, and which in the clear on purpose: the thing to check before
+	// pointing a client at this from another machine.
+	if cfg.TLS != nil || slices.ContainsFunc(cfg.Serves, func(b serveBlock) bool { return b.Plaintext }) {
+		fmt.Fprintln(out)
+		for _, b := range cfg.Serves {
+			switch {
+			case b.TLS && b.ClientCAFile != "":
+				fmt.Fprintf(out, "%s: TLS, certificate from %s; clients present one signed by %s (the machine, not the person)\n",
+					b.Protocol, cfg.TLS.describe(), b.ClientCAFile)
+			case b.TLS:
+				fmt.Fprintf(out, "%s: TLS, certificate from %s\n", b.Protocol, cfg.TLS.describe())
+			case b.Plaintext:
+				fmt.Fprintf(out, "%s: in the clear on %s, on purpose (plaintext = true): TLS must be terminated in front of it\n",
+					b.Protocol, b.Addr)
+			}
+		}
+	}
+
 	// Offline is not absent: whoever reads this before a restart should see
 	// that a share they expect is defined and deliberately not served.
 	if len(cfg.offline) > 0 {

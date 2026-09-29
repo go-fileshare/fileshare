@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/oidc"
+	"github.com/go-authn/servercert"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/go-filesystems/detect"
@@ -76,6 +78,11 @@ type server struct {
 	stats serverStats
 	// mgr is the admin API's, when it runs.
 	mgr atomic.Pointer[manager]
+
+	// certs is where the TLS certificate comes from, and tlsConfigs what
+	// each protocol served over TLS is served with; see tls.go.
+	certs      *servercert.Source
+	tlsConfigs map[string]*tls.Config
 }
 
 // currentShares is the list being served now.
@@ -164,6 +171,30 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	if err := cfg.resolve(s.dir, s.who); err != nil {
 		s.Close()
 		return nil, err
+	}
+
+	// The certificate is opened with everything else, so a missing file or
+	// an ACME cache nobody may write is a refusal at the start rather than
+	// a handshake failure at the first client.
+	if cfg.TLS != nil {
+		certs, err := servercert.New(cfg.TLS.servercert())
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+		s.certs = certs
+		s.closers = append(s.closers, certs)
+		s.tlsConfigs = map[string]*tls.Config{}
+		for _, b := range cfg.Serves {
+			c, err := s.tlsFor(b.Protocol)
+			if err != nil {
+				s.Close()
+				return nil, err
+			}
+			if c != nil {
+				s.tlsConfigs[b.Protocol] = c
+			}
+		}
 	}
 
 	if v, err := openOIDC(cfg.OIDC); err != nil {
@@ -628,10 +659,14 @@ func (s *server) announce(p *protocol, addr string) {
 	for _, sh := range served {
 		names = append(names, sh.name)
 	}
+	over := ""
+	if s.tlsConfigs[p.name] != nil {
+		over = " (TLS)"
+	}
 	if len(names) == 0 {
-		fmt.Fprintf(s.out, "%-6s on %s — NOTHING: every share names who may use it\n", p.name, addr)
+		fmt.Fprintf(s.out, "%-6s on %s%s — NOTHING: every share names who may use it\n", p.name, addr, over)
 	} else {
-		fmt.Fprintf(s.out, "%-6s on %s — %s\n", p.name, addr, list(names))
+		fmt.Fprintf(s.out, "%-6s on %s%s — %s\n", p.name, addr, over, list(names))
 	}
 	for _, sh := range refused {
 		fmt.Fprintf(s.out, "       %s\n", p.refusal(sh))

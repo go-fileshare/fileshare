@@ -4,9 +4,11 @@
 // use them.
 //
 // It manages the shares IT created. A share written in the configuration files
-// is listed, with the same fields, and every change to it is refused with
-// FAILED_PRECONDITION: a share defined in two places is a question nobody
-// wants to answer, and the file is where that one is defined.
+// is listed, with the same fields, and a change to its definition is refused
+// with FAILED_PRECONDITION: a share defined in two places is a question nobody
+// wants to answer, and the file is where that one is defined. Taking it
+// offline and back -- DisableShare, EnableShare -- is not a definition, and is
+// allowed.
 //
 // Every change is applied before the call returns, and applying one restarts
 // the protocol servers: their connections are closed, so a revocation reaches

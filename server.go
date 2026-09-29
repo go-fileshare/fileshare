@@ -174,14 +174,14 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
 		sh := &share{
-			name:      b.Name,
-			image:     b.Image,
-			readOnly:  b.ReadOnly,
+			name:         b.Name,
+			image:        b.Image,
+			readOnly:     b.ReadOnly,
 			allow:        allow,
 			writers:      writers,
 			allowClaims:  allowClaims,
 			writerClaims: writerClaims,
-			protocols: b.Protocols,
+			protocols:    b.Protocols,
 		}
 		f, ro, err := openImageFile(b.Image, b.ReadOnly)
 		if err != nil {

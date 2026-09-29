@@ -45,6 +45,10 @@ type server struct {
 	// model is go-authn/directory's: no single credential answers all three
 	// protocols that authenticate.
 	who map[string]*directory.Identity
+	// whoMu guards who, which a directory reload replaces while the
+	// protocols read it; see reload.go. Read it through person, anybody and
+	// people, never directly.
+	whoMu sync.RWMutex
 	// dir is where they came from, for `check` to say.
 	dir *directory.Set
 	out io.Writer
@@ -78,6 +82,13 @@ type server struct {
 	stats serverStats
 	// mgr is the admin API's, when it runs.
 	mgr atomic.Pointer[manager]
+
+	// changeMu makes an admin change and a directory reload one at a time:
+	// both build a list of shares from the one being served and swap it in.
+	changeMu sync.Mutex
+	// smbAddUser adds somebody to the running SMB server, when there is
+	// one: the one change a reload makes without a new generation.
+	smbAddUser atomic.Pointer[func(name string, ntKey []byte)]
 
 	// certs is where the TLS certificate comes from, and tlsConfigs what
 	// each protocol served over TLS is served with; see tls.go.
@@ -168,7 +179,7 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	// Now that the directories have answered, the names in the file can be
 	// checked against the people who exist rather than against the file
 	// itself -- see config.resolve.
-	if err := cfg.resolve(s.dir, s.who); err != nil {
+	if err := cfg.resolve(s.dir, s.people()); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -225,7 +236,16 @@ func open(cfg *config, out io.Writer) (*server, error) {
 //
 // What was opened here and not taken by the result is closed before returning
 // an error, so a refused change leaves nothing open behind it.
-func (s *server) openShares(blocks []shareBlock, previous []*share) (_ []*share, err error) {
+func (s *server) openShares(blocks []shareBlock, previous []*share) ([]*share, error) {
+	return s.openSharesExpanding(blocks, previous, func(names []string) ([]string, error) {
+		return directory.Expand(names, s.dir)
+	})
+}
+
+// openSharesExpanding is openShares with the lists expanded by expand: a
+// reload expands them more forgivingly than a start does -- see reload.go.
+func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
+	expand func([]string) ([]string, error)) (_ []*share, err error) {
 	var opened []*share
 	defer func() {
 		if err != nil {
@@ -248,11 +268,11 @@ func (s *server) openShares(blocks []shareBlock, previous []*share) (_ []*share,
 		if err != nil {
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
-		allow, err := directory.Expand(allowNames, s.dir)
+		allow, err := expand(allowNames)
 		if err != nil {
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
-		writers, err := directory.Expand(writerNames, s.dir)
+		writers, err := expand(writerNames)
 		if err != nil {
 			return nil, fmt.Errorf("share %q: %w", b.Name, err)
 		}
@@ -266,6 +286,9 @@ func (s *server) openShares(blocks []shareBlock, previous []*share) (_ []*share,
 			writerClaims: writerClaims,
 			protocols:    b.Protocols,
 			opened:       imageKeyOf(b),
+			block:        b,
+			allowNamed:   len(allowNames) > 0,
+			writersNamed: len(writerNames) > 0,
 		}
 		if prev := sameImage(previous, sh.opened); prev != nil {
 			if prev.openedReadOnly && !b.ReadOnly {
@@ -469,8 +492,9 @@ func (s *server) Close() error {
 // sortedIdentities is everybody, in a stable order: a listing that reshuffles
 // itself between two runs is one nobody can trust.
 func (s *server) sortedIdentities() []*directory.Identity {
-	out := make([]*directory.Identity, 0, len(s.who))
-	for _, id := range s.who {
+	who := s.people()
+	out := make([]*directory.Identity, 0, len(who))
+	for _, id := range who {
 		out = append(out, id)
 	}
 	slices.SortFunc(out, func(a, b *directory.Identity) int { return strings.Compare(a.Name(), b.Name()) })
@@ -491,7 +515,7 @@ func (s *server) stop() {
 // whose directory holds only a bcrypt cannot use SMB, and that is a fact about
 // NTLMv2 rather than a decision made here.
 func (s *server) ntKey(user string) ([]byte, bool) {
-	id, ok := s.who[user]
+	id, ok := s.person(user)
 	if !ok {
 		return nil, false
 	}
@@ -502,7 +526,7 @@ func (s *server) ntKey(user string) ([]byte, bool) {
 // matches answers the question HTTP Basic asks, which anything holding a hash
 // -- or a directory that will bind -- can answer.
 func (s *server) matches(user, password string) bool {
-	id, ok := s.who[user]
+	id, ok := s.person(user)
 	return ok && id.Verify(password) == nil
 }
 
@@ -510,7 +534,7 @@ func (s *server) matches(user, password string) bool {
 // where a bad one can be dropped rather than refused: a key added to LDAP by
 // somebody else must not stop this server from starting.
 func (s *server) keysFor(user string) []ssh.PublicKey {
-	id, ok := s.who[user]
+	id, ok := s.person(user)
 	if !ok {
 		return nil
 	}
@@ -592,6 +616,13 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 		return err
 	}
 	defer ctl()
+
+	// The directory is read again on SIGHUP, and every `reload` when the
+	// configuration says so; see reload.go.
+	every, _ := cfg.reloadEvery()
+	stopReload := make(chan struct{})
+	defer close(stopReload)
+	go s.reloadLoop(every, hangups(stopReload), stopReload)
 
 	select {
 	case <-ctx.Done():
@@ -697,4 +728,27 @@ func openImageFile(path string, readOnly bool) (*os.File, bool, error) {
 	}
 	f, err := os.Open(path)
 	return f, true, err
+}
+
+// person is somebody the directories know, as of the last read.
+func (s *server) person(name string) (*directory.Identity, bool) {
+	s.whoMu.RLock()
+	defer s.whoMu.RUnlock()
+	id, ok := s.who[name]
+	return id, ok
+}
+
+// anybody reports whether the directories know anybody at all.
+func (s *server) anybody() bool {
+	s.whoMu.RLock()
+	defer s.whoMu.RUnlock()
+	return len(s.who) > 0
+}
+
+// people is everybody, as of the last read. The map is never modified once
+// it is here -- a reload replaces it -- so the caller may range over it.
+func (s *server) people() map[string]*directory.Identity {
+	s.whoMu.RLock()
+	defer s.whoMu.RUnlock()
+	return s.who
 }

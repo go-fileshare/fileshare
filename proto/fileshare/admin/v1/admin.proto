@@ -53,6 +53,15 @@ service AdminService {
   // CreateShare needs one: delete the share instead.
   rpc Revoke(RevokeRequest) returns (RevokeResponse);
 
+  // ReloadDirectory reads the people again, now, rather than at the next
+  // `reload` interval or SIGHUP. Only additions are applied in place; any
+  // removal, changed credential, or share whose expanded lists changed
+  // starts a new generation and closes the connections of the old one --
+  // which is how disabling somebody in the directory reaches the sessions
+  // they already have. A directory that cannot be read changes nothing, and
+  // is UNAVAILABLE.
+  rpc ReloadDirectory(ReloadDirectoryRequest) returns (ReloadDirectoryResponse);
+
   // Who a grant can name.
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
   rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
@@ -257,6 +266,21 @@ message RevokeRequest {
 message RevokeResponse {
   Share share = 1;
   Applied applied = 2;
+}
+
+message ReloadDirectoryRequest {}
+
+message ReloadDirectoryResponse {
+  repeated string added = 1;
+  repeated string removed = 2;
+  repeated string changed = 3;
+  // True when a new generation was started; applied then says how many
+  // connections were closed.
+  bool new_generation = 4;
+  Applied applied = 5;
+  // Things a person should know: a group that no longer exists, somebody a
+  // share names who is no longer in the directory.
+  repeated string notes = 6;
 }
 
 message ListUsersRequest {}

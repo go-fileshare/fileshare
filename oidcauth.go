@@ -82,7 +82,7 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// oidc:user:... -- is that same statement made for one share: somebody
 	// it names is known here, as far as that share goes.
 	p := principal{name: name, federated: true, groups: tok.Groups()}
-	if _, known := s.who[name]; !known && !s.trustAllTokens() && !s.namedByARule(p) {
+	if _, known := s.person(name); !known && !s.trustAllTokens() && !s.namedByARule(p) {
 		fmt.Fprintf(s.out, "%s arrived with a valid token and is in %s: refused\n",
 			name, nobodyIn(s.dir))
 		return principal{}, false
@@ -132,7 +132,7 @@ func (s *server) challenge(w http.ResponseWriter) {
 		w.Header().Add("WWW-Authenticate",
 			fmt.Sprintf(`Bearer realm=%q, scope="openid"`, s.name))
 	}
-	if len(s.who) > 0 {
+	if s.anybody() {
 		w.Header().Add("WWW-Authenticate", `Basic realm="`+s.name+`", charset="UTF-8"`)
 	}
 }

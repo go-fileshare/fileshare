@@ -752,3 +752,19 @@ func TestDisableAndEnableAShare(t *testing.T) {
 		t.Fatalf("state after deleting: %s", data)
 	}
 }
+
+// ReloadDirectory over the API: an unchanged directory is not an error, and
+// says it changed nothing.
+func TestAdminReloadDirectory(t *testing.T) {
+	m := startManaged(t, t.TempDir(), "")
+	res, err := m.client.ReloadDirectory(context.Background(), &adminv1.ReloadDirectoryRequest{})
+	if err != nil || res.GetNewGeneration() || len(res.GetAdded())+len(res.GetRemoved())+len(res.GetChanged()) != 0 ||
+		res.GetApplied().GetGeneration() != 1 {
+		t.Fatalf("an unchanged directory: %v %v", res, err)
+	}
+	_, body := m.scrape(t, "/metrics")
+	if !strings.Contains(body, `fileshare_directory_reloads_total{result="unchanged"} 1`) ||
+		!strings.Contains(body, "fileshare_directory_people 3") {
+		t.Fatalf("metrics:\n%s", body)
+	}
+}

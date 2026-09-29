@@ -37,18 +37,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AdminService_GetServerInfo_FullMethodName = "/fileshare.admin.v1.AdminService/GetServerInfo"
-	AdminService_ListShares_FullMethodName    = "/fileshare.admin.v1.AdminService/ListShares"
-	AdminService_GetShare_FullMethodName      = "/fileshare.admin.v1.AdminService/GetShare"
-	AdminService_CreateShare_FullMethodName   = "/fileshare.admin.v1.AdminService/CreateShare"
-	AdminService_UpdateShare_FullMethodName   = "/fileshare.admin.v1.AdminService/UpdateShare"
-	AdminService_DeleteShare_FullMethodName   = "/fileshare.admin.v1.AdminService/DeleteShare"
-	AdminService_DisableShare_FullMethodName  = "/fileshare.admin.v1.AdminService/DisableShare"
-	AdminService_EnableShare_FullMethodName   = "/fileshare.admin.v1.AdminService/EnableShare"
-	AdminService_Grant_FullMethodName         = "/fileshare.admin.v1.AdminService/Grant"
-	AdminService_Revoke_FullMethodName        = "/fileshare.admin.v1.AdminService/Revoke"
-	AdminService_ListUsers_FullMethodName     = "/fileshare.admin.v1.AdminService/ListUsers"
-	AdminService_ListGroups_FullMethodName    = "/fileshare.admin.v1.AdminService/ListGroups"
+	AdminService_GetServerInfo_FullMethodName   = "/fileshare.admin.v1.AdminService/GetServerInfo"
+	AdminService_ListShares_FullMethodName      = "/fileshare.admin.v1.AdminService/ListShares"
+	AdminService_GetShare_FullMethodName        = "/fileshare.admin.v1.AdminService/GetShare"
+	AdminService_CreateShare_FullMethodName     = "/fileshare.admin.v1.AdminService/CreateShare"
+	AdminService_UpdateShare_FullMethodName     = "/fileshare.admin.v1.AdminService/UpdateShare"
+	AdminService_DeleteShare_FullMethodName     = "/fileshare.admin.v1.AdminService/DeleteShare"
+	AdminService_DisableShare_FullMethodName    = "/fileshare.admin.v1.AdminService/DisableShare"
+	AdminService_EnableShare_FullMethodName     = "/fileshare.admin.v1.AdminService/EnableShare"
+	AdminService_Grant_FullMethodName           = "/fileshare.admin.v1.AdminService/Grant"
+	AdminService_Revoke_FullMethodName          = "/fileshare.admin.v1.AdminService/Revoke"
+	AdminService_ReloadDirectory_FullMethodName = "/fileshare.admin.v1.AdminService/ReloadDirectory"
+	AdminService_ListUsers_FullMethodName       = "/fileshare.admin.v1.AdminService/ListUsers"
+	AdminService_ListGroups_FullMethodName      = "/fileshare.admin.v1.AdminService/ListGroups"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -80,6 +81,14 @@ type AdminServiceClient interface {
 	// Revoke takes it away. Revoking the last grant is refused, for the reason
 	// CreateShare needs one: delete the share instead.
 	Revoke(ctx context.Context, in *RevokeRequest, opts ...grpc.CallOption) (*RevokeResponse, error)
+	// ReloadDirectory reads the people again, now, rather than at the next
+	// `reload` interval or SIGHUP. Only additions are applied in place; any
+	// removal, changed credential, or share whose expanded lists changed
+	// starts a new generation and closes the connections of the old one --
+	// which is how disabling somebody in the directory reaches the sessions
+	// they already have. A directory that cannot be read changes nothing, and
+	// is UNAVAILABLE.
+	ReloadDirectory(ctx context.Context, in *ReloadDirectoryRequest, opts ...grpc.CallOption) (*ReloadDirectoryResponse, error)
 	// Who a grant can name.
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
@@ -193,6 +202,16 @@ func (c *adminServiceClient) Revoke(ctx context.Context, in *RevokeRequest, opts
 	return out, nil
 }
 
+func (c *adminServiceClient) ReloadDirectory(ctx context.Context, in *ReloadDirectoryRequest, opts ...grpc.CallOption) (*ReloadDirectoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReloadDirectoryResponse)
+	err := c.cc.Invoke(ctx, AdminService_ReloadDirectory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *adminServiceClient) ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListUsersResponse)
@@ -242,6 +261,14 @@ type AdminServiceServer interface {
 	// Revoke takes it away. Revoking the last grant is refused, for the reason
 	// CreateShare needs one: delete the share instead.
 	Revoke(context.Context, *RevokeRequest) (*RevokeResponse, error)
+	// ReloadDirectory reads the people again, now, rather than at the next
+	// `reload` interval or SIGHUP. Only additions are applied in place; any
+	// removal, changed credential, or share whose expanded lists changed
+	// starts a new generation and closes the connections of the old one --
+	// which is how disabling somebody in the directory reaches the sessions
+	// they already have. A directory that cannot be read changes nothing, and
+	// is UNAVAILABLE.
+	ReloadDirectory(context.Context, *ReloadDirectoryRequest) (*ReloadDirectoryResponse, error)
 	// Who a grant can name.
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
@@ -284,6 +311,9 @@ func (UnimplementedAdminServiceServer) Grant(context.Context, *GrantRequest) (*G
 }
 func (UnimplementedAdminServiceServer) Revoke(context.Context, *RevokeRequest) (*RevokeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Revoke not implemented")
+}
+func (UnimplementedAdminServiceServer) ReloadDirectory(context.Context, *ReloadDirectoryRequest) (*ReloadDirectoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReloadDirectory not implemented")
 }
 func (UnimplementedAdminServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListUsers not implemented")
@@ -492,6 +522,24 @@ func _AdminService_Revoke_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ReloadDirectory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReloadDirectoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ReloadDirectory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ReloadDirectory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ReloadDirectory(ctx, req.(*ReloadDirectoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AdminService_ListUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListUsersRequest)
 	if err := dec(in); err != nil {
@@ -574,6 +622,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Revoke",
 			Handler:    _AdminService_Revoke_Handler,
+		},
+		{
+			MethodName: "ReloadDirectory",
+			Handler:    _AdminService_ReloadDirectory_Handler,
 		},
 		{
 			MethodName: "ListUsers",

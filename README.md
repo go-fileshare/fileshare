@@ -5,8 +5,8 @@
 [![CI](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml/badge.svg)](https://github.com/go-fileshare/fileshare/actions/workflows/ci.yml)
 [![cgo](https://img.shields.io/badge/cgo-none-0079A8?style=flat-square)](https://github.com/go-fileshare/fileshare)
 
-**Share a disk image over SMB, NFS, WebDAV, SFTP and S3 — one configuration,
-one binary, pure Go.**
+**Share a disk image — or a directory — over SMB, NFS, WebDAV, SFTP and S3 —
+one configuration, one binary, pure Go.**
 
 Documentation: **<https://go-fileshare.github.io/docs/>**
 
@@ -405,6 +405,20 @@ the three database drivers, `noldap` the LDAP client.
 | `-tags nosql,noldap` | 19.8 MB |
 | `-tags nosql,noldap,nonfs,nowebdav,nosftp,nos3` | 16.2 MB |
 
+The admin API brought gRPC and protobuf in, and they are behind `nogrpc`
+(linux/amd64, measured 2026-09-29, when the rows above had grown to 34.1 MB for
+everything):
+
+| build | size |
+|---|---|
+| everything, with the admin API | 46.1 MB |
+| `-tags nogrpc` | 34.4 MB |
+| `-tags nosql,noldap,nogrpc` | 22.5 MB |
+
+gRPC costs **11.7 MB** — the measurement below, taken again, now that it is
+here for a reason of its own. A configuration with an `admin` block, in a
+`nogrpc` build, is refused rather than served without one.
+
 `nosql` is by a distance the biggest lever: PostgreSQL, MySQL and SQLite
 together weigh **11.7 MB**, more than every protocol in this program put
 together. A site whose users are in the file wants it. The drivers are imported
@@ -527,6 +541,116 @@ Two things were measured rather than assumed, and both were surprises:
   *is*. Reads to a device are rounded out to whole blocks; without that,
   `/dev/rdisk4` reported `unknown filesystem` -- the `EINVAL` swallowed by a
   detector that found no magic number.
+
+## A directory, not only an image
+
+A share may serve a directory of the host — a container's volume, say —
+instead of an image:
+
+```hcl
+share "photos" {
+  directory = "/data/photos"
+  allow     = ["@family"]
+}
+```
+
+It is [go-filesystems/osfs](https://github.com/go-filesystems/osfs), which
+reaches the tree through an `os.Root`: `..` that climbs out, and a symbolic link
+leading out, are refused by the kernel-backed root, not by a string test. A
+client may *create* a link to `/etc`; nothing will follow it. A FIFO planted in
+the tree is refused rather than left to hang the server.
+
+A directory is **not** put behind the one lock images share (see below): an
+image driver owns one file and promises nothing about two calls at once, while
+a host tree is the kernel's. `filesystem` and `partition` are for an image, and
+a directory share naming one is refused.
+
+## The admin API
+
+```hcl
+admin {
+  listen       = "unix:///run/fileshare/admin.sock"   # made 0600
+  state_file   = "/var/lib/fileshare/shares.json"
+  source_roots = ["/srv/images", "/data"]
+}
+```
+
+A gRPC service, [`fileshare.admin.v1.AdminService`](proto/fileshare/admin/v1/admin.proto):
+create, update and delete shares, **disable** and **enable** them, **grant** a
+user, a `@group`, an `oidc:groups:` value or an `oidc:user:` name read or write
+access, and **revoke** it; list the shares, the users (with the protocols their
+credentials can answer) and the groups. Every change answers with what serving
+it did — the generation now served and how many connections were closed.
+`grpc.health.v1` answers on the same listener.
+
+- **Disabling is Samba's `available = no`**: the share stays defined and every
+  attempt to connect fails; its open connections are closed and its image or
+  directory is let go of, so the file can be replaced while it is offline.
+  Unlike every other change it applies to a share of the configuration too —
+  taking a share offline is an operation, not a definition — and it survives a
+  restart; `fileshare check` lists what is offline.
+
+- **Over TCP it is mutual TLS or nothing**: `tls_cert_file`, `tls_key_file` and
+  `client_ca_file` together, loopback included — any local user can reach
+  loopback, and this API decides who reads whose files. The listener is
+  [grpc-transports/control](https://github.com/grpc-transports/control). Each
+  change is logged with who made it: the client certificate's CN, or the
+  socket peer's uid.
+- **It manages the shares it created.** A share written in the configuration is
+  listed and cannot be changed through the API: a share defined in two places
+  is a question nobody wants to answer. The API's shares live in `state_file`,
+  written atomically, and are served again at the next start.
+- **A source must lie under `source_roots`**, resolved — links followed, `..`
+  taken out — and it is the resolved path that is kept. Without `source_roots`
+  the API cannot create shares: the process can read `/dev` and `/etc`, and
+  nobody meant to hand those to a caller.
+- **Every share has at least one grant.** A share with none is open to anyone
+  who authenticates; the file may say that on purpose, an API call should not
+  say it by omission. So `CreateShare` needs a grant and revoking the last one
+  is refused.
+- **A change is checked like a configuration, opened, written down, then
+  served** — and a change the server cannot honour (an image that will not
+  open, a name nobody in the directory has) is refused with what was served and
+  what was written left as they were.
+- ⛔ **A change restarts the protocol servers, and closes their connections.**
+  SMB checks who may connect once per tree connect and SFTP builds a person's
+  tree once per login, so a session that outlived a revocation would keep the
+  access just taken away. The ports stay bound, so a client connecting during a
+  change waits instead of being refused; images whose share did not change keep
+  their driver, never opened a second time.
+
+The Go code under `proto/` is generated and committed, so `go install` needs no
+`protoc`; after changing the `.proto`, regenerate it with the versions CI pins
+(protoc 34.1, protoc-gen-go v1.36.12, protoc-gen-go-grpc v1.6.2):
+
+```sh
+protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
+  --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
+  proto/fileshare/admin/v1/admin.proto
+```
+
+`--isolate` does not go with an `admin` block yet: there is no one process a
+change could be applied to.
+
+## Health and metrics
+
+```hcl
+metrics { listen = "127.0.0.1:9100" }   # or unix:///run/fileshare/metrics.sock
+```
+
+`/healthz` (the process answers), `/readyz` (every protocol is bound and a
+generation is serving — 503, and why, while starting, applying a change or
+stopping) and `/metrics` in Prometheus text format, served by
+[go-net-health/endpoint](https://github.com/go-net-health/endpoint) on a
+listener of its own, never a public port.
+
+`fileshare_shares{origin}`, `fileshare_generation`,
+`fileshare_connections_accepted_total{protocol}`,
+`fileshare_connections_open{protocol}`, `fileshare_admin_changes_total{result}`,
+`fileshare_admin_requests_total{method,code}`, the Go runtime, build info.
+⛔ **No metric names a share or a person**: WebDAV answers 404 for a share
+somebody may not use, so that it is not confirmed to exist, and a scrape must
+not confirm it either.
 
 ## One image, several protocols, one lock
 

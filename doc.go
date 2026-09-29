@@ -84,6 +84,15 @@
 // question a bind answers. See github.com/go-authn/directory, whose model this
 // is, and Identity.Can, which is why check can print it per person.
 //
+// # A directory, the admin API, and what a supervisor asks
+//
+// A share may serve a directory of the host -- `directory = "/data"` in place
+// of `image` -- confined with os.Root; see hostdir.go. An `admin` block turns
+// on a gRPC API that creates shares and grants them to people and groups,
+// kept in a state file of its own; see admin_grpc.go, state.go and, for what a
+// change does to the servers already running, generation.go. A `metrics`
+// block serves /healthz, /readyz and /metrics; see metrics.go.
+//
 // `fileshare check` prints the whole matrix -- every share against every
 // protocol, and who may read and write it -- because that is the question a
 // person actually has before they restart a server other people are using.

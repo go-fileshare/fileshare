@@ -43,7 +43,7 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 		}
 	}
 
-	served, _ := p.exports(s.cfg, s.shares)
+	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		opts := []nfs.ExportOption{
 			// The size is known because the image was opened to find it, and

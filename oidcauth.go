@@ -93,7 +93,7 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 // namedByARule reports whether any share names this person through the
 // identity provider.
 func (s *server) namedByARule(p principal) bool {
-	for _, sh := range s.shares {
+	for _, sh := range s.currentShares() {
 		if p.matches(sh.allowClaims) || p.matches(sh.writerClaims) {
 			return true
 		}

@@ -21,25 +21,31 @@ require (
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.3.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
+	github.com/go-filesystems/osfs v0.1.0
 	github.com/go-filesystems/s3 v0.1.0
 	github.com/go-filesystems/sftp v0.3.0
 	github.com/go-filesystems/smb v0.2.0
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/webdav v0.1.0
+	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/s3 v0.0.0-20260903051126-cfe79d096697
+	github.com/grpc-transports/control v0.1.0
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.57.0
+	google.golang.org/grpc v1.84.0
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.59.0
 )
 
 require (
 	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
 
 require (
@@ -66,7 +72,7 @@ require (
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-volumes/gpt v0.2.0
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

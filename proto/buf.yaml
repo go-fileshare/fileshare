@@ -1,0 +1,6 @@
+# buf's STANDARD rules, checked in CI. They ask for one response message per
+# RPC, where AIP-131 would return the resource itself; the wrappers are what
+# lets a change say what serving it did (Applied), so buf's rule is the one kept.
+version: v2
+lint:
+  use: [STANDARD]

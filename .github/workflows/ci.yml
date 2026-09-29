@@ -111,7 +111,12 @@ jobs:
                # Not a protocol: where the PEOPLE come from. A site whose
                # users are in the file needs neither an LDAP client nor three
                # database drivers, and should not be made to carry them.
-               nosql, noldap, "nosql,noldap", "nosql,noldap,nonfs,nosftp", "nosql,noldap,nonfs,nowebdav,nosftp,nos3"]
+               nosql, noldap, "nosql,noldap", "nosql,noldap,nonfs,nosftp", "nosql,noldap,nonfs,nowebdav,nosftp,nos3",
+               # Not a protocol either: the admin API. gRPC and protobuf are
+               # the largest thing in the binary (+11.5 MB measured when they
+               # came in), and a site that manages its shares in files should
+               # not carry them.
+               nogrpc, "nogrpc,nowebdav", "nogrpc,nosql,noldap,nonfs,nowebdav,nosftp,nos3"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -129,6 +134,36 @@ jobs:
           echo "everything: $((full/1024)) KiB   -tags ${{ matrix.tags }}: $((cut/1024)) KiB"
           [ "$cut" -lt "$full" ] || { echo "::error::the tagged build is not smaller"; exit 1; }
       - run: go test -tags "${{ matrix.tags }}" -count=1 ./...
+
+  # The Go code under proto/ is GENERATED, and committed so that `go install`
+  # needs no protoc. This lane regenerates it with the pinned generators and
+  # fails when what is committed is not what the .proto says.
+  proto:
+    name: generated code matches the .proto
+    runs-on: ubuntu-latest
+    env:
+      PROTOC_VERSION: "34.1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+          cache: true
+      - run: |
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
+            --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
+            proto/fileshare/admin/v1/admin.proto
+          git diff --exit-code -- proto || {
+            echo "::error::proto/ is not what protoc generates from admin.proto: regenerate it (see the README)"; exit 1; }
+      # buf's STANDARD rules; see proto/buf.yaml for why its response naming
+      # is the one kept over AIP-131's.
+      - run: cd proto && go run github.com/bufbuild/buf/cmd/buf@v1.73.0 lint
 
   # THE ORG STANDARD IS 100%, AND THIS PROGRAM DOES NOT MEET IT.
   #
@@ -154,7 +189,10 @@ jobs:
         run: pip install --break-system-packages "pyjwt[crypto]" || pipx install "pyjwt[crypto]"
       - run: |
           FLOOR=70.0
-          FILESHARE_REQUIRE_JUDGE=1 go test -coverprofile=cover.out ./... >/dev/null
+          # proto/ is protoc's output, not code anybody here wrote or tests:
+          # counted, its ~530 statements took the total from 82% to 62%
+          # without one line of this program being less tested.
+          FILESHARE_REQUIRE_JUDGE=1 go test -coverprofile=cover.out $(go list ./... | grep -v /proto/) >/dev/null
           go tool cover -func=cover.out
           cov=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "coverage: ${cov}%  floor: ${FLOOR}%  standard: 100%"

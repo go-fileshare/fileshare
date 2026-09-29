@@ -3,6 +3,7 @@
 package main
 
 import (
+	"io"
 	"slices"
 
 	"github.com/go-filesystems/detect"
@@ -42,6 +43,69 @@ type share struct {
 	// partition describes the one that was taken, when the share chose one,
 	// in the words the configuration could have used to ask for it.
 	partition string
+
+	// opened is what was opened, so a later list of shares can tell whether
+	// it names the same image; see server.openShares.
+	opened imageKey
+	// openedReadOnly is true when the FILE was opened read-only, whatever
+	// the share asked. forcedReadOnly is true when the share cannot take a
+	// write whatever the block says -- a device, or a chosen partition.
+	openedReadOnly bool
+	forcedReadOnly bool
+	// closers are the driver and the file under it, owned by whichever
+	// share holds them last.
+	closers []io.Closer
+}
+
+// An imageKey is what makes two shares the same opened image.
+type imageKey struct {
+	image, directory, filesystem, label, uuid string
+	partition                                 int
+}
+
+func imageKeyOf(b shareBlock) imageKey {
+	k := imageKey{image: b.Image, directory: b.Directory, filesystem: b.Filesystem,
+		label: b.PartitionLabel, uuid: b.PartitionUUID}
+	if b.Partition != nil {
+		k.partition = *b.Partition
+	}
+	return k
+}
+
+// adopt serves the driver prev opened. Both hold it until one of the two
+// lists is let go of -- see release -- so a change that fails after this
+// leaves prev exactly as it was.
+func (s *share) adopt(prev *share) {
+	s.fsys, s.kind, s.size, s.named, s.partition = prev.fsys, prev.kind, prev.size, prev.named, prev.partition
+	s.openedReadOnly, s.forcedReadOnly = prev.openedReadOnly, prev.forcedReadOnly
+	s.closers = prev.closers
+	if s.openedReadOnly || s.forcedReadOnly {
+		s.readOnly = true
+		s.writers = nil
+	}
+}
+
+// release closes the drivers of shares that no share in keep still serves:
+// after a change, the old list is released against the new one, and a
+// change that failed releases the new list against the old.
+func release(shares, keep []*share) {
+	for _, sh := range shares {
+		if !slices.ContainsFunc(keep, func(k *share) bool { return k.fsys == sh.fsys }) {
+			sh.close()
+		}
+	}
+}
+
+// close closes what this share owns.
+func (s *share) close() error {
+	var err error
+	for _, c := range s.closers {
+		if cerr := c.Close(); err == nil {
+			err = cerr
+		}
+	}
+	s.closers = nil
+	return err
 }
 
 // restricted reports whether this share names anybody. A restricted share

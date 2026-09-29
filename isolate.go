@@ -204,6 +204,8 @@ func newServeOneCmd(o *options) *cobra.Command {
 			// A child serves ONE protocol and knows only the shares it was
 			// given: everything else is dropped before an image is opened.
 			cfg.Serves = []serveBlock{{Protocol: protocolName, Addr: addr}}
+			// The parent refused both; a child must never bind them either.
+			cfg.Admin, cfg.Metrics = nil, nil
 			if only != "" {
 				keep := strings.Split(only, ",")
 				var kept []shareBlock

@@ -94,6 +94,13 @@ type server struct {
 	// each protocol served over TLS is served with; see tls.go.
 	certs      *servercert.Source
 	tlsConfigs map[string]*tls.Config
+
+	// sshKRL is the provider's list of revoked SSH certificates, when the
+	// oidc block names one. It outlives generations, and is fetched by run.
+	sshKRL *revocationList
+	// nfsCRL is the client CA's CRL, when NFS takes identities from
+	// certificates; see nfs_identity.go.
+	nfsCRL *revocationList
 }
 
 // currentShares is the list being served now.
@@ -206,6 +213,19 @@ func open(cfg *config, out io.Writer) (*server, error) {
 				s.tlsConfigs[b.Protocol] = c
 			}
 		}
+	}
+
+	if l, err := openSSHKRL(cfg.OIDC, s.out); err != nil {
+		s.Close()
+		return nil, err
+	} else {
+		s.sshKRL = l
+	}
+	if l, err := openNFSCRL(cfg.serveBlockFor("nfs"), s.out); err != nil {
+		s.Close()
+		return nil, err
+	} else {
+		s.nfsCRL = l
 	}
 
 	if v, err := openOIDC(cfg.OIDC); err != nil {
@@ -623,6 +643,9 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	stopReload := make(chan struct{})
 	defer close(stopReload)
 	go s.reloadLoop(every, hangups(stopReload), stopReload)
+	for _, l := range s.revocationLists() {
+		go l.run(stopReload)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -751,4 +774,16 @@ func (s *server) people() map[string]*directory.Identity {
 	s.whoMu.RLock()
 	defer s.whoMu.RUnlock()
 	return s.who
+}
+
+// revocationLists are the lists this server keeps copies of.
+func (s *server) revocationLists() []*revocationList {
+	var out []*revocationList
+	if s.sshKRL != nil {
+		out = append(out, s.sshKRL)
+	}
+	if s.nfsCRL != nil {
+		out = append(out, s.nfsCRL)
+	}
+	return out
 }

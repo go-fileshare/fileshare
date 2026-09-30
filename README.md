@@ -247,6 +247,38 @@ default, at most 168h, and never past the IdP session's end) and
 `opkssh_max_age` here. Keep it as short as the clients' re-login allows --
 `bridge token` and opkssh fetch a new one without asking the person.
 
+#### Revoking a certificate
+
+```hcl
+oidc {
+  # ...
+  ssh_ca_file     = "/etc/fileshare/bridge-ca.pub"
+  ssh_krl_url     = "https://bridge.example.org/ssh/krl"   # or ssh_krl_file
+  ssh_krl_max_age = "1h"                                   # default; ssh_krl_refresh = "1m"
+}
+```
+
+go-authn/bridge publishes the SSH certificates it has revoked — a person
+disabled, an IdP disabled — as an OpenSSH **KRL** (`PROTOCOL.krl`, the list
+`sshd`'s `RevokedKeys` reads), and fileshare keeps a copy of it, read with
+[go-authn/krl](https://github.com/go-authn/krl). A revoked certificate is
+refused at login, and **a session it already opened stops being served**: SSH
+checks a certificate once, so every operation of a federated SFTP session asks
+the KRL again, open files included.
+
+⛔ **It fails closed.** While the KRL cannot be fetched, or its last good copy is
+older than `ssh_krl_max_age`, the provider's certificates are refused: a
+revocation check that lets everything through when the list is unreachable is
+the one an attacker who can block the list defeats. The list must then be
+served as reliably as the logins it governs; `fileshare_revocation_list_age_seconds`
+is the metric to alert on before `max_age` is reached. The KRL is fetched over
+https only (`ssh_krl_ca_file` pins its authorities); it is not signed, because
+nothing checks a KRL's signature -- OpenSSH 9.6 and 10.3 read a signed one and
+skip the signature (measured by go-authn/krl against both).
+
+OpenPubkey (opkssh) certificates are not in any KRL — nothing issued them but
+the person's own key — and are bounded by `opkssh_max_age`.
+
 #### Which institutions, and which groups
 
 ```hcl
@@ -837,6 +869,51 @@ one AUTH_SYS claims. So a share that names who may use it is still refused over
 NFS without a `kerberos` block. TLS is offered, not required: a client that
 never asks for it is still served the open shares. SMB and SFTP do not take
 `tls`: SMB 3 encrypts with its own keys, and SFTP is SSH.
+
+## NFS, with identities from certificates
+
+```hcl
+serve "nfs" {
+  tls            = true
+  client_ca_file = "/etc/fileshare/bridge-x509-ca.pem"
+  identity       = "certificate"
+  crl_url        = "https://bridge.example.org/x509/crl"   # or crl_file; required
+}
+```
+
+After an identity provider login, go-authn/bridge issues a short-lived X.509
+client certificate naming the person the way FreeBSD's `rpc.tlsservd -u` reads
+it — the SubjectAltName otherName `1.3.6.1.4.1.2238.1.1.1`, a UTF8String
+`user@domain` ([draft-cel-nfsv4-rpc-tls-othername](https://www.ietf.org/archive/id/draft-cel-nfsv4-rpc-tls-othername-04.html)
+describes it; its OIDs are not assigned yet) — and their groups as
+`tag:go-authn.github.io,2026:group:…` URIs (RFC 4151). With `identity =
+"certificate"`, a share that names people is served over NFS without kerberos:
+every call on it must arrive over TLS, with a certificate that is **not in the
+CRL** (fetched and kept failing closed, like the KRL above — a CRL past its
+NextUpdate counts as unknown), that names exactly one person, somebody this
+server admits the way it admits a token, and whom the share allows.
+
+⛔ **What it cannot promise, and why RFC 9289 alone refuses to**: the server sees
+a *connection's* certificate, and a Linux client attaches one to a **mount**
+(`tlshd`, the keyring serial on `mount -o xprtsec=mtls,...`). Every user of that
+mount acts as the person the certificate names. On a workstation one person
+uses, that is exactly them; on a machine several people log into, it is whoever
+mounted — use `sec=krb5` there. The certificate's lifetime bounds a revocation
+only if the CRL is not reachable; with it, the next call after the CRL changes
+is refused.
+
+Measured with a real Linux client (kernel 6.17, ktls-utils 0.9, in
+go-filesystems/nfs's CI):
+
+- **MOUNT's MNT arrives in the clear**, whatever `xprtsec=` says: the kernel's
+  mount client has no TLS. It is answered, and every NFS call made without TLS
+  is then refused, so a person the share does not allow sees *access denied* at
+  the first access rather than at `mount`. Nothing of a share crosses in the
+  clear.
+- `tlshd` checks this server's certificate against the **system** trust store
+  only (it ignores `x509.truststore`), and wants the client's certificate and
+  key owned by root, the key mode 600 — otherwise it fails with *gnutls: Error
+  in the certificate (-43)*, naming neither.
 
 ## One image, several protocols, one lock
 

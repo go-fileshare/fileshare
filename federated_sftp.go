@@ -6,6 +6,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,7 @@ var federatedSecret = randomMark()
 
 const (
 	federatedMark = "federated@go-fileshare"
+	certMark      = "cert@go-fileshare"
 	groupsMark    = "groups@go-fileshare"
 	// bridgeGroups is the extension go-authn/bridge's certificates carry.
 	bridgeGroups = "groups@go-authn.org"
@@ -50,17 +52,20 @@ const (
 
 // federatedSFTP is what the oidc block says about SFTP.
 type federatedSFTP struct {
-	ca       ssh.PublicKey // the provider's SSH CA, or nil
+	ca ssh.PublicKey // the provider's SSH CA, or nil
+	// krl is the list of the provider's certificates it has revoked, when
+	// the oidc block names one; see revocation.go.
+	krl      *revocationList
 	opk      *opkVerifier
 	userClm  string
 	groupClm string
 }
 
-func newFederatedSFTP(o *oidcBlock) (*federatedSFTP, error) {
+func newFederatedSFTP(o *oidcBlock, krl *revocationList) (*federatedSFTP, error) {
 	if o == nil || (o.SSHCAFile == "" && o.OpksshClientID == "") {
 		return nil, nil
 	}
-	f := &federatedSFTP{userClm: o.UsernameClaim, groupClm: o.GroupsClaim}
+	f := &federatedSFTP{userClm: o.UsernameClaim, groupClm: o.GroupsClaim, krl: krl}
 	if f.userClm == "" {
 		f.userClm = "preferred_username"
 	}
@@ -99,13 +104,22 @@ func (f *federatedSFTP) certificate(user string, cert *ssh.Certificate) (*ssh.Pe
 		if len(cert.ValidPrincipals) == 0 {
 			return nil, errors.New("a provider certificate with no principal")
 		}
+		if err := f.revokedCert(cert); err != nil {
+			return nil, err
+		}
 		var groups []string
 		for _, g := range strings.Split(cert.Extensions[bridgeGroups], "\n") {
 			if g != "" {
 				groups = append(groups, g)
 			}
 		}
-		return marked(groups), nil
+		perms := marked(groups)
+		if f.krl != nil {
+			// Carried to the session, so that a revocation arriving after
+			// this login still reaches it; see unionFS.revoked.
+			perms.Extensions[certMark] = base64.StdEncoding.EncodeToString(cert.Marshal())
+		}
+		return perms, nil
 	case f.opk != nil && cert.Extensions[opksshPKT] != "":
 		return f.openpubkey(user, cert)
 	}
@@ -124,6 +138,39 @@ func groupsOf(raw json.RawMessage) []string {
 		return []string{one}
 	}
 	return nil
+}
+
+// revokedCert is the KRL's answer about a certificate, and -- when the KRL is
+// not known to be current -- a refusal: see revocation.go on failing closed.
+func (f *federatedSFTP) revokedCert(cert *ssh.Certificate) error {
+	if f.krl == nil {
+		return nil
+	}
+	list, err := f.krl.get()
+	if err != nil {
+		return err
+	}
+	if list.(sshKRL).k.IsRevoked(cert) {
+		return fmt.Errorf("certificate %d (%s) was revoked by the provider", cert.Serial, cert.KeyId)
+	}
+	return nil
+}
+
+// sessionRevoked is what an open session asks before each operation.
+func (f *federatedSFTP) sessionRevoked(perms *ssh.Permissions) func() error {
+	if f == nil || f.krl == nil || perms == nil || perms.Extensions[federatedMark] != federatedSecret {
+		return nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(perms.Extensions[certMark])
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	key, err := ssh.ParsePublicKey(raw)
+	cert, ok := key.(*ssh.Certificate)
+	if err != nil || !ok {
+		return func() error { return errors.New("the session's certificate could not be read back") }
+	}
+	return func() error { return f.revokedCert(cert) }
 }
 
 func marked(groups []string) *ssh.Permissions {

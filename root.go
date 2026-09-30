@@ -408,6 +408,29 @@ func report(cmd *cobra.Command, cfg *config) error {
 		}
 	}
 
+	// Where a revocation comes from, and what happens when it cannot be
+	// fetched: the answer a person needs before relying on "I disabled them".
+	if o := cfg.OIDC; o != nil && (o.SSHKRLURL != "" || o.SSHKRLFile != "") {
+		_, maxAge, _ := o.krlTiming()
+		src := o.SSHKRLURL
+		if src == "" {
+			src = o.SSHKRLFile
+		}
+		fmt.Fprintf(out, "\nsftp: the provider's SSH certificates are checked against the KRL at %s, at login and on every "+
+			"operation; while it is unknown or older than %s they are refused\n", src, maxAge)
+	}
+	if b := cfg.serveBlockFor("nfs"); b != nil && b.Identity == "certificate" {
+		_, maxAge, _ := listTiming("crl", b.CRLRefresh, b.CRLMaxAge)
+		src := b.CRLURL
+		if src == "" {
+			src = b.CRLFile
+		}
+		fmt.Fprintf(out, "\nnfs: identities come from client certificates signed by %s, revoked by the CRL at %s "+
+			"(refused while it is unknown or older than %s).\n"+
+			"     ⛔ a Linux client's certificate belongs to a MOUNT: every user of that mount is the person it names\n",
+			b.ClientCAFile, src, maxAge)
+	}
+
 	// Offline is not absent: whoever reads this before a restart should see
 	// that a share they expect is defined and deliberately not served.
 	if len(cfg.offline) > 0 {

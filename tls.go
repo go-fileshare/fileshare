@@ -113,6 +113,9 @@ func (c *config) checkTLS() error {
 		if b.TLS {
 			usesTLS = true
 		}
+		if err := b.checkIdentity(); err != nil {
+			return err
+		}
 		if b.Protocol == "webdav" && !b.TLS && !b.Plaintext && c.hasCredentials() && !loopback(b.Addr) {
 			// ⛔ HTTP Basic is the password, base64'd, on every request, and a
 			// bearer token is as good as one. Refused rather than warned:

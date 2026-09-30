@@ -189,6 +189,62 @@ type oidcBlock struct {
 	// OpksshMaxAge is how long after its issue a PK Token is accepted: 12h,
 	// 24h (the default, as opkssh), 48h or 1week.
 	OpksshMaxAge string `hcl:"opkssh_max_age,optional"`
+
+	// SSHKRLURL, or SSHKRLFile, is where the provider publishes the SSH
+	// certificates it has revoked, as an OpenSSH KRL: go-authn/bridge serves
+	// it at /ssh/krl. With one, a revoked certificate is refused at login and
+	// a session it opened stops being served; see revocation.go.
+	//
+	// ⛔ It fails closed: while the list cannot be fetched, or its last good
+	// copy is older than ssh_krl_max_age, the provider's certificates are
+	// refused. SSHKRLCAFile pins the authorities the list's HTTPS server is
+	// checked against, instead of the system's.
+	SSHKRLURL     string `hcl:"ssh_krl_url,optional"`
+	SSHKRLFile    string `hcl:"ssh_krl_file,optional"`
+	SSHKRLCAFile  string `hcl:"ssh_krl_ca_file,optional"`
+	SSHKRLRefresh string `hcl:"ssh_krl_refresh,optional"` // default 1m
+	SSHKRLMaxAge  string `hcl:"ssh_krl_max_age,optional"` // default 1h
+}
+
+// krlTiming is how often the KRL is fetched, and how old its last good copy
+// may be before the certificates it governs are refused.
+func (o *oidcBlock) krlTiming() (refresh, maxAge time.Duration, err error) {
+	return listTiming("ssh_krl", o.SSHKRLRefresh, o.SSHKRLMaxAge)
+}
+
+// listTiming reads a revocation list's two durations, with their defaults.
+func listTiming(name, refreshS, maxAgeS string) (refresh, maxAge time.Duration, err error) {
+	refresh, maxAge = time.Minute, time.Hour
+	if refreshS != "" {
+		if refresh, err = time.ParseDuration(refreshS); err != nil || refresh < time.Second {
+			return 0, 0, fmt.Errorf("%s_refresh = %q is not a duration of a second or more", name, refreshS)
+		}
+	}
+	if maxAgeS != "" {
+		if maxAge, err = time.ParseDuration(maxAgeS); err != nil {
+			return 0, 0, fmt.Errorf("%s_max_age = %q is not a duration", name, maxAgeS)
+		}
+	}
+	if maxAge < refresh {
+		// Every copy would be stale before the next fetch, and every
+		// certificate refused between two of them.
+		return 0, 0, fmt.Errorf("%s_max_age (%s) is shorter than %s_refresh (%s)", name, maxAge, name, refresh)
+	}
+	return refresh, maxAge, nil
+}
+
+// checkListSource refuses a revocation list named twice, or fetched in the
+// clear: a list an attacker on the path can replace revokes nothing.
+func checkListSource(name, url, file string) error {
+	switch {
+	case url != "" && file != "":
+		return fmt.Errorf("%s_url and %s_file: say where the list is once", name, name)
+	case url != "" && !strings.HasPrefix(url, "https://"):
+		return fmt.Errorf("%s_url = %q: a revocation list is fetched over https, or somebody on the path decides what is revoked", name, url)
+	case file != "" && !filepath.IsAbs(file):
+		return fmt.Errorf("%s_file = %q is not an absolute path", name, file)
+	}
+	return nil
 }
 
 // The `users` block is go-authn/directory/hcldir's: a file server and an
@@ -253,6 +309,23 @@ type serveBlock struct {
 	// is terminated in front of it. Without it, WebDAV with passwords on an
 	// address other machines can reach is refused.
 	Plaintext bool `hcl:"plaintext,optional"`
+
+	// Identity = "certificate" makes NFS take the caller's identity from the
+	// client certificate -- the FreeBSD / draft-cel-nfsv4-rpc-tls-othername
+	// otherName user@domain, as go-authn/bridge issues after an identity
+	// provider login -- so a share naming people can be served over NFS
+	// without kerberos. See nfs_identity.go for what that promises, and the
+	// one thing it cannot: a Linux client's certificate belongs to a MOUNT.
+	Identity string `hcl:"identity,optional"`
+	// The CRL of that client CA. REQUIRED with identity = "certificate": a
+	// person's certificate that nothing can revoke outlives their removal by
+	// its whole lifetime. Fetched and kept as revocation.go says, failing
+	// closed.
+	CRLURL     string `hcl:"crl_url,optional"`
+	CRLFile    string `hcl:"crl_file,optional"`
+	CRLCAFile  string `hcl:"crl_ca_file,optional"`
+	CRLRefresh string `hcl:"crl_refresh,optional"`
+	CRLMaxAge  string `hcl:"crl_max_age,optional"`
 }
 
 // loadConfig reads every file named, and every .hcl file in every directory
@@ -422,7 +495,10 @@ func (c *config) check() error {
 		if _, _, err := net.SplitHostPort(s.Addr); err != nil {
 			return fmt.Errorf("%s: %q is not an address to listen on: %w", s.Protocol, s.Addr, err)
 		}
-		if p.authenticates {
+		// Asked of the deployment, not only of the protocol: NFS tells
+		// people apart with a kerberos block, or with identities from
+		// certificates.
+		if p.canAuthenticate(c) {
 			authenticated = true
 		}
 	}
@@ -476,6 +552,14 @@ func (c *config) check() error {
 	}
 
 	if o := c.OIDC; o != nil {
+		if err := checkListSource("ssh_krl", o.SSHKRLURL, o.SSHKRLFile); err != nil {
+			return err
+		}
+		if _, _, err := o.krlTiming(); err != nil {
+			return err
+		}
+	}
+	if o := c.OIDC; o != nil {
 		switch {
 		case o.Issuer == "":
 			return fmt.Errorf("the oidc block has no issuer")
@@ -492,6 +576,10 @@ func (c *config) check() error {
 			return fmt.Errorf("opkssh_client_id: this binary was built with -tags noopenpubkey, and would start without the way in the configuration asks for")
 		case o.OpksshMaxAge != "" && !knownMaxAge(o.OpksshMaxAge):
 			return fmt.Errorf("opkssh_max_age = %q: 12h, 24h, 48h or 1week", o.OpksshMaxAge)
+		case (o.SSHKRLURL != "" || o.SSHKRLFile != "") && o.SSHCAFile == "":
+			// The KRL governs the certificates the provider's SSH CA signs;
+			// without that CA there are none for it to revoke.
+			return fmt.Errorf("ssh_krl_url / ssh_krl_file revoke the provider's SSH certificates, and there is no ssh_ca_file")
 		case o.TrustAll && len(c.Users) == 0 && len(c.Directories) == 0:
 			// This is the legitimate shape for trust_all -- the provider IS
 			// the directory -- and it is allowed. Named here so the reader

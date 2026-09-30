@@ -5,11 +5,13 @@
 package main
 
 import (
+	"crypto/x509"
 	"fmt"
 	"net"
 
 	"github.com/go-authn/krb5"
 	"github.com/go-filesystems/nfs"
+	"github.com/go-filesystems/nfs/rpc"
 	"github.com/go-filesystems/nfs/rpcgss"
 )
 
@@ -53,6 +55,19 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 		}
 	}
 
+	certIdentity := s.nfsCRL != nil
+	if certIdentity {
+		// The name is read once per connection, from the certificate
+		// crypto/tls verified against client_ca_file; nfs_identity.go says
+		// what it means and what it cannot.
+		if err := srv.SetCertificatePrincipal(func(chain []*x509.Certificate) (string, bool) {
+			p, err := nfs.OtherNamePrincipal(chain[0])
+			return p, err == nil
+		}); err != nil {
+			return err
+		}
+	}
+
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		opts := []nfs.ExportOption{
@@ -64,14 +79,20 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 		switch {
 		case sh.anyoneWrites():
 			opts = append(opts, nfs.ReadWrite())
-		case k != nil && sh.restricted() && !sh.readOnly:
+		case (k != nil || certIdentity) && sh.restricted() && !sh.readOnly:
 			// ⛔ The export has to be writable for the PREDICATE to have
 			// anything to decide. Leaving it read-only because the share is
 			// restricted would refuse the named writers too, silently, and
 			// the share would look served while nobody could write it.
 			opts = append(opts, nfs.ReadWrite())
 		}
-		if k != nil && sh.restricted() {
+		switch {
+		case certIdentity && sh.restricted():
+			// Over TLS or not at all: the identity is in the certificate,
+			// and a call in the clear carries none -- and would carry the
+			// share's contents in the clear besides.
+			opts = append(opts, nfs.RequireTLS(), nfs.AllowCall(s.certificateGate(k, sh)))
+		case k != nil && sh.restricted():
 			opts = append(opts, nfs.AllowPrincipal(principalGate(k, sh)))
 		}
 		if err := srv.Export("/"+sh.name, sh.fsys, opts...); err != nil {
@@ -99,3 +120,40 @@ func principalGate(k *kerberosBlock, sh *share) func(string) (bool, bool) {
 		return sh.mayUse(local(user)), sh.mayUse(local(user)) && !sh.readOnlyFor(local(user))
 	}
 }
+
+// certificateGate is what a share naming people asks of every NFS call when
+// identities come from certificates -- on EVERY call, because NFSv3 has no
+// session to decide once for: a file handle outlives any mount.
+//
+// In order: a Kerberos principal, when there is one, is asked as it always
+// was; otherwise the connection's certificate -- not revoked (the CRL, failing
+// closed), naming somebody, somebody this server admits the way it admits a
+// token -- and then the share's own lists, with the groups the certificate
+// carries.
+func (s *server) certificateGate(k *kerberosBlock, sh *share) func(*rpc.Call) (bool, bool) {
+	kerberos := func(string) (bool, bool) { return false, false }
+	if k != nil {
+		kerberos = principalGate(k, sh)
+	}
+	return func(c *rpc.Call) (read, write bool) {
+		if c.Cred.Flavor == rpcsecGSS {
+			return kerberos(c.Principal)
+		}
+		if c.TLS == nil || len(c.TLS.PeerCertificates) == 0 || c.Principal == "" {
+			return false, false
+		}
+		leaf := c.TLS.PeerCertificates[0]
+		list, err := s.nfsCRL.get()
+		if err != nil || list.(crlList).revoked(leaf.SerialNumber) {
+			return false, false
+		}
+		p := principal{name: c.Principal, federated: true, groups: groupsOfCert(leaf)}
+		if s.admitFederated(p) != nil {
+			return false, false
+		}
+		return sh.mayUse(p), sh.mayUse(p) && !sh.readOnlyFor(p)
+	}
+}
+
+// rpcsecGSS is RPCSEC_GSS's credential flavour (RFC 2203).
+const rpcsecGSS = 6

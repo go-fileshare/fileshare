@@ -97,5 +97,24 @@ func (f *federatedSFTP) openpubkey(user string, cert *ssh.Certificate) (*ssh.Per
 	if name != user {
 		return nil, fmt.Errorf("logging in as %q with a PK Token for %q", user, name)
 	}
-	return marked(groupsOf(claims[f.groupClm])), nil
+	// The ID token inside is what the provider issued, and when: a person
+	// revoked since then is refused, whatever opkssh_max_age still allows.
+	var iat, iss, sub json.RawMessage = claims["iat"], claims["iss"], claims["sub"]
+	var issuedAt int64
+	var issS, subS string
+	json.Unmarshal(iat, &issuedAt)
+	json.Unmarshal(iss, &issS)
+	json.Unmarshal(sub, &subS)
+	issued := time.Time{}
+	if issuedAt > 0 {
+		issued = time.Unix(issuedAt, 0)
+	}
+	if err := f.revoked(user, issS, subS, issued); err != nil {
+		return nil, err
+	}
+	perms := marked(groupsOf(claims[f.groupClm]))
+	if issuedAt > 0 {
+		perms.Extensions[issuedMark] = fmt.Sprint(issuedAt)
+	}
+	return perms, nil
 }

@@ -138,6 +138,12 @@ func writeState(path string, st *stateFile) error {
 	if err != nil {
 		return err
 	}
+	return writeFileAtomically(path, append(data, '\n'))
+}
+
+// writeFileAtomically writes data beside path, syncs it, renames it over
+// path, and syncs the directory so the rename itself survives a power cut.
+func writeFileAtomically(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
@@ -145,7 +151,7 @@ func writeState(path string, st *stateFile) error {
 	}
 	tmp := f.Name()
 	defer os.Remove(tmp) // a no-op once renamed
-	if _, err := f.Write(append(data, '\n')); err != nil {
+	if _, err := f.Write(data); err != nil {
 		f.Close()
 		return err
 	}

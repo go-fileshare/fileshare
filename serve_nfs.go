@@ -148,7 +148,7 @@ func (s *server) certificateGate(k *kerberosBlock, sh *share) func(*rpc.Call) (b
 			return false, false
 		}
 		p := principal{name: c.Principal, federated: true, groups: groupsOfCert(leaf)}
-		if s.admitFederated(p) != nil {
+		if s.admitFederated(p) != nil || s.federatedRevoked(p.name, "", "", leaf.NotBefore) != nil {
 			return false, false
 		}
 		return sh.mayUse(p), sh.mayUse(p) && !sh.readOnlyFor(p)

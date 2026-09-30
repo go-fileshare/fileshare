@@ -80,6 +80,8 @@ type config struct {
 	// TLS is where the certificate of the protocols that speak TLS comes
 	// from; see tls.go.
 	TLS *tlsBlock `hcl:"tls,block"`
+	// SSF is where revocations of federated people come from; see ssf.go.
+	SSF *ssfBlock `hcl:"ssf,block"`
 
 	// managed is the names of the shares that came from the admin API's
 	// state file rather than from these files, upper-cased the way SMB
@@ -535,6 +537,11 @@ func (c *config) check() error {
 	}
 	if err := c.checkTLS(); err != nil {
 		return err
+	}
+	if c.SSF != nil {
+		if err := c.SSF.check(c); err != nil {
+			return err
+		}
 	}
 	if _, err := c.reloadEvery(); err != nil {
 		return err

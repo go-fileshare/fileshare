@@ -1,0 +1,417 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-jose/go-jose/v4"
+	ssf "github.com/hstern/go-ssf"
+	ssfclient "github.com/hstern/go-ssf/client"
+	"github.com/hstern/go-ssf/receiver"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/clientcredentials"
+)
+
+// The shared signals receiver: see caep.go for what it is for.
+//
+//	ssf {
+//	  transmitter = "https://bridge.example.org"          # its issuer
+//	  audience    = "https://files.example.org"           # what this server is to it
+//	  client_id          = "fileshare"                    # OAuth client credentials
+//	  client_secret_file = "/etc/fileshare/ssf.secret"    #   (RFC 6749 §4.4), scope "ssf"
+//	  state_file  = "/var/lib/fileshare/revocations.json"
+//	}
+//
+// or, for a transmitter that hands out a long-lived bearer token instead,
+// token_file. go-authn/bridge takes client credentials: the token then comes
+// from the transmitter's own token endpoint (its OpenID configuration) and is
+// renewed before it expires.
+//
+// The transport is github.com/hstern/go-ssf -- discovery, the RFC 8936
+// poller, the SET's JWS layer -- chosen over the alternatives because it is
+// the one with tests on both sides and a conformance harness against the
+// OpenID interop suite. What an event MEANS is here: its issuer and audience,
+// CAEP session-revoked, the RFC 9493 subject.
+type ssfBlock struct {
+	Transmitter string `hcl:"transmitter"`
+	Audience    string `hcl:"audience"`
+	TokenFile   string `hcl:"token_file,optional"`
+	// ClientID and ClientSecretFile authenticate this receiver with OAuth
+	// client credentials; TokenURL overrides the token endpoint found in the
+	// transmitter's OpenID configuration.
+	ClientID         string `hcl:"client_id,optional"`
+	ClientSecretFile string `hcl:"client_secret_file,optional"`
+	TokenURL         string `hcl:"token_url,optional"`
+	StateFile        string `hcl:"state_file"`
+	CAFile           string `hcl:"ca_file,optional"`
+	// MaxAge is how long without hearing from the transmitter before
+	// federated credentials are refused (default 10m). Retain is how long a
+	// revocation is kept (default 192h: past the longest-lived credential
+	// the provider issues, a 168h SSH certificate).
+	MaxAge string `hcl:"max_age,optional"`
+	Retain string `hcl:"retain,optional"`
+}
+
+func (b *ssfBlock) timing() (maxAge, retain time.Duration, err error) {
+	maxAge, retain = 10*time.Minute, 192*time.Hour
+	if b.MaxAge != "" {
+		if maxAge, err = time.ParseDuration(b.MaxAge); err != nil || maxAge < 10*time.Second {
+			return 0, 0, fmt.Errorf("ssf: max_age = %q is not a duration of ten seconds or more", b.MaxAge)
+		}
+	}
+	if b.Retain != "" {
+		if retain, err = time.ParseDuration(b.Retain); err != nil || retain < time.Hour {
+			return 0, 0, fmt.Errorf("ssf: retain = %q is not a duration of an hour or more", b.Retain)
+		}
+	}
+	return maxAge, retain, nil
+}
+
+// check refuses an ssf block that cannot work.
+func (b *ssfBlock) check(c *config) error {
+	switch {
+	case !strings.HasPrefix(b.Transmitter, "https://"):
+		return fmt.Errorf("ssf: transmitter = %q: over https, or somebody on the path decides who is revoked", b.Transmitter)
+	case b.Audience == "":
+		return fmt.Errorf("ssf: no audience: a SET addressed to another receiver would be believed here")
+	case b.StateFile == "":
+		return fmt.Errorf("ssf: state_file is required: a revocation acknowledged and forgotten at a restart is one that never happened")
+	case (b.TokenFile != "") == (b.ClientID != "" || b.ClientSecretFile != ""):
+		return fmt.Errorf("ssf: say how this receiver authenticates, once: token_file, or client_id and client_secret_file")
+	case b.ClientID != "" && b.ClientSecretFile == "", b.ClientID == "" && b.ClientSecretFile != "":
+		return fmt.Errorf("ssf: client_id and client_secret_file go together")
+	case b.TokenURL != "" && !strings.HasPrefix(b.TokenURL, "https://"):
+		return fmt.Errorf("ssf: token_url = %q: over https, or the client secret crosses the network in the clear", b.TokenURL)
+	case c.OIDC == nil && !(c.serveBlockFor("nfs") != nil && c.serveBlockFor("nfs").Identity == "certificate"):
+		return fmt.Errorf("ssf: revocations are of federated people, and nothing here serves any: no oidc block, no nfs identity = \"certificate\"")
+	}
+	_, _, err := b.timing()
+	return err
+}
+
+// ssfReceiver keeps the stream polled.
+type ssfReceiver struct {
+	b      *ssfBlock
+	store  *revocationStore
+	client *http.Client // plain, pinned: discovery and JWKS
+	auth   *http.Client // the same, authenticating as this receiver
+	out    io.Writer
+
+	mu   sync.Mutex
+	keys jose.JSONWebKeySet
+	jwks string
+	last time.Time // when the keys were last fetched
+
+	secret string // the client secret, for client credentials
+}
+
+func newSSFReceiver(b *ssfBlock, out io.Writer) (*ssfReceiver, error) {
+	maxAge, retain, err := b.timing()
+	if err != nil {
+		return nil, err
+	}
+	store, err := openRevocationStore(b.StateFile, retain, maxAge)
+	if err != nil {
+		return nil, fmt.Errorf("ssf: %w", err)
+	}
+	r := &ssfReceiver{b: b, store: store, out: out, client: &http.Client{Timeout: 60 * time.Second}}
+	if b.CAFile != "" {
+		pem, err := os.ReadFile(b.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("ssf: ca_file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("ssf: %s holds no PEM certificate", b.CAFile)
+		}
+		r.client.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
+	}
+	if b.TokenFile != "" {
+		tok, err := os.ReadFile(b.TokenFile)
+		if err != nil {
+			return nil, fmt.Errorf("ssf: token_file: %w", err)
+		}
+		bearer := "Bearer " + strings.TrimSpace(string(tok))
+		r.auth = &http.Client{Timeout: r.client.Timeout, Transport: headerTransport{r.transport(), bearer}}
+	} else {
+		secret, err := os.ReadFile(b.ClientSecretFile)
+		if err != nil {
+			return nil, fmt.Errorf("ssf: client_secret_file: %w", err)
+		}
+		r.secret = strings.TrimSpace(string(secret))
+	}
+	return r, nil
+}
+
+// headerTransport sets one Authorization header on every request.
+type headerTransport struct {
+	next  http.RoundTripper
+	value string
+}
+
+func (h headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", h.value)
+	return h.next.RoundTrip(req)
+}
+
+// clientCredentials makes r.auth an OAuth client: a token for scope "ssf"
+// from the transmitter's token endpoint, fetched again before it expires.
+func (r *ssfReceiver) clientCredentials(ctx context.Context) error {
+	tokenURL := r.b.TokenURL
+	if tokenURL == "" {
+		var oc struct {
+			TokenEndpoint string `json:"token_endpoint"`
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+			strings.TrimSuffix(r.b.Transmitter, "/")+"/.well-known/openid-configuration", nil)
+		if err != nil {
+			return err
+		}
+		res, err := r.client.Do(req)
+		if err != nil {
+			return fmt.Errorf("the transmitter's OpenID configuration: %w", err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			return fmt.Errorf("the transmitter's OpenID configuration: %s; say token_url", res.Status)
+		}
+		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&oc); err != nil || oc.TokenEndpoint == "" {
+			return fmt.Errorf("the transmitter's OpenID configuration names no token_endpoint; say token_url")
+		}
+		tokenURL = oc.TokenEndpoint
+	}
+	cc := clientcredentials.Config{ClientID: r.b.ClientID, ClientSecret: r.secret, TokenURL: tokenURL,
+		Scopes: []string{"ssf"}}
+	// The token endpoint is reached with the same pinned client; the token
+	// source outlives this call, so its context must too.
+	base := context.WithValue(context.Background(), oauth2.HTTPClient, r.client)
+	src := cc.TokenSource(base)
+	if _, err := src.Token(); err != nil {
+		return fmt.Errorf("client credentials at %s: %w", tokenURL, err)
+	}
+	r.auth = &http.Client{Timeout: r.client.Timeout, Transport: &oauth2.Transport{Source: src, Base: r.transport()}}
+	return nil
+}
+
+// run discovers the transmitter, makes sure there is a stream, and polls it
+// until stop -- starting again, after a pause, whenever any of that fails.
+func (r *ssfReceiver) run(ctx context.Context) {
+	for ctx.Err() == nil {
+		err := r.session(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		fmt.Fprintf(r.out, "ssf: %v; retrying\n", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (r *ssfReceiver) session(ctx context.Context) error {
+	tc, err := ssfclient.FetchTransmitterConfig(ctx, r.b.Transmitter, ssfclient.WithDiscoveryHTTPDoer(r.client))
+	if err != nil {
+		return fmt.Errorf("discovery: %w", err)
+	}
+	if tc.Issuer != r.b.Transmitter {
+		return fmt.Errorf("the transmitter at %s calls itself %q", r.b.Transmitter, tc.Issuer)
+	}
+	if tc.JWKSURI == "" || tc.ConfigurationEndpoint == "" {
+		return errors.New("the transmitter publishes no jwks_uri or no configuration_endpoint")
+	}
+	r.mu.Lock()
+	r.jwks = tc.JWKSURI
+	r.mu.Unlock()
+	if r.auth == nil {
+		if err := r.clientCredentials(ctx); err != nil {
+			return err
+		}
+	}
+	if err := r.refreshKeys(ctx, true); err != nil {
+		return err
+	}
+	endpoint, err := r.stream(ctx, tc.ConfigurationEndpoint)
+	if err != nil {
+		return fmt.Errorf("stream: %w", err)
+	}
+	fmt.Fprintf(r.out, "ssf: polling %s for revocations\n", endpoint)
+	p := receiver.NewPoller(endpoint, r, receiver.SinkFunc(r.deliver),
+		receiver.WithHTTPClient(&http.Client{Timeout: r.client.Timeout, Transport: heardTransport{r.auth.Transport, r.store}}),
+		// The library's defaults back off to five minutes without events
+		// and an hour after errors; either is longer than max_age, and a
+		// short outage would then keep federated people out for the hour.
+		receiver.WithNoEventsBackoff(time.Second, 30*time.Second),
+		receiver.WithErrorBackoff(time.Second, 30*time.Second))
+	return p.Run(ctx)
+}
+
+func (r *ssfReceiver) transport() http.RoundTripper {
+	if r.client.Transport != nil {
+		return r.client.Transport
+	}
+	return http.DefaultTransport
+}
+
+// heardTransport records every successful answer from the poll endpoint:
+// that, and only that, is the transmitter being heard from.
+type heardTransport struct {
+	next  http.RoundTripper
+	store *revocationStore
+}
+
+func (h heardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	res, err := h.next.RoundTrip(req)
+	if err == nil && res.StatusCode >= 200 && res.StatusCode < 300 {
+		h.store.heardFrom()
+	}
+	return res, err
+}
+
+// stream is the poll endpoint of this receiver's stream: the one the state
+// file names when the transmitter still has it, otherwise a new one.
+func (r *ssfReceiver) stream(ctx context.Context, configEndpoint string) (string, error) {
+	if id := r.store.streamID(); id != "" {
+		var cfg ssf.StreamConfig
+		status, err := r.call(ctx, http.MethodGet, configEndpoint+"?stream_id="+id, nil, &cfg)
+		switch {
+		case err == nil && cfg.Delivery.EndpointURL != "":
+			return cfg.Delivery.EndpointURL, nil
+		case status != http.StatusNotFound && err != nil:
+			return "", err
+		}
+		// 404: the transmitter no longer has it; a new one is made.
+	}
+	aud, _ := json.Marshal(r.b.Audience)
+	req := ssf.StreamConfig{
+		Aud:             aud,
+		EventsRequested: []string{eventSessionRevoked},
+		Delivery:        ssf.Delivery{Method: "urn:ietf:rfc:8936"},
+	}
+	var cfg ssf.StreamConfig
+	if _, err := r.call(ctx, http.MethodPost, configEndpoint, req, &cfg); err != nil {
+		return "", err
+	}
+	if cfg.StreamID == "" || cfg.Delivery.EndpointURL == "" {
+		return "", errors.New("the transmitter made a stream with no id or no poll endpoint")
+	}
+	if err := r.store.setStream(cfg.StreamID); err != nil {
+		return "", err
+	}
+	return cfg.Delivery.EndpointURL, nil
+}
+
+func (r *ssfReceiver) call(ctx context.Context, method, url string, in, out any) (int, error) {
+	var body io.Reader
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return 0, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return 0, err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := r.auth.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode > 299 {
+		return res.StatusCode, ssfclient.ParseHTTPError(res)
+	}
+	return res.StatusCode, json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(out)
+}
+
+// refreshKeys fetches the transmitter's JWKS -- always when asked, otherwise
+// at most once a minute, so that a SET signed by a key rotated in since the
+// last fetch is verified rather than lost, and a stream of bad SETs cannot
+// make this server hammer the JWKS.
+func (r *ssfReceiver) refreshKeys(ctx context.Context, force bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !force && time.Since(r.last) < time.Minute {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.jwks, nil)
+	if err != nil {
+		return err
+	}
+	res, err := r.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("jwks: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("jwks: %s answered %s", r.jwks, res.Status)
+	}
+	var keys jose.JSONWebKeySet
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&keys); err != nil {
+		return fmt.Errorf("jwks: %w", err)
+	}
+	r.keys, r.last = keys, time.Now()
+	return nil
+}
+
+// Verify is the SETVerifier the poller asks: the JWS layer, by go-ssf, with
+// the transmitter's current keys -- fetched again once when they do not
+// verify, for a key rotated in since.
+func (r *ssfReceiver) Verify(jws string) ([]byte, error) {
+	r.mu.Lock()
+	keys := r.keys
+	r.mu.Unlock()
+	payload, err := ssf.NewJOSESetVerifier(keys).Verify(jws)
+	if err == nil {
+		return payload, nil
+	}
+	if rerr := r.refreshKeys(context.Background(), false); rerr != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	keys = r.keys
+	r.mu.Unlock()
+	return ssf.NewJOSESetVerifier(keys).Verify(jws)
+}
+
+// deliver is the sink: a verified SET, read, checked, and -- for a
+// session-revoked event -- written down before the poller acknowledges it.
+func (r *ssfReceiver) deliver(ctx context.Context, payload []byte) error {
+	keys, at, err := parseRevocation(payload, r.b.Transmitter, r.b.Audience)
+	switch {
+	case errors.Is(err, errIssSubOnly):
+		fmt.Fprintf(r.out, "ssf: %v\n", err)
+	case err != nil:
+		// Addressed elsewhere, or not an SSF SET: never going to succeed.
+		fmt.Fprintf(r.out, "ssf: a SET was refused: %v\n", err)
+		return fmt.Errorf("%v: %w", err, receiver.ErrPermanent)
+	case len(keys) == 0:
+		return nil // an event this receiver does not act on
+	}
+	if err := r.store.revoke(keys, at); err != nil {
+		// Transient: not acknowledged, so the transmitter sends it again.
+		return err
+	}
+	fmt.Fprintf(r.out, "ssf: %s: every session issued before %s is revoked\n",
+		strings.Join(keys, ", "), at.UTC().Format(time.RFC3339))
+	return nil
+}

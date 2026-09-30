@@ -82,16 +82,25 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// oidc:user:... -- is that same statement made for one share: somebody
 	// it names is known here, as far as that share goes.
 	p := principal{name: name, federated: true, groups: tok.Groups()}
-	if !s.cfg.OIDC.domainAllowed(p) {
-		fmt.Fprintf(s.out, "%s arrived with a valid token from a domain this server does not admit: refused\n", name)
-		return principal{}, false
-	}
-	if _, known := s.person(name); !known && !s.trustAllTokens() && !s.namedByARule(p) {
-		fmt.Fprintf(s.out, "%s arrived with a valid token and is in %s: refused\n",
-			name, nobodyIn(s.dir))
+	if err := s.admitFederated(p); err != nil {
+		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
 		return principal{}, false
 	}
 	return p, true
+}
+
+// admitFederated is the one test somebody the identity provider vouches for
+// passes, whatever carried its word -- a token over WebDAV, a certificate
+// over SFTP or NFS: from a domain this server admits, and known here, or
+// named by a rule, or trust_all.
+func (s *server) admitFederated(p principal) error {
+	if !s.cfg.OIDC.domainAllowed(p) {
+		return fmt.Errorf("from a domain this server does not admit: refused")
+	}
+	if _, known := s.person(p.name); !known && !s.trustAllTokens() && !s.namedByARule(p) {
+		return fmt.Errorf("and is %s: refused", nobodyIn(s.dir))
+	}
+	return nil
 }
 
 // namedByARule reports whether any share names this person through the

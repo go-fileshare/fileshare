@@ -11,6 +11,7 @@ go 1.26.4
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.8.0
+	github.com/go-authn/krl v0.1.0
 	github.com/go-authn/oidc v0.1.0
 	github.com/go-authn/servercert v0.1.0
 	github.com/go-filesystems/detect v0.1.0
@@ -20,7 +21,7 @@ require (
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.3.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
-	github.com/go-filesystems/nfs v0.3.0
+	github.com/go-filesystems/nfs v0.4.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.1.0
 	github.com/go-filesystems/s3 v0.1.0

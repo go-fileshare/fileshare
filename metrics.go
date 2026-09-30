@@ -80,6 +80,19 @@ func (s *server) collect(w *endpoint.Writer) {
 		endpoint.S(float64(s.stats.reloads.added.Load()), endpoint.L("result", "added")),
 		endpoint.S(float64(s.stats.reloads.swapped.Load()), endpoint.L("result", "swapped")),
 		endpoint.S(float64(s.stats.reloads.failed.Load()), endpoint.L("result", "failed")))
+	// How old each revocation list's last good copy is, and how often it
+	// could not be fetched: the ones to alert on BEFORE max_age makes the
+	// server refuse what they govern. -1 is "never fetched".
+	if lists := s.revocationLists(); len(lists) > 0 {
+		ages := make([]endpoint.Sample, 0, len(lists))
+		fails := make([]endpoint.Sample, 0, len(lists))
+		for _, l := range lists {
+			ages = append(ages, endpoint.S(l.age(), endpoint.L("list", l.name)))
+			fails = append(fails, endpoint.S(float64(l.failures.Load()), endpoint.L("list", l.name)))
+		}
+		w.Gauge("fileshare_revocation_list_age_seconds", "Age of each revocation list's last good copy; -1 when never fetched.", ages...)
+		w.Counter("fileshare_revocation_list_fetch_failures_total", "Revocation list fetches that failed.", fails...)
+	}
 	w.Counter("fileshare_admin_changes_total", "Changes asked of the admin API, by outcome.",
 		endpoint.S(float64(s.stats.applied.Load()), endpoint.L("result", "applied")),
 		endpoint.S(float64(s.stats.refused.Load()), endpoint.L("result", "refused")))

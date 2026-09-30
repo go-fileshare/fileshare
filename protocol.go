@@ -110,7 +110,14 @@ func (p *protocol) canAuthenticate(c *config) bool {
 	if p.authenticates {
 		return true
 	}
-	return p.name == "nfs" && c != nil && c.Kerberos != nil
+	if p.name != "nfs" || c == nil {
+		return false
+	}
+	if c.Kerberos != nil {
+		return true
+	}
+	b := c.serveBlockFor("nfs")
+	return b != nil && b.Identity == "certificate"
 }
 
 func (p *protocol) exports(c *config, shares []*share) (served, refused []*share) {

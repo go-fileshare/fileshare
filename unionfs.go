@@ -29,6 +29,12 @@ type unionFS struct {
 	// gave them: a listing that reshuffles itself between two runs is one
 	// nobody can trust.
 	entries []unionEntry
+	// revoked, when set, is asked before every operation: a session whose
+	// certificate has since been revoked -- or whose revocation list is no
+	// longer known to be current -- is served nothing more. It is the only
+	// way a revocation reaches a session already open: SSH checks the
+	// certificate once, at login.
+	revoked func() error
 }
 
 type unionEntry struct {
@@ -65,6 +71,9 @@ func unionFor(shares []*share, p principal) *unionFS {
 // resolved before the split, so a name that climbs out lands nowhere rather
 // than in another share.
 func (u *unionFS) route(p string) (*unionEntry, string, bool) {
+	if u.gone() {
+		return nil, "", false
+	}
 	clean := path.Clean("/" + strings.TrimPrefix(p, "/"))
 	if clean == "/" {
 		return nil, "", true
@@ -80,6 +89,9 @@ func (u *unionFS) route(p string) (*unionEntry, string, bool) {
 }
 
 func (u *unionFS) Close() error { return nil } // the shares are closed by the server
+
+// gone reports whether this session may no longer be served.
+func (u *unionFS) gone() bool { return u.revoked != nil && u.revoked() != nil }
 
 func (u *unionFS) ReadFile(p string) ([]byte, error) {
 	e, inside, ok := u.route(p)
@@ -221,11 +233,55 @@ func (u *unionFS) OpenFile(p string) (filesystem.File, error) {
 		// A writable File through a read-only view would be the one way past
 		// every check above.
 		if _, writable := f.(filesystem.WritableFile); writable {
-			return readOnlyFile{f}, nil
+			f = readOnlyFile{f}
 		}
+	}
+	if u.revoked != nil {
+		// A file already open is read without passing through route: a
+		// download begun before the revocation would otherwise finish.
+		if w, writable := f.(filesystem.WritableFile); writable {
+			return revocableWritable{revocableFile{f, u}, w}, nil
+		}
+		return revocableFile{f, u}, nil
 	}
 	return f, nil
 }
+
+// revocableFile is an open file that stops answering when its session is
+// revoked.
+type revocableFile struct {
+	filesystem.File
+	u *unionFS
+}
+
+func (f revocableFile) ReadAt(p []byte, off int64) (int, error) {
+	if f.u.gone() {
+		return 0, os.ErrPermission
+	}
+	return f.File.ReadAt(p, off)
+}
+
+// revocableWritable keeps a writable file writable, and revocable.
+type revocableWritable struct {
+	revocableFile
+	w filesystem.WritableFile
+}
+
+func (f revocableWritable) WriteAt(p []byte, off int64) (int, error) {
+	if f.u.gone() {
+		return 0, os.ErrPermission
+	}
+	return f.w.WriteAt(p, off)
+}
+
+func (f revocableWritable) Truncate(size int64) error {
+	if f.u.gone() {
+		return os.ErrPermission
+	}
+	return f.w.Truncate(size)
+}
+
+func (f revocableWritable) Sync() error { return f.w.Sync() }
 
 // readOnlyFile is a File with its writes taken away.
 type readOnlyFile struct{ filesystem.File }

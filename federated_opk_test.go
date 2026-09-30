@@ -30,6 +30,8 @@ type testOP struct {
 	clientID string
 	user     string
 	groups   []string
+	// iat is when the ID token says it was issued; zero is now.
+	iat time.Time
 }
 
 func (o *testOP) RequestTokens(ctx context.Context, cic *clientinstance.Claims) (*simpleoidc.Tokens, error) {
@@ -43,6 +45,9 @@ func (o *testOP) RequestTokens(ctx context.Context, cic *clientinstance.Claims) 
 		return nil, err
 	}
 	now := time.Now()
+	if !o.iat.IsZero() {
+		now = o.iat
+	}
 	idt, err := jwt.Signed(sig).Claims(map[string]any{
 		"iss": o.p.URL, "aud": o.clientID, "sub": "s-" + o.user, "nonce": string(nonce),
 		"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),

@@ -86,6 +86,13 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
 		return principal{}, false
 	}
+	// A token verifies until it expires; a revocation since it was issued
+	// is what makes it stop counting sooner.
+	iat, _ := tok.IssuedAt()
+	if err := s.federatedRevoked(name, tok.Issuer(), tok.Subject(), iat); err != nil {
+		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
+		return principal{}, false
+	}
 	return p, true
 }
 

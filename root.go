@@ -419,6 +419,13 @@ func report(cmd *cobra.Command, cfg *config) error {
 		fmt.Fprintf(out, "\nsftp: the provider's SSH certificates are checked against the KRL at %s, at login and on every "+
 			"operation; while it is unknown or older than %s they are refused\n", src, maxAge)
 	}
+	if b := cfg.SSF; b != nil {
+		maxAge, retain, _ := b.timing()
+		fmt.Fprintf(out, "\nfederated people: revocations come from the shared signals transmitter %s (CAEP session-revoked, "+
+			"polled); whatever the provider issued them before a revocation is refused -- tokens, SSH and OpenPubkey "+
+			"certificates, NFS certificates -- and open sessions stop. Refused while it is not heard from within %s; "+
+			"revocations kept %s in %s\n", b.Transmitter, maxAge, retain, b.StateFile)
+	}
 	if b := cfg.serveBlockFor("nfs"); b != nil && b.Identity == "certificate" {
 		_, maxAge, _ := listTiming("crl", b.CRLRefresh, b.CRLMaxAge)
 		src := b.CRLURL

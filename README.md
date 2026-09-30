@@ -279,6 +279,49 @@ skip the signature (measured by go-authn/krl against both).
 OpenPubkey (opkssh) certificates are not in any KRL — nothing issued them but
 the person's own key — and are bounded by `opkssh_max_age`.
 
+#### Revoking what no list covers: shared signals
+
+```hcl
+ssf {
+  transmitter = "https://bridge.example.org"          # its issuer
+  audience    = "https://files.example.org"           # what this server is to it
+  client_id          = "fileshare"                    # OAuth client credentials,
+  client_secret_file = "/etc/fileshare/ssf.secret"    # scope "ssf" (or token_file)
+  state_file  = "/var/lib/fileshare/revocations.json"
+  max_age     = "10m"                                 # default; retain = "192h"
+}
+```
+
+A certificate has a revocation list; an access token fileshare verifies on its
+own, and an OpenPubkey certificate the person's own key signed, do not — they
+are valid until they expire. The [OpenID Shared Signals
+Framework](https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html)
+with a [CAEP](https://openid.net/specs/openid-caep-1_0-final.html)
+`session-revoked` event closes that: go-authn/bridge sends one when a person or
+an IdP is disabled, fileshare polls for it (RFC 8936, the SSF default) and keeps,
+per person, when it happened. **Everything the provider issued them before is
+refused** — a token over WebDAV (its `iat`), a provider or OpenPubkey
+certificate over SFTP (its validity start, the ID token's `iat`), a client
+certificate over NFS (its `NotBefore`) — and **the sessions those opened stop
+being served**. What the provider issues after is theirs: a person re-enabled is
+not locked out.
+
+The subject is RFC 9493's `account` (`acct:user@domain`, the name the shares use),
+`iss_sub`, `email`, or `aliases` of them. **An IdP disabled whole** arrives as a
+CAEP *tenant* subject with the IdP's scopes in the event: everyone whose name is
+`@` one of them — compared whole, `evil-univ-a.fr` is not `univ-a.fr` — and
+whose credential was issued before, is refused, including people the provider
+no longer remembers. The receiver authenticates to the transmitter with OAuth
+client credentials (RFC 6749 §4.4, scope `ssf`), the token fetched from the
+transmitter's own token endpoint and renewed before it expires; `token_file`
+is there for transmitters that hand out a long-lived one. A revocation is written down before it
+is acknowledged, so it survives a restart, and kept for `retain` — longer than
+any credential it could void. The transport is
+[github.com/hstern/go-ssf](https://github.com/hstern/go-ssf); what an event means
+is fileshare's. ⛔ **It fails closed**, like the KRL: while the transmitter has not
+answered a poll within `max_age`, federated credentials are refused —
+`fileshare_ssf_last_heard_seconds` is the metric to alert on.
+
 #### Which institutions, and which groups
 
 ```hcl

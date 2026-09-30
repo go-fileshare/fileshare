@@ -101,6 +101,19 @@ type server struct {
 	// nfsCRL is the client CA's CRL, when NFS takes identities from
 	// certificates; see nfs_identity.go.
 	nfsCRL *revocationList
+	// ssf is the shared signals receiver, and revocations what it has
+	// received; see caep.go.
+	ssf         *ssfReceiver
+	revocations *revocationStore
+}
+
+// federatedRevoked says whether a credential the provider's word stands
+// behind, issued at issued, was revoked since -- nil when no ssf block asks.
+func (s *server) federatedRevoked(name, iss, sub string, issued time.Time) error {
+	if s.revocations == nil {
+		return nil
+	}
+	return s.revocations.check(name, iss, sub, issued)
 }
 
 // currentShares is the list being served now.
@@ -220,6 +233,14 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		return nil, err
 	} else {
 		s.sshKRL = l
+	}
+	if cfg.SSF != nil {
+		r, err := newSSFReceiver(cfg.SSF, s.out)
+		if err != nil {
+			s.Close()
+			return nil, err
+		}
+		s.ssf, s.revocations = r, r.store
 	}
 	if l, err := openNFSCRL(cfg.serveBlockFor("nfs"), s.out); err != nil {
 		s.Close()
@@ -645,6 +666,11 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	go s.reloadLoop(every, hangups(stopReload), stopReload)
 	for _, l := range s.revocationLists() {
 		go l.run(stopReload)
+	}
+	if s.ssf != nil {
+		ssfCtx, cancelSSF := context.WithCancel(ctx)
+		defer cancelSSF()
+		go s.ssf.run(ssfCtx)
 	}
 
 	select {

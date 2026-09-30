@@ -93,6 +93,12 @@ func (s *server) collect(w *endpoint.Writer) {
 		w.Gauge("fileshare_revocation_list_age_seconds", "Age of each revocation list's last good copy; -1 when never fetched.", ages...)
 		w.Counter("fileshare_revocation_list_fetch_failures_total", "Revocation list fetches that failed.", fails...)
 	}
+	if st := s.revocations; st != nil {
+		w.Gauge("fileshare_ssf_last_heard_seconds", "Seconds since the shared signals transmitter last answered a poll; -1 when never.",
+			endpoint.S(st.age()))
+		w.Gauge("fileshare_ssf_revoked_subjects", "People whose earlier credentials the provider has revoked, as kept now.",
+			endpoint.S(float64(st.count())))
+	}
 	w.Counter("fileshare_admin_changes_total", "Changes asked of the admin API, by outcome.",
 		endpoint.S(float64(s.stats.applied.Load()), endpoint.L("result", "applied")),
 		endpoint.S(float64(s.stats.refused.Load()), endpoint.L("result", "refused")))

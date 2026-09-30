@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-filesystems/sftp/sshd"
 	"golang.org/x/crypto/ssh"
@@ -43,6 +45,7 @@ var federatedSecret = randomMark()
 
 const (
 	federatedMark = "federated@go-fileshare"
+	issuedMark    = "issued@go-fileshare"
 	certMark      = "cert@go-fileshare"
 	groupsMark    = "groups@go-fileshare"
 	// bridgeGroups is the extension go-authn/bridge's certificates carry.
@@ -55,17 +58,20 @@ type federatedSFTP struct {
 	ca ssh.PublicKey // the provider's SSH CA, or nil
 	// krl is the list of the provider's certificates it has revoked, when
 	// the oidc block names one; see revocation.go.
-	krl      *revocationList
+	krl *revocationList
+	// revoked is the shared signals check (caep.go): whether what the
+	// provider issued to a person at a moment has been revoked since.
+	revoked  func(name, iss, sub string, issued time.Time) error
 	opk      *opkVerifier
 	userClm  string
 	groupClm string
 }
 
-func newFederatedSFTP(o *oidcBlock, krl *revocationList) (*federatedSFTP, error) {
+func newFederatedSFTP(o *oidcBlock, krl *revocationList, revoked func(name, iss, sub string, issued time.Time) error) (*federatedSFTP, error) {
 	if o == nil || (o.SSHCAFile == "" && o.OpksshClientID == "") {
 		return nil, nil
 	}
-	f := &federatedSFTP{userClm: o.UsernameClaim, groupClm: o.GroupsClaim, krl: krl}
+	f := &federatedSFTP{userClm: o.UsernameClaim, groupClm: o.GroupsClaim, krl: krl, revoked: revoked}
 	if f.userClm == "" {
 		f.userClm = "preferred_username"
 	}
@@ -107,6 +113,11 @@ func (f *federatedSFTP) certificate(user string, cert *ssh.Certificate) (*ssh.Pe
 		if err := f.revokedCert(cert); err != nil {
 			return nil, err
 		}
+		// Issued when its validity begins: bridge signs it then.
+		issued := time.Unix(int64(cert.ValidAfter), 0)
+		if err := f.revoked(user, "", "", issued); err != nil {
+			return nil, err
+		}
 		var groups []string
 		for _, g := range strings.Split(cert.Extensions[bridgeGroups], "\n") {
 			if g != "" {
@@ -114,6 +125,7 @@ func (f *federatedSFTP) certificate(user string, cert *ssh.Certificate) (*ssh.Pe
 			}
 		}
 		perms := marked(groups)
+		perms.Extensions[issuedMark] = fmt.Sprint(cert.ValidAfter)
 		if f.krl != nil {
 			// Carried to the session, so that a revocation arriving after
 			// this login still reaches it; see unionFS.revoked.
@@ -156,9 +168,31 @@ func (f *federatedSFTP) revokedCert(cert *ssh.Certificate) error {
 	return nil
 }
 
-// sessionRevoked is what an open session asks before each operation.
-func (f *federatedSFTP) sessionRevoked(perms *ssh.Permissions) func() error {
-	if f == nil || f.krl == nil || perms == nil || perms.Extensions[federatedMark] != federatedSecret {
+// sessionRevoked is what an open session asks before each operation: the
+// KRL, for a certificate the provider's CA signed, and the shared signals,
+// for anything the provider vouched for.
+func (f *federatedSFTP) sessionRevoked(user string, perms *ssh.Permissions) func() error {
+	if f == nil || perms == nil || perms.Extensions[federatedMark] != federatedSecret {
+		return nil
+	}
+	krl := f.certRevoked(perms)
+	var issued time.Time
+	if v, err := strconv.ParseInt(perms.Extensions[issuedMark], 10, 64); err == nil {
+		issued = time.Unix(v, 0)
+	}
+	return func() error {
+		if krl != nil {
+			if err := krl(); err != nil {
+				return err
+			}
+		}
+		return f.revoked(user, "", "", issued)
+	}
+}
+
+// certRevoked is the KRL's question for the session's certificate, or nil.
+func (f *federatedSFTP) certRevoked(perms *ssh.Permissions) func() error {
+	if f.krl == nil {
 		return nil
 	}
 	raw, err := base64.StdEncoding.DecodeString(perms.Extensions[certMark])

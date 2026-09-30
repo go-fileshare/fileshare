@@ -33,7 +33,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 		return err
 	}
 	served, _ := p.exports(s.cfg, s.currentShares())
-	fed, err := newFederatedSFTP(s.cfg.OIDC, s.sshKRL)
+	fed, err := newFederatedSFTP(s.cfg.OIDC, s.sshKRL, s.federatedRevoked)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 				fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
 			}
 			tree := unionFor(served, who)
-			tree.revoked = fed.sessionRevoked(perms)
+			tree.revoked = fed.sessionRevoked(user, perms)
 			if len(tree.entries) == 0 {
 				// Nothing here for them. Refusing says so; an empty directory
 				// would look like a server that lost their files.

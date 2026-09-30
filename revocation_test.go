@@ -133,9 +133,11 @@ func TestARevocationListFromAFile(t *testing.T) {
 }
 
 func TestRevocationListSettings(t *testing.T) {
+	// Absolute on every system: "/etc/..." is not, on Windows.
+	abs := filepath.Join(t.TempDir(), "bridge.krl")
 	for _, c := range []struct{ url, file, refresh, maxAge, want string }{
 		{"https://bridge.example/ssh/krl", "", "", "", ""},
-		{"", "/etc/fileshare/bridge.krl", "30s", "10m", ""},
+		{"", abs, "30s", "10m", ""},
 		{"http://bridge.example/ssh/krl", "", "", "", "over https"},
 		{"https://x", "/x", "", "", "once"},
 		{"", "relative.krl", "", "", "absolute"},

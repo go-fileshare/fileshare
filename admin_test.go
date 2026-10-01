@@ -57,20 +57,17 @@ func socketDir(t *testing.T) string {
 	return d
 }
 
-func startManaged(t *testing.T, dir, extra string) *managed {
+// managedConfig writes and loads the configuration startManaged runs,
+// without the state file applied: what withState makes of it is the
+// caller's to see.
+func managedConfig(t *testing.T, dir, extra string) (cfg *config, sock, state, roots string) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
-		// The admin API is on a unix socket here, named by a unix path. Its
-		// other listener, TCP with mutual TLS, is tested on Windows where it
-		// lives: grpc-transports/control.
-		t.Skip("the admin tests use unix socket paths")
-	}
-	sock := socketDir(t)
-	roots := filepath.Join(dir, "roots")
+	sock = socketDir(t)
+	roots = filepath.Join(dir, "roots")
 	if err := os.MkdirAll(roots, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	state := filepath.Join(dir, "shares.json")
+	state = filepath.Join(dir, "shares.json")
 	body := fmt.Sprintf(`name = "TESTFS"
 %s
 %s
@@ -87,6 +84,18 @@ metrics { listen = "unix://%s/metrics.sock" }
 	if err != nil {
 		t.Fatalf("loading: %v", err)
 	}
+	return cfg, sock, state, roots
+}
+
+func startManaged(t *testing.T, dir, extra string) *managed {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		// The admin API is on a unix socket here, named by a unix path. Its
+		// other listener, TCP with mutual TLS, is tested on Windows where it
+		// lives: grpc-transports/control.
+		t.Skip("the admin tests use unix socket paths")
+	}
+	cfg, sock, state, roots := managedConfig(t, dir, extra)
 	if err := withState(cfg); err != nil {
 		t.Fatalf("state: %v", err)
 	}
@@ -506,8 +515,14 @@ func TestAChangeKeepsUnchangedDriversAndARefusalChangesNothing(t *testing.T) {
 	if code, body := m.get("alice", "hunter2", "/configured/x.txt"); code != http.StatusOK || body != "in the image" {
 		t.Fatalf("after a refusal, the configured share: %d %q", code, body)
 	}
-	if !strings.Contains(m.out.String(), "admin (") || strings.Contains(m.out.String(), "junk from") {
-		t.Fatalf("audit:\n%s", m.out)
+	// The refusal is audited as one, never as a change.
+	for _, line := range strings.Split(m.out.String(), "\n") {
+		if strings.Contains(line, "junk from") && !strings.Contains(line, "refused, nothing changed -- would have created share junk") {
+			t.Fatalf("audit:\n%s", m.out)
+		}
+	}
+	if !strings.Contains(m.out.String(), "refused, nothing changed") {
+		t.Fatalf("the refusal is not in the audit:\n%s", m.out)
 	}
 }
 

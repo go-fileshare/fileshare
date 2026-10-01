@@ -46,6 +46,8 @@ var federatedSecret = randomMark()
 const (
 	federatedMark = "federated@go-fileshare"
 	issuedMark    = "issued@go-fileshare"
+	expiresMark   = "expires@go-fileshare"
+	issSubMark    = "iss-sub@go-fileshare"
 	certMark      = "cert@go-fileshare"
 	groupsMark    = "groups@go-fileshare"
 	// bridgeGroups is the extension go-authn/bridge's certificates carry.
@@ -126,6 +128,7 @@ func (f *federatedSFTP) certificate(user string, cert *ssh.Certificate) (*ssh.Pe
 		}
 		perms := marked(groups)
 		perms.Extensions[issuedMark] = fmt.Sprint(cert.ValidAfter)
+		perms.Extensions[expiresMark] = fmt.Sprint(cert.ValidBefore)
 		if f.krl != nil {
 			// Carried to the session, so that a revocation arriving after
 			// this login still reaches it; see unionFS.revoked.
@@ -180,13 +183,30 @@ func (f *federatedSFTP) sessionRevoked(user string, perms *ssh.Permissions) func
 	if v, err := strconv.ParseInt(perms.Extensions[issuedMark], 10, 64); err == nil {
 		issued = time.Unix(v, 0)
 	}
+	// The certificate's end, checked at every operation: SSH checks it at
+	// login only, and an expired certificate leaves the provider's KRL, so
+	// a session outliving it would outlive its revocation too.
+	var expires uint64
+	if v, err := strconv.ParseUint(perms.Extensions[expiresMark], 10, 64); err == nil {
+		expires = v
+	} else if raw, err := base64.StdEncoding.DecodeString(perms.Extensions[certMark]); err == nil && len(raw) > 0 {
+		if key, err := ssh.ParsePublicKey(raw); err == nil {
+			if cert, ok := key.(*ssh.Certificate); ok {
+				expires = cert.ValidBefore
+			}
+		}
+	}
 	return func() error {
+		if expires != 0 && expires != ssh.CertTimeInfinity && uint64(time.Now().Unix()) >= expires {
+			return errors.New("the session's certificate has expired")
+		}
 		if krl != nil {
 			if err := krl(); err != nil {
 				return err
 			}
 		}
-		return f.revoked(user, "", "", issued)
+		iss, sub, _ := strings.Cut(perms.Extensions[issSubMark], " ")
+		return f.revoked(user, iss, sub, issued)
 	}
 }
 

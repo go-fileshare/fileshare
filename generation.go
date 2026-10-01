@@ -5,6 +5,7 @@ package main
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -200,7 +201,19 @@ func (s *server) startGeneration(n uint64, feeds []*feed, failures chan<- error)
 		g.wg.Add(1)
 		go func() {
 			defer g.wg.Done()
-			err := p.serve(s, p, ln)
+			var err error
+			func() {
+				// A protocol library that panics on something this program
+				// let through is an error that stops the server, said, not
+				// a crash with a stack trace -- and not one that repeats at
+				// every start from a state file.
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("panic: %v", r)
+					}
+				}()
+				err = p.serve(s, p, ln)
+			}()
 			if g.stopped.Load() {
 				return
 			}

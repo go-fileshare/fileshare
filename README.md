@@ -320,7 +320,16 @@ any credential it could void. The transport is
 [github.com/hstern/go-ssf](https://github.com/hstern/go-ssf); what an event means
 is fileshare's. ⛔ **It fails closed**, like the KRL: while the transmitter has not
 answered a poll within `max_age`, federated credentials are refused —
-`fileshare_ssf_last_heard_seconds` is the metric to alert on.
+`fileshare_ssf_last_heard_seconds` is the metric to alert on. A poll counts as
+heard only when every event it brought was verified and written down: an event
+signed by a key not yet published, or a state file that will not take a write,
+fails the round, so the event stays queued at the transmitter rather than being
+reported and dropped. Every endpoint the transmitter names is reached over
+https, a stream it reports as paused or disabled stops the session, and the
+keys used are its public, asymmetric ones only. `max_age` is a minute or more;
+`retain` is at least 169 hours, longer than any credential a revocation voids.
+A session's certificate is also checked against its own end, since an expired
+certificate leaves the provider's revocation list.
 
 #### Which institutions, and which groups
 
@@ -342,6 +351,11 @@ must be `<something>@<one of them>`, compared whole (`evilunivb.fr` is not
 `univb.fr`). `oidc:domain:` is the same test for one share. The domain can be
 trusted as far as the provider: go-authn/bridge drops an eppn or subject-id
 whose scope the IdP's federation metadata does not grant it.
+⛔ That holds for the names it scope-checks. A bridge that takes the name
+from `uid` or `mail` (`claims { username = ... }`) over a federation of several
+IdPs lets one IdP mint `alice@univ-a.fr`, and `domains` then lets it through:
+take the name from eppn or subject-id, or run go-authn/bridge v0.9.0 or later,
+which refuses that configuration unless a single IdP is listed.
 
 **Groups** are what the institution's IdP releases, turned into the `groups`
 claim by go-authn/bridge's `claims { groups = [...] }`: `eduPersonEntitlement`
@@ -762,7 +776,8 @@ it did — the generation now served and how many connections were closed.
   loopback, and this API decides who reads whose files. The listener is
   [grpc-transports/control](https://github.com/grpc-transports/control). Each
   change is logged with who made it: the client certificate's CN, or the
-  socket peer's uid.
+  socket peer's uid. A refusal is logged too, and anything a caller sent that
+  could break the line is quoted.
 - **It manages the shares it created.** A share written in the configuration is
   listed and cannot be changed through the API: a share defined in two places
   is a question nobody wants to answer. The API's shares live in `state_file`,
@@ -770,7 +785,16 @@ it did — the generation now served and how many connections were closed.
 - **A source must lie under `source_roots`**, resolved — links followed, `..`
   taken out — and it is the resolved path that is kept. Without `source_roots`
   the API cannot create shares: the process can read `/dev` and `/etc`, and
-  nobody meant to hand those to a caller.
+  nobody meant to hand those to a caller. It is checked again at every start,
+  and a share in `state_file` that is no longer under a root stops the start,
+  naming it. The share is opened through its root (`os.Root`), so a component
+  swapped for a link out of the root later is refused by the kernel.
+- **Names a protocol can carry.** A share name is at most 80 characters, does
+  not begin or end with a space, is not `.` or `..`, and holds no unprintable
+  character and none of `:*?"<>|{}%`. Subjects hold no unprintable character
+  either, and one share takes at most 1000 grants — a group's job long before.
+- **No share may contain** the configuration, the state file, or the secrets
+  they name: whoever writes into it would rewrite who may do what.
 - **Every share has at least one grant.** A share with none is open to anyone
   who authenticates; the file may say that on purpose, an API call should not
   say it by omission. So `CreateShare` needs a grant and revoking the last one

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -68,13 +69,19 @@ type ssfBlock struct {
 func (b *ssfBlock) timing() (maxAge, retain time.Duration, err error) {
 	maxAge, retain = 10*time.Minute, 192*time.Hour
 	if b.MaxAge != "" {
-		if maxAge, err = time.ParseDuration(b.MaxAge); err != nil || maxAge < 10*time.Second {
-			return 0, 0, fmt.Errorf("ssf: max_age = %q is not a duration of ten seconds or more", b.MaxAge)
+		// At least a minute: the poll backs off up to a quarter of it, plus
+		// an HTTP timeout, and anything shorter flaps with a healthy but
+		// idle transmitter (found by the security review).
+		if maxAge, err = time.ParseDuration(b.MaxAge); err != nil || maxAge < time.Minute {
+			return 0, 0, fmt.Errorf("ssf: max_age = %q is not a duration of a minute or more", b.MaxAge)
 		}
 	}
 	if b.Retain != "" {
-		if retain, err = time.ParseDuration(b.Retain); err != nil || retain < time.Hour {
-			return 0, 0, fmt.Errorf("ssf: retain = %q is not a duration of an hour or more", b.Retain)
+		// Longer than any credential a revocation voids: bridge's SSH
+		// certificates live up to 168h, opkssh's 1week; a revocation
+		// forgotten before they expire lets them back in.
+		if retain, err = time.ParseDuration(b.Retain); err != nil || retain < 169*time.Hour {
+			return 0, 0, fmt.Errorf("ssf: retain = %q is shorter than 169h, longer than any credential a revocation voids", b.Retain)
 		}
 	}
 	return maxAge, retain, nil
@@ -116,6 +123,25 @@ type ssfReceiver struct {
 	last time.Time // when the keys were last fetched
 
 	secret string // the client secret, for client credentials
+
+	triedKids map[string]time.Time // kids fetched for, and when
+}
+
+// jwsKeyID is the kid of a compact JWS's protected header, or "".
+func jwsKeyID(jws string) string {
+	h, _, ok := strings.Cut(jws, ".")
+	if !ok {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(h)
+	if err != nil {
+		return ""
+	}
+	var hdr struct {
+		Kid string `json:"kid"`
+	}
+	json.Unmarshal(raw, &hdr)
+	return hdr.Kid
 }
 
 func newSSFReceiver(b *ssfBlock, out io.Writer) (*ssfReceiver, error) {
@@ -127,7 +153,7 @@ func newSSFReceiver(b *ssfBlock, out io.Writer) (*ssfReceiver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssf: %w", err)
 	}
-	r := &ssfReceiver{b: b, store: store, out: out, client: &http.Client{Timeout: 60 * time.Second}}
+	r := &ssfReceiver{b: b, store: store, out: out, client: &http.Client{Timeout: 60 * time.Second, CheckRedirect: httpsOnlyRedirect}}
 	if b.CAFile != "" {
 		pem, err := os.ReadFile(b.CAFile)
 		if err != nil {
@@ -192,6 +218,9 @@ func (r *ssfReceiver) clientCredentials(ctx context.Context) error {
 		if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&oc); err != nil || oc.TokenEndpoint == "" {
 			return fmt.Errorf("the transmitter's OpenID configuration names no token_endpoint; say token_url")
 		}
+		if !strings.HasPrefix(oc.TokenEndpoint, "https://") {
+			return fmt.Errorf("the token endpoint %s is not https: the client secret would cross in the clear", oc.TokenEndpoint)
+		}
 		tokenURL = oc.TokenEndpoint
 	}
 	cc := clientcredentials.Config{ClientID: r.b.ClientID, ClientSecret: r.secret, TokenURL: tokenURL,
@@ -235,6 +264,13 @@ func (r *ssfReceiver) session(ctx context.Context) error {
 	if tc.JWKSURI == "" || tc.ConfigurationEndpoint == "" {
 		return errors.New("the transmitter publishes no jwks_uri or no configuration_endpoint")
 	}
+	// Over https, every one of them: the keys, the streams, the poll. The
+	// rule on `transmitter` is worth nothing if what it points to is not.
+	for _, u := range []string{tc.JWKSURI, tc.ConfigurationEndpoint, tc.StatusEndpoint} {
+		if u != "" && !strings.HasPrefix(u, "https://") {
+			return fmt.Errorf("the transmitter points to %s, which is not https", u)
+		}
+	}
 	r.mu.Lock()
 	r.jwks = tc.JWKSURI
 	r.mu.Unlock()
@@ -250,14 +286,31 @@ func (r *ssfReceiver) session(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("stream: %w", err)
 	}
+	if !strings.HasPrefix(endpoint, "https://") {
+		return fmt.Errorf("the poll endpoint %s is not https", endpoint)
+	}
+	// A stream the transmitter has disabled or paused still answers polls
+	// with nothing: "heard", and never told. Asked once per session, when
+	// the transmitter says where (SSF §8.1.2).
+	if tc.StatusEndpoint != "" {
+		var st struct {
+			Status string `json:"status"`
+		}
+		if _, err := r.call(ctx, http.MethodGet, tc.StatusEndpoint+"?stream_id="+r.store.streamID(), nil, &st); err != nil {
+			return fmt.Errorf("stream status: %w", err)
+		}
+		if st.Status != "" && st.Status != "enabled" {
+			return fmt.Errorf("the stream is %s at the transmitter, so no revocation would arrive", st.Status)
+		}
+	}
 	fmt.Fprintf(r.out, "ssf: polling %s for revocations\n", endpoint)
 	p := receiver.NewPoller(endpoint, r, receiver.SinkFunc(r.deliver),
-		receiver.WithHTTPClient(&http.Client{Timeout: r.client.Timeout, Transport: heardTransport{r.auth.Transport, r.store}}),
+		receiver.WithHTTPClient(&http.Client{Timeout: r.client.Timeout, Transport: consumingTransport{r.auth.Transport, r}}),
 		// The library's defaults back off to five minutes without events
 		// and an hour after errors; either is longer than max_age, and a
 		// short outage would then keep federated people out for the hour.
-		receiver.WithNoEventsBackoff(time.Second, 30*time.Second),
-		receiver.WithErrorBackoff(time.Second, 30*time.Second))
+		receiver.WithNoEventsBackoff(time.Second, r.backoffMax()),
+		receiver.WithErrorBackoff(time.Second, r.backoffMax()))
 	return p.Run(ctx)
 }
 
@@ -268,19 +321,66 @@ func (r *ssfReceiver) transport() http.RoundTripper {
 	return http.DefaultTransport
 }
 
-// heardTransport records every successful answer from the poll endpoint:
-// that, and only that, is the transmitter being heard from.
-type heardTransport struct {
-	next  http.RoundTripper
-	store *revocationStore
+// backoffMax is how long the poller may wait between polls: 30s, and never
+// more than a quarter of max_age.
+func (r *ssfReceiver) backoffMax() time.Duration {
+	maxAge, _, _ := r.b.timing()
+	return min(30*time.Second, maxAge/4)
 }
 
-func (h heardTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	res, err := h.next.RoundTrip(req)
-	if err == nil && res.StatusCode >= 200 && res.StatusCode < 300 {
-		h.store.heardFrom()
+// consumingTransport is where a poll's SETs are made durable, BEFORE the
+// poller sees them.
+//
+// ⛔ go-ssf's poller answers a SET it could not verify, or whose sink failed,
+// with setErrs -- and a transmitter may discard what a receiver reported
+// (go-authn/bridge v0.8.0 does). A revocation lost to a key rotated in a
+// minute ago, or to a full disk, while this server still counted as "heard"
+// is the fail-open the security review found. So here, on the poll's own
+// response: every SET is verified (the keys fetched again for one they do
+// not verify), read, and a revocation written down; any transient failure
+// fails the whole round -- no ack, no setErrs, not heard -- and the round is
+// retried. Only then does the poller get the response, and its sink finds
+// every revocation already kept.
+type consumingTransport struct {
+	next http.RoundTripper
+	r    *ssfReceiver
+}
+
+func (c consumingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	res, err := c.next.RoundTrip(req)
+	if err != nil || res.StatusCode < 200 || res.StatusCode > 299 {
+		return res, err
 	}
-	return res, err
+	body, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))
+	res.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	var pr struct {
+		Sets map[string]string `json:"sets"`
+	}
+	if err := json.Unmarshal(body, &pr); err != nil {
+		return nil, fmt.Errorf("the poll response: %w", err)
+	}
+	for jti, jws := range pr.Sets {
+		payload, err := c.r.Verify(jws)
+		if err != nil {
+			return nil, fmt.Errorf("SET %s does not verify with the transmitter's keys, so this round is not accepted: %w", jti, err)
+		}
+		keys, at, err := parseRevocation(payload, c.r.b.Transmitter, c.r.b.Audience)
+		if err != nil && !errors.Is(err, errIssSubOnly) {
+			continue // permanent: the poller's sink reports it
+		}
+		if len(keys) > 0 {
+			if err := c.r.store.revoke(keys, at); err != nil {
+				return nil, fmt.Errorf("keeping the revocation in SET %s: %w", jti, err)
+			}
+		}
+	}
+	c.r.store.heardFrom()
+	res.Body = io.NopCloser(bytes.NewReader(body))
+	res.ContentLength = int64(len(body))
+	return res, nil
 }
 
 // stream is the poll endpoint of this receiver's stream: the one the state
@@ -369,8 +469,22 @@ func (r *ssfReceiver) refreshKeys(ctx context.Context, force bool) error {
 	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&keys); err != nil {
 		return fmt.Errorf("jwks: %w", err)
 	}
-	r.keys, r.last = keys, time.Now()
+	r.keys, r.last = publicKeys(keys), time.Now()
 	return nil
+}
+
+// publicKeys keeps the public, asymmetric keys of a set: an HMAC secret
+// published in a JWKS would let whoever reads the JWKS sign SETs. Applied
+// where keys are fetched AND where they are used, so that no path to the
+// verifier carries one.
+func publicKeys(keys jose.JSONWebKeySet) jose.JSONWebKeySet {
+	var public jose.JSONWebKeySet
+	for _, k := range keys.Keys {
+		if _, symmetric := k.Key.([]byte); !symmetric && k.Valid() && k.IsPublic() {
+			public.Keys = append(public.Keys, k)
+		}
+	}
+	return public
 }
 
 // Verify is the SETVerifier the poller asks: the JWS layer, by go-ssf, with
@@ -378,17 +492,31 @@ func (r *ssfReceiver) refreshKeys(ctx context.Context, force bool) error {
 // verify, for a key rotated in since.
 func (r *ssfReceiver) Verify(jws string) ([]byte, error) {
 	r.mu.Lock()
-	keys := r.keys
+	keys := publicKeys(r.keys)
 	r.mu.Unlock()
 	payload, err := ssf.NewJOSESetVerifier(keys).Verify(jws)
 	if err == nil {
 		return payload, nil
 	}
-	if rerr := r.refreshKeys(context.Background(), false); rerr != nil {
+	// A SET that does not verify may be signed by a key rotated in since
+	// the last fetch -- under a new kid, or under the same one: fetched
+	// now, whatever the once-a-minute limit says, but once a minute per kid.
+	force := false
+	if kid := jwsKeyID(jws); kid != "" {
+		r.mu.Lock()
+		if r.triedKids == nil || len(r.triedKids) > 1024 {
+			r.triedKids = map[string]time.Time{}
+		}
+		if time.Since(r.triedKids[kid]) > time.Minute {
+			r.triedKids[kid], force = time.Now(), true
+		}
+		r.mu.Unlock()
+	}
+	if rerr := r.refreshKeys(context.Background(), force); rerr != nil {
 		return nil, err
 	}
 	r.mu.Lock()
-	keys = r.keys
+	keys = publicKeys(r.keys)
 	r.mu.Unlock()
 	return ssf.NewJOSESetVerifier(keys).Verify(jws)
 }

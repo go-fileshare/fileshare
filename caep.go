@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -212,7 +213,7 @@ const eventSessionRevoked = "https://schemas.openid.net/secevent/caep/event-type
 type setClaims struct {
 	Iss    string                     `json:"iss"`
 	Aud    json.RawMessage            `json:"aud"`
-	Iat    int64                      `json:"iat"`
+	Iat    json.Number                `json:"iat"`
 	Jti    string                     `json:"jti"`
 	Sub    string                     `json:"sub"`
 	Exp    json.RawMessage            `json:"exp"`
@@ -287,7 +288,7 @@ func parseRevocation(payload []byte, issuer, audience string) (keys []string, at
 		return nil, time.Time{}, nil
 	}
 	var ev struct {
-		EventTimestamp int64           `json:"event_timestamp"`
+		EventTimestamp json.Number     `json:"event_timestamp"`
 		SubID          json.RawMessage `json:"sub_id"`
 		// Scopes are the domains of an IdP revoked whole: go-authn/bridge
 		// puts its shibmd scopes here beside a tenant subject.
@@ -316,18 +317,16 @@ func parseRevocation(payload []byte, issuer, audience string) (keys []string, at
 		if len(keys) == 0 {
 			return nil, time.Time{}, fmt.Errorf("an institution revoked with no scope to name its people by")
 		}
-		at = time.Unix(c.Iat, 0)
-		if ev.EventTimestamp != 0 {
-			at = time.Unix(ev.EventTimestamp, 0)
+		if at, err = eventTime(c.Iat, ev.EventTimestamp); err != nil {
+			return nil, time.Time{}, err
 		}
 		return keys, at, nil
 	}
 	if len(keys) == 0 {
 		return nil, time.Time{}, fmt.Errorf("a session-revoked event for a subject this server cannot name (%s)", subRaw)
 	}
-	at = time.Unix(c.Iat, 0)
-	if ev.EventTimestamp != 0 {
-		at = time.Unix(ev.EventTimestamp, 0)
+	if at, err = eventTime(c.Iat, ev.EventTimestamp); err != nil {
+		return nil, time.Time{}, err
 	}
 	if !slices.ContainsFunc(keys, func(k string) bool { return strings.HasPrefix(k, "acct:") }) {
 		// Only iss_sub: kept, and matched against tokens, which carry sub;
@@ -336,6 +335,25 @@ func parseRevocation(payload []byte, issuer, audience string) (keys []string, at
 		err = errIssSubOnly
 	}
 	return keys, at, err
+}
+
+// eventTime is when a revocation took effect: event_timestamp, else the SET's
+// iat -- NumericDates, which RFC 7519 allows fractional. A SET with neither
+// is refused: RFC 8417 requires iat, and a zero time would be pruned the
+// moment it was kept, revoking nothing (found by the security review).
+func eventTime(iat, event json.Number) (time.Time, error) {
+	for _, n := range []json.Number{event, iat} {
+		if n == "" {
+			continue
+		}
+		f, err := n.Float64()
+		if err != nil || f <= 0 {
+			return time.Time{}, fmt.Errorf("a SET with an unusable time %q", n)
+		}
+		sec, frac := math.Modf(f)
+		return time.Unix(int64(sec), int64(frac*1e9)), nil
+	}
+	return time.Time{}, fmt.Errorf("a SET with no iat and no event_timestamp")
 }
 
 var errIssSubOnly = errors.New("the event names the person by iss_sub only: certificates, which carry only the name, cannot be matched to it")

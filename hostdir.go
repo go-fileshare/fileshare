@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/go-filesystems/osfs"
 )
@@ -31,13 +32,20 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	if b.ReadOnly {
 		opts = append(opts, osfs.ReadOnly())
 	}
-	fsys, err := osfs.Open(b.Directory, opts...)
+	var fsys *osfs.FS
+	var err error
+	if len(b.confine) > 0 {
+		fsys, err = openConfinedDirectory(b.confine, b.Directory, opts)
+	} else {
+		fsys, err = osfs.Open(b.Directory, opts...)
+	}
 	if err != nil {
 		return fmt.Errorf("share %q: %w", b.Name, err)
 	}
 	sh.fsys = fsys
 	sh.kind = "directory"
 	sh.openedReadOnly = b.ReadOnly
+	sh.askedWrite = !b.ReadOnly
 	// What a client is told the capacity is: the filesystem the tree lives
 	// on. A platform that cannot say leaves it at zero, which the protocols
 	// read as "unknown" rather than "full".
@@ -46,4 +54,31 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	}
 	sh.closers = []io.Closer{fsys}
 	return nil
+}
+
+// openConfinedDirectory opens a share the API created from the source root
+// it lies under, one os.Root inside the other. A component of the path
+// swapped for a link out of the root since the share was created -- by
+// anyone who can write inside a root -- is refused by the kernel here, at
+// every open, rather than by a string test made once, at creation.
+func openConfinedDirectory(roots []string, path string, opts []osfs.Option) (*osfs.FS, error) {
+	root, rel, err := rootOf(roots, path)
+	if err != nil {
+		return nil, err
+	}
+	outer, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer outer.Close()
+	inner, err := outer.OpenRoot(rel)
+	if err != nil {
+		return nil, err
+	}
+	fsys, err := osfs.OpenRoot(inner, opts...)
+	if err != nil {
+		inner.Close()
+		return nil, err
+	}
+	return fsys, nil
 }

@@ -24,19 +24,25 @@ import (
 // build it per connection. That hook exists because this program needed it:
 // go-filesystems/sftp v0.2.0 added Config.ServerFor and Config.Password.
 func serveSFTP(s *server, p *protocol, ln net.Listener) error {
-	hostKey, err := s.hostKey()
-	if err != nil {
-		return err
+	s.sftpOnce.Do(func() {
+		id := &sftpIdentity{}
+		if id.hostKey, s.sftpErr = s.hostKey(); s.sftpErr != nil {
+			return
+		}
+		if id.cas, s.sftpErr = s.trustedUserCAs(); s.sftpErr != nil {
+			return
+		}
+		if id.fed, s.sftpErr = newFederatedSFTP(s.cfg.OIDC, s.sshKRL, s.federatedRevoked); s.sftpErr != nil {
+			return
+		}
+		s.sftpState = id
+	})
+	if s.sftpErr != nil {
+		return s.sftpErr
 	}
-	cas, err := s.trustedUserCAs()
-	if err != nil {
-		return err
-	}
+	id := s.sftpState.(*sftpIdentity)
+	hostKey, cas, fed := id.hostKey, id.cas, id.fed
 	served, _ := p.exports(s.cfg, s.currentShares())
-	fed, err := newFederatedSFTP(s.cfg.OIDC, s.sshKRL, s.federatedRevoked)
-	if err != nil {
-		return err
-	}
 	var certificateFor func(string, *ssh.Certificate) (*ssh.Permissions, error)
 	if fed != nil {
 		certificateFor = fed.certificate
@@ -137,4 +143,11 @@ func (s *server) hostKey() (ssh.Signer, error) {
 		return nil, fmt.Errorf("the sftp host key: %w", err)
 	}
 	return sshd.ParseHostKey(pem)
+}
+
+// sftpIdentity is what SFTP reads once and keeps across generations.
+type sftpIdentity struct {
+	hostKey ssh.Signer
+	cas     []ssh.PublicKey
+	fed     *federatedSFTP
 }

@@ -68,6 +68,9 @@ type revocationList struct {
 type revoked interface {
 	describe() string
 	expires() time.Time
+	// older reports whether this list is older than another of its kind:
+	// a lower CRL Number, a lower KRL version.
+	older(than revoked) bool
 }
 
 // errRevocationUnknown is why a certificate is refused when the list cannot
@@ -78,7 +81,7 @@ func newRevocationList(name, url, file, caFile string, refresh, maxAge time.Dura
 	parse func([]byte) (revoked, error), out io.Writer) (*revocationList, error) {
 	l := &revocationList{name: name, url: url, file: file, refresh: refresh, maxAge: maxAge,
 		parse: parse, now: time.Now, out: out,
-		client: &http.Client{Timeout: 30 * time.Second}}
+		client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: httpsOnlyRedirect}}
 	if caFile != "" {
 		pem, err := os.ReadFile(caFile)
 		if err != nil {
@@ -91,6 +94,19 @@ func newRevocationList(name, url, file, caFile string, refresh, maxAge time.Dura
 		l.client.Transport = &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}
 	}
 	return l, nil
+}
+
+// httpsOnlyRedirect refuses a redirect that would leave https: the https
+// rule is on the configured URL, and a list fetched in the clear after a
+// redirect is one a network attacker writes (found by the security review).
+func httpsOnlyRedirect(req *http.Request, via []*http.Request) error {
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("a redirect to %s leaves https", req.URL.Redacted())
+	}
+	if len(via) >= 5 {
+		return fmt.Errorf("more than 5 redirects")
+	}
+	return nil
 }
 
 // current is the list as last fetched, or why it cannot be used.
@@ -134,30 +150,46 @@ func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
 		}
 	}()
 	var body []byte
+	var tag string
 	if l.file != "" {
 		if body, err = os.ReadFile(l.file); err != nil {
 			return false, err
 		}
 	} else {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
-		if err != nil {
-			return false, err
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
+		if rerr != nil {
+			return false, rerr
 		}
+		// ⛔ Only the tag of the copy held, and only when one is held: a 304
+		// is "what you hold is current", and must never vouch for a copy
+		// that did not parse (found by the security review: the tag of a
+		// broken list, sent back, kept a stale one "fresh" for ever).
 		l.mu.RLock()
 		if l.etag != "" && l.current != nil {
 			req.Header.Set("If-None-Match", l.etag)
 		}
 		l.mu.RUnlock()
-		res, err := l.client.Do(req)
-		if err != nil {
-			return false, err
+		res, rerr := l.client.Do(req)
+		if rerr != nil {
+			return false, rerr
 		}
 		defer res.Body.Close()
+		// Where the answer came FROM, whatever client asked: a redirect to
+		// http is refused by the client's own policy, and checked here too.
+		if res.Request != nil && res.Request.URL.Scheme != "https" {
+			return false, fmt.Errorf("%s was answered from %s, which is not https", l.url, res.Request.URL.Redacted())
+		}
 		switch res.StatusCode {
 		case http.StatusNotModified:
 			l.mu.Lock()
-			l.fetched, l.lastErr = l.now(), nil
+			held := l.current != nil
+			if held {
+				l.fetched, l.lastErr = l.now(), nil
+			}
 			l.mu.Unlock()
+			if !held {
+				return false, fmt.Errorf("%s answered 304 with no copy held", l.url)
+			}
 			return false, nil
 		case http.StatusOK:
 		default:
@@ -171,20 +203,15 @@ func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
 		if body, err = io.ReadAll(io.LimitReader(res.Body, 64<<20)); err != nil {
 			return false, err
 		}
-		defer func(tag string) {
-			if err == nil {
-				l.mu.Lock()
-				l.etag = tag
-				l.mu.Unlock()
-			}
-		}(res.Header.Get("ETag"))
+		tag = res.Header.Get("ETag")
 	}
 	l.mu.RLock()
 	same := l.current != nil && bytes.Equal(body, l.raw)
+	current := l.current
 	l.mu.RUnlock()
 	if same {
 		l.mu.Lock()
-		l.fetched, l.lastErr = l.now(), nil
+		l.fetched, l.lastErr, l.etag = l.now(), nil, tag
 		l.mu.Unlock()
 		return false, nil
 	}
@@ -192,8 +219,14 @@ func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %w; the last good copy is kept", l.source(), err)
 	}
+	// ⛔ Never backwards: an older list than the one held would un-revoke
+	// what the newer one revoked (a replayed CRL, a restored backup).
+	if current != nil && parsed.older(current) {
+		return false, fmt.Errorf("%s: %s is older than the %s held; the newer one is kept", l.source(),
+			parsed.describe(), current.describe())
+	}
 	l.mu.Lock()
-	l.current, l.raw, l.fetched, l.lastErr = parsed, body, l.now(), nil
+	l.current, l.raw, l.fetched, l.lastErr, l.etag = parsed, body, l.now(), nil, tag
 	l.mu.Unlock()
 	return true, nil
 }

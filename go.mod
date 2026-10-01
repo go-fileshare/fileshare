@@ -11,9 +11,9 @@ go 1.26.4
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.8.0
-	github.com/go-authn/krl v0.1.0
+	github.com/go-authn/krl v0.1.1
 	github.com/go-authn/oidc v0.1.0
-	github.com/go-authn/servercert v0.1.0
+	github.com/go-authn/servercert v0.1.2
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
@@ -21,9 +21,9 @@ require (
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.3.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
-	github.com/go-filesystems/nfs v0.4.0
+	github.com/go-filesystems/nfs v0.5.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
-	github.com/go-filesystems/osfs v0.1.0
+	github.com/go-filesystems/osfs v0.2.0
 	github.com/go-filesystems/s3 v0.1.0
 	github.com/go-filesystems/sftp v0.4.0
 	github.com/go-filesystems/smb v0.2.0
@@ -33,7 +33,7 @@ require (
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/s3 v0.0.0-20260903051126-cfe79d096697
-	github.com/grpc-transports/control v0.1.0
+	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.11.0

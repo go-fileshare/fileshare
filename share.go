@@ -4,6 +4,7 @@ package main
 
 import (
 	"io"
+	"os"
 	"slices"
 
 	"github.com/go-filesystems/detect"
@@ -52,6 +53,11 @@ type share struct {
 	// write whatever the block says -- a device, or a chosen partition.
 	openedReadOnly bool
 	forcedReadOnly bool
+	// askedWrite is whether the block the driver was opened for asked to
+	// write. A driver that fell back to read-only on its own -- a device, a
+	// file this process may not write -- was asked; only a block that was
+	// read_only and now is not is asking for something the open never tried.
+	askedWrite bool
 	// closers are the driver and the file under it, owned by whichever
 	// share holds them last.
 	closers []io.Closer
@@ -83,14 +89,31 @@ func (s *share) anyAllowedWrites() bool {
 }
 
 // An imageKey is what makes two shares the same opened image.
+//
+// ⛔ The FILE is compared, not its path: two spellings of one image -- a
+// symbolic link, the resolved path the admin API keeps -- are one image, and
+// two drivers over it each believe they own it. Measured by the security
+// review: 40 concurrent writes through two drivers left 26 to 32 of 41
+// files. info is the file as stat saw it, compared with os.SameFile.
 type imageKey struct {
-	image, directory, filesystem, label, uuid string
-	partition                                 int
+	directory               bool
+	filesystem, label, uuid string
+	partition               int
+	info                    os.FileInfo
+}
+
+func (k imageKey) same(o imageKey) bool {
+	return k.directory == o.directory && k.filesystem == o.filesystem && k.label == o.label &&
+		k.uuid == o.uuid && k.partition == o.partition &&
+		k.info != nil && o.info != nil && os.SameFile(k.info, o.info)
 }
 
 func imageKeyOf(b shareBlock) imageKey {
-	k := imageKey{image: b.Image, directory: b.Directory, filesystem: b.Filesystem,
+	k := imageKey{directory: b.Directory != "", filesystem: b.Filesystem,
 		label: b.PartitionLabel, uuid: b.PartitionUUID}
+	if fi, err := os.Stat(b.source()); err == nil {
+		k.info = fi
+	}
 	if b.Partition != nil {
 		k.partition = *b.Partition
 	}
@@ -102,7 +125,7 @@ func imageKeyOf(b shareBlock) imageKey {
 // leaves prev exactly as it was.
 func (s *share) adopt(prev *share) {
 	s.fsys, s.kind, s.size, s.named, s.partition = prev.fsys, prev.kind, prev.size, prev.named, prev.partition
-	s.openedReadOnly, s.forcedReadOnly = prev.openedReadOnly, prev.forcedReadOnly
+	s.openedReadOnly, s.forcedReadOnly, s.askedWrite = prev.openedReadOnly, prev.forcedReadOnly, prev.askedWrite
 	s.closers = prev.closers
 	if s.openedReadOnly || s.forcedReadOnly {
 		s.readOnly = true

@@ -23,6 +23,11 @@ func (s sshKRL) describe() string {
 // expires: a KRL says nothing about when it must be replaced; max_age does.
 func (sshKRL) expires() time.Time { return time.Time{} }
 
+func (s sshKRL) older(than revoked) bool {
+	o, ok := than.(sshKRL)
+	return ok && s.k.Version < o.k.Version
+}
+
 func parseKRL(b []byte) (revoked, error) {
 	k, err := krl.Parse(b)
 	if err != nil {

@@ -515,8 +515,14 @@ func TestAChangeKeepsUnchangedDriversAndARefusalChangesNothing(t *testing.T) {
 	if code, body := m.get("alice", "hunter2", "/configured/x.txt"); code != http.StatusOK || body != "in the image" {
 		t.Fatalf("after a refusal, the configured share: %d %q", code, body)
 	}
-	if !strings.Contains(m.out.String(), "admin (") || strings.Contains(m.out.String(), "junk from") {
-		t.Fatalf("audit:\n%s", m.out)
+	// The refusal is audited as one, never as a change.
+	for _, line := range strings.Split(m.out.String(), "\n") {
+		if strings.Contains(line, "junk from") && !strings.Contains(line, "refused, nothing changed -- would have created share junk") {
+			t.Fatalf("audit:\n%s", m.out)
+		}
+	}
+	if !strings.Contains(m.out.String(), "refused, nothing changed") {
+		t.Fatalf("the refusal is not in the audit:\n%s", m.out)
 	}
 }
 

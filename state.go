@@ -349,13 +349,13 @@ func (m *manager) change(who, what string, edit func(st *stateFile) error) (appl
 	// audit log is read for.
 	if err := edit(next); err != nil {
 		m.srv.stats.refused.Add(1)
-		fmt.Fprintf(m.audit, "admin (%s): refused: %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
+		fmt.Fprintf(m.audit, "admin (%s): refused, nothing changed -- would have %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
 		return applied{}, err
 	}
 	a, err := m.apply(next)
 	if err != nil {
 		m.srv.stats.refused.Add(1)
-		fmt.Fprintf(m.audit, "admin (%s): refused: %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
+		fmt.Fprintf(m.audit, "admin (%s): refused, nothing changed -- would have %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
 		return applied{}, err
 	}
 	m.state = next

@@ -36,6 +36,13 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 	if err != nil {
 		return err
 	}
+	s.nfsKeyOnce.Do(func() { s.nfsKey, s.nfsKeyErr = nfs.NewHandleKey() })
+	if s.nfsKeyErr != nil {
+		return s.nfsKeyErr
+	}
+	if err := srv.SetHandleKey(s.nfsKey); err != nil {
+		return err
+	}
 	k := s.cfg.Kerberos
 	if k != nil {
 		s.nfsOnce.Do(func() {

@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -66,8 +67,14 @@ func startReceiver(t *testing.T, tr *transmitter, dir string) (*ssfReceiver, con
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go r.run(ctx)
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); r.run(ctx) }()
+	// Cancelling waits for the receiver to stop: one still writing its
+	// state file races the removal of the test's directory.
+	var once sync.Once
+	cancel := context.CancelFunc(func() { once.Do(func() { stop(); <-done }) })
+	t.Cleanup(cancel)
 	deadline := time.Now().Add(10 * time.Second)
 	for r.store.age() < 0 {
 		if time.Now().After(deadline) {
@@ -481,8 +488,14 @@ func receiverFor(t *testing.T, tr *transmitter, dir string) (*ssfReceiver, conte
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go r.run(ctx)
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); r.run(ctx) }()
+	// Cancelling waits for the receiver to stop: one still writing its
+	// state file races the removal of the test's directory.
+	var once sync.Once
+	cancel := context.CancelFunc(func() { once.Do(func() { stop(); <-done }) })
+	t.Cleanup(cancel)
 	return r, cancel
 }
 

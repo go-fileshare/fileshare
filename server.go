@@ -109,6 +109,13 @@ type server struct {
 	nfsOnce   sync.Once
 	nfsState  any // the Kerberos acceptor, where there is NFS
 	nfsErr    error
+	// nfsKey authenticates NFS file handles. Drawn once per process and
+	// given to every generation's server, so a handle a client holds
+	// survives an admin change or a reload -- without it, each change left
+	// every mounted client with BADHANDLE on everything it had open.
+	nfsKeyOnce sync.Once
+	nfsKey     []byte
+	nfsKeyErr  error
 	// nfsCRL is the client CA's CRL, when NFS takes identities from
 	// certificates; see nfs_identity.go.
 	nfsCRL *revocationList

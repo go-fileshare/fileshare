@@ -351,6 +351,11 @@ must be `<something>@<one of them>`, compared whole (`evilunivb.fr` is not
 `univb.fr`). `oidc:domain:` is the same test for one share. The domain can be
 trusted as far as the provider: go-authn/bridge drops an eppn or subject-id
 whose scope the IdP's federation metadata does not grant it.
+⛔ That holds for the names it scope-checks. A bridge that takes the name
+from `uid` or `mail` (`claims { username = ... }`) over a federation of several
+IdPs lets one IdP mint `alice@univ-a.fr`, and `domains` then lets it through:
+take the name from eppn or subject-id, or run go-authn/bridge v0.9.0 or later,
+which refuses that configuration unless a single IdP is listed.
 
 **Groups** are what the institution's IdP releases, turned into the `groups`
 claim by go-authn/bridge's `claims { groups = [...] }`: `eduPersonEntitlement`

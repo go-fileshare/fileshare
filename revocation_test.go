@@ -20,6 +20,9 @@ type listOf string
 
 func (l listOf) describe() string { return string(l) }
 func (listOf) expires() time.Time { return time.Time{} }
+
+// older: "v1" < "v2", as the tests publish them.
+func (l listOf) older(than revoked) bool { o, _ := than.(listOf); return l < o }
 func parseListOf(b []byte) (revoked, error) {
 	if strings.Contains(string(b), "broken") {
 		return nil, errors.New("not a list")

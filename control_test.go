@@ -95,7 +95,7 @@ func TestStateAndConfigurationNeverShareAName(t *testing.T) {
 	os.MkdirAll(tree, 0o755)
 	state := filepath.Join(dir, "s.json")
 	body := configFor(t, dir, fmt.Sprintf("share \"Photos\" {\n  directory = %q\n}\n", hclPath(tree))) +
-		fmt.Sprintf("admin {\n  listen = \"unix:///run/fs/a.sock\"\n  state_file = %q\n}\n", hclPath(state))
+		fmt.Sprintf("admin {\n  listen = \"unix:///run/fs/a.sock\"\n  state_file = %q\n  source_roots = [%q]\n}\n", hclPath(state), hclPath(dir))
 	p := write(t, dir, "c.hcl", body)
 
 	write(t, dir, "s.json", fmt.Sprintf(`{"version":1,"shares":[{"name":"docs","directory":%q,"grants":[{"subject":"alice"}]}]}`,

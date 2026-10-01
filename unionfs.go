@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path"
@@ -221,13 +222,24 @@ func (u *unionFS) OpenFile(p string) (filesystem.File, error) {
 	if !ok || e == nil || inside == "/" {
 		return nil, os.ErrInvalid
 	}
-	o, canOpen := e.fsys.(filesystem.Opener)
-	if !canOpen {
-		return nil, os.ErrInvalid
-	}
-	f, err := o.OpenFile(inside)
-	if err != nil {
-		return nil, err
+	var f filesystem.File
+	if o, canOpen := e.fsys.(filesystem.Opener); canOpen {
+		var err error
+		if f, err = o.OpenFile(inside); err != nil {
+			return nil, err
+		}
+	} else {
+		// A driver with no positional reads -- hfsplus, ntfs, xfs... --
+		// still has files: read whole, served from memory. The union is an
+		// Opener for every share, so refusing here left those files
+		// unreadable over SFTP (found by the security review). A write
+		// open gets a File that cannot write, and the SFTP server then
+		// writes by path, as it does for any such driver.
+		data, err := e.fsys.ReadFile(inside)
+		if err != nil {
+			return nil, err
+		}
+		f = snapshotFile{bytes.NewReader(data)}
 	}
 	if e.readOnly {
 		// A writable File through a read-only view would be the one way past
@@ -246,6 +258,11 @@ func (u *unionFS) OpenFile(p string) (filesystem.File, error) {
 	}
 	return f, nil
 }
+
+// snapshotFile is a file read whole: what a driver without Opener offers.
+type snapshotFile struct{ *bytes.Reader }
+
+func (snapshotFile) Close() error { return nil }
 
 // revocableFile is an open file that stops answering when its session is
 // revoked.

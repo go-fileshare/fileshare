@@ -85,8 +85,8 @@ github.com/go-filesystems/nfs v0.4.0 h1:FRv841yNcxZ4eujnop5eFNE0VKPgc7akPqtrGS3B
 github.com/go-filesystems/nfs v0.4.0/go.mod h1:V1G1uZpi5YotfNqB+a5LUKw8eOz/RGM4RLdb8QutAK0=
 github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177 h1:0aEO+w2idrwHs/X3Uo/GSKqvBysQuQ5cumJCGo28248=
 github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177/go.mod h1:PYr8TCa1lQI3KC5Q/ONPScmaQ55iCMWBhdBv9twz++0=
-github.com/go-filesystems/osfs v0.1.0 h1:1POdd9b7JXzN6icMrzYowL1kXetnBs/JYy5BQruBXpM=
-github.com/go-filesystems/osfs v0.1.0/go.mod h1:/iYkhh2MPMchgX5t3YRY+1R4FYV8dVHIwSS74sDMvf0=
+github.com/go-filesystems/osfs v0.2.0 h1:4G2cBO9TauFLIBmreWQ4iHN/hwijiMobeGPumGQDyBw=
+github.com/go-filesystems/osfs v0.2.0/go.mod h1:/iYkhh2MPMchgX5t3YRY+1R4FYV8dVHIwSS74sDMvf0=
 github.com/go-filesystems/s3 v0.1.0 h1:bKqPMwDF/dKKhPbwV2hR4FYFkvhc8iSjfcXAp4kl0MQ=
 github.com/go-filesystems/s3 v0.1.0/go.mod h1:tOeCPfrAlc4tZPbe/vyfQ7HYfZedij6v8uX+VA3xPDk=
 github.com/go-filesystems/sftp v0.4.0 h1:OnBYhoJI3tmXXuHuj9+HayPm6EiwczzzVsOuZnVeKdg=

@@ -5,9 +5,11 @@
 package main
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/go-authn/krb5"
 	"github.com/go-filesystems/nfs"
@@ -36,10 +38,18 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 	}
 	k := s.cfg.Kerberos
 	if k != nil {
-		acceptor, err := krb5.Load(k.Keytab)
-		if err != nil {
-			return fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)
+		s.nfsOnce.Do(func() {
+			a, err := krb5.Load(k.Keytab)
+			if err != nil {
+				s.nfsErr = fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)
+				return
+			}
+			s.nfsState = a
+		})
+		if s.nfsErr != nil {
+			return s.nfsErr
 		}
+		acceptor := s.nfsState.(*krb5.Acceptor)
 		if err := srv.SetAuthenticator(rpcgss.New(acceptor)); err != nil {
 			return err
 		}
@@ -143,8 +153,22 @@ func (s *server) certificateGate(k *kerberosBlock, sh *share) func(*rpc.Call) (b
 			return false, false
 		}
 		leaf := c.TLS.PeerCertificates[0]
+		// ⛔ Checked at every call, not only at the handshake: an NFS
+		// connection lives for days, a certificate for hours -- and once it
+		// expires the provider drops it from its CRL, so a revoked one
+		// would come back (found by the security review).
+		if now := time.Now(); now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
+			return false, false
+		}
 		list, err := s.nfsCRL.get()
-		if err != nil || list.(crlList).revoked(leaf.SerialNumber) {
+		if err != nil {
+			return false, false
+		}
+		crl := list.(crlList)
+		// The CRL speaks for the CA that signed it and for no other: a
+		// certificate from another CA of client_ca_file is not in it,
+		// revoked or not.
+		if !bytes.Equal(leaf.RawIssuer, crl.issuer) || crl.revoked(leaf.SerialNumber) {
 			return false, false
 		}
 		p := principal{name: c.Principal, federated: true, groups: groupsOfCert(leaf)}

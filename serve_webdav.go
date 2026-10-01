@@ -26,7 +26,10 @@ import (
 // their own internal locks are different objects and would not have stopped a
 // PROPFIND and a PUT from interleaving inside one image.
 func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
-	mux := http.NewServeMux()
+	// Routed by the first path segment, compared as a name -- not through
+	// ServeMux, whose patterns read a space as a method, braces as a
+	// wildcard, and a name as syntax.
+	routes := map[string]http.Handler{}
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		prefix := "/" + sh.name
@@ -40,12 +43,17 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", sh.name, err)
 		}
-		h := &byUser{server: s, share: sh, read: read, write: write}
-		mux.Handle(prefix, h)
-		mux.Handle(prefix+"/", h)
+		routes[sh.name] = &byUser{server: s, share: sh, read: read, write: write}
 	}
-	mux.HandleFunc("/", s.webdavIndex(served))
-	return http.Serve(ln, mux)
+	index := s.webdavIndex(served)
+	return http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		if h, ok := routes[first]; ok && first != "" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		index(w, r)
+	}))
 }
 
 // byUser authenticates, then hands the request to the handler that matches

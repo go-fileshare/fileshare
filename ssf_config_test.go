@@ -29,8 +29,10 @@ func TestSSFSettings(t *testing.T) {
 		{ssfBlock{Transmitter: "https://bridge", Audience: "a", ClientID: "x", ClientSecretFile: "/c", TokenURL: "http://t", StateFile: "/s"}, withOIDC, "in the clear"},
 		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t"}, withOIDC, "state_file is required"},
 		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s"}, nothing, "nothing here serves"},
-		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", MaxAge: "1s"}, withOIDC, "ten seconds"},
-		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", Retain: "5m"}, withOIDC, "an hour"},
+		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", MaxAge: "1s"}, withOIDC, "a minute or more"},
+		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", MaxAge: "1m"}, withOIDC, ""},
+		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", Retain: "5m"}, withOIDC, "shorter than 169h"},
+		{ssfBlock{Transmitter: "https://bridge", Audience: "a", TokenFile: "/t", StateFile: "/s", Retain: "169h"}, withOIDC, ""},
 	} {
 		err := c.b.check(c.c)
 		switch {

@@ -4,6 +4,7 @@ package main
 
 import (
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -57,6 +58,8 @@ const groupTag = "go-authn.github.io,2026:group:"
 // crlList is an X.509 CRL, as a revocation list: signed by the client CA,
 // and trusted until its NextUpdate at most.
 type crlList struct {
+	// issuer is the subject of the CA that signed it, raw.
+	issuer  []byte
 	serials map[string]bool
 	number  *big.Int
 	next    time.Time
@@ -66,6 +69,11 @@ func (c crlList) describe() string {
 	return fmt.Sprintf("CRL number %v, %d revoked, next update %s", c.number, len(c.serials), c.next.UTC().Format(time.RFC3339))
 }
 func (c crlList) expires() time.Time { return c.next }
+
+func (c crlList) older(than revoked) bool {
+	o, ok := than.(crlList)
+	return ok && c.number != nil && o.number != nil && c.number.Cmp(o.number) < 0
+}
 
 func (c crlList) revoked(serial *big.Int) bool { return c.serials[serial.String()] }
 
@@ -82,22 +90,49 @@ func crlParser(cas []*x509.Certificate) func([]byte) (revoked, error) {
 			return nil, err
 		}
 		signed := false
+		var issuer []byte
 		for _, ca := range cas {
 			if rl.CheckSignatureFrom(ca) == nil {
-				signed = true
+				signed, issuer = true, ca.RawSubject
 				break
 			}
 		}
 		if !signed {
 			return nil, fmt.Errorf("the CRL is signed by none of the client CAs")
 		}
-		out := crlList{serials: map[string]bool{}, number: rl.Number, next: rl.NextUpdate}
+		// ⛔ A CRL whose critical extensions are not all understood is not
+		// understood: a delta CRL read as complete forgets every earlier
+		// revocation, and a scoped one (issuingDistributionPoint) covers
+		// less than it seems. Go's parser accepts both; this does not.
+		for _, e := range rl.Extensions {
+			switch {
+			case e.Id.Equal(oidDeltaCRLIndicator):
+				return nil, fmt.Errorf("a delta CRL: this server reads complete CRLs only")
+			case e.Critical && !e.Id.Equal(oidCRLNumber) && !e.Id.Equal(oidAuthorityKeyID):
+				return nil, fmt.Errorf("the CRL has a critical extension %v this server does not handle", e.Id)
+			}
+		}
+		for _, entry := range rl.RevokedCertificateEntries {
+			for _, e := range entry.Extensions {
+				if e.Critical {
+					// certificateIssuer (an indirect CRL) and its kind.
+					return nil, fmt.Errorf("a revoked entry has a critical extension %v this server does not handle", e.Id)
+				}
+			}
+		}
+		out := crlList{issuer: issuer, serials: map[string]bool{}, number: rl.Number, next: rl.NextUpdate}
 		for _, e := range rl.RevokedCertificateEntries {
 			out.serials[e.SerialNumber.String()] = true
 		}
 		return out, nil
 	}
 }
+
+var (
+	oidDeltaCRLIndicator = asn1.ObjectIdentifier{2, 5, 29, 27}
+	oidCRLNumber         = asn1.ObjectIdentifier{2, 5, 29, 20}
+	oidAuthorityKeyID    = asn1.ObjectIdentifier{2, 5, 29, 35}
+)
 
 // readCerts is every certificate in a PEM file.
 func readCerts(path string) ([]*x509.Certificate, error) {

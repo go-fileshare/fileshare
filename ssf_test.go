@@ -201,7 +201,7 @@ ssf {
   token_file  = %q
   state_file  = %q
   ca_file     = %q
-  max_age     = "30s"
+  max_age     = "1m"
 }
 share "t" {
   image = %q

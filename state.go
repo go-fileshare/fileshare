@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -198,7 +199,27 @@ func withState(cfg *config) error {
 			return fmt.Errorf("share %q is in the admin state file %s and share %q is in the configuration: "+
 				"one name, two definitions. Remove one of them", m.Name, cfg.Admin.StateFile, other)
 		}
-		all = append(all, m.block())
+		// ⛔ Checked again at every start: the roots may have been narrowed,
+		// or the file edited, since the share was created -- and a state
+		// file is not a way past source_roots.
+		src := m.Image
+		if src == "" {
+			src = m.Directory
+		}
+		// Resolved as the API resolves it; a source that is gone is judged
+		// by its spelling, and the share then waits offline as any other.
+		if real, err := filepath.EvalSymlinks(src); err == nil {
+			src = real
+		} else {
+			src = filepath.Clean(src)
+		}
+		if _, _, err := rootOf(cfg.Admin.SourceRoots, src); err != nil {
+			return fmt.Errorf("share %q in the admin state file %s: %v; remove it there, or widen source_roots",
+				m.Name, cfg.Admin.StateFile, err)
+		}
+		b := m.block()
+		b.confine = cfg.Admin.SourceRoots
+		all = append(all, b)
 		cfg.managed[strings.ToUpper(m.Name)] = true
 	}
 	cfg.Shares = all
@@ -283,6 +304,19 @@ func indexOf(st *stateFile, name string) int {
 	return slices.IndexFunc(st.Shares, func(s managedShare) bool { return strings.EqualFold(s.Name, name) })
 }
 
+// changedBlocks are the API shares next defines differently from the state
+// being served: new, or altered.
+func (m *manager) changedBlocks(next *stateFile) []shareBlock {
+	var out []shareBlock
+	for _, ms := range next.Shares {
+		i := indexOf(m.state, ms.Name)
+		if i < 0 || !reflect.DeepEqual(m.state.Shares[i], ms) {
+			out = append(out, ms.block())
+		}
+	}
+	return out
+}
+
 // exists reports whether a state, with the files, defines a share.
 func (m *manager) exists(st *stateFile, name string) bool {
 	return m.fromFiles(name) || indexOf(st, name) >= 0
@@ -330,7 +364,9 @@ func (m *manager) change(who, what string, edit func(st *stateFile) error) (appl
 func (m *manager) blocks(st *stateFile) (all, serve []shareBlock) {
 	all = slices.Clone(m.files.Shares)
 	for _, s := range st.Shares {
-		all = append(all, s.block())
+		b := s.block()
+		b.confine = m.roots
+		all = append(all, b)
 	}
 	serve, _ = st.split(all)
 	return all, serve
@@ -349,14 +385,26 @@ func (m *manager) apply(next *stateFile) (applied, error) {
 	if err := cfg.check(); err != nil {
 		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
-	// Against the people who exist, exactly as a startup checks them.
-	if err := cfg.resolve(m.srv.dir, m.srv.people()); err != nil {
+	// Against the people who exist -- but only what this change WRITES: the
+	// API shares it creates or alters. Everything else was checked when it
+	// was written, and the directory may have moved since (a group emptied,
+	// somebody deleted); a strict check of it here would refuse every change,
+	// the revocations included, until somebody edited the file. What the
+	// rest expands to now is what a reload would make of it.
+	changed := *m.files
+	changed.Groups = nil
+	changed.Shares = m.changedBlocks(next)
+	if err := m.files.checkNoShareHoldsSecrets(changed.Shares); err != nil {
+		return applied{}, refuse(refusedPrecondition, "%v", err)
+	}
+	if err := changed.resolve(m.srv.dir, m.srv.people()); err != nil {
 		return applied{}, refuse(refusedInvalid, "%v", err)
 	}
 	m.srv.changeMu.Lock()
 	defer m.srv.changeMu.Unlock()
 	prev := m.srv.currentShares()
-	shares, err := m.srv.openShares(serve, prev)
+	var notes []string
+	shares, err := m.srv.openSharesExpanding(serve, prev, tolerantExpand(m.srv.dir, m.srv.people(), &notes))
 	if err != nil {
 		return applied{}, refuse(refusedPrecondition, "%v", err)
 	}
@@ -393,14 +441,31 @@ func (m *manager) withinRoots(path string) (string, error) {
 	if err != nil {
 		return "", refuse(refusedPrecondition, "%s: %v", path, err)
 	}
-	for _, r := range m.roots {
-		root, err := filepath.EvalSymlinks(r)
-		if err != nil {
-			continue
+	if _, _, err := rootOf(m.roots, real); err != nil {
+		return "", refuse(refusedPrecondition, "%v", err)
+	}
+	return real, nil
+}
+
+// rootOf is the source root a resolved path lies under, resolved itself,
+// and the path relative to it -- what an os.Root is opened on and asked for,
+// so that the KERNEL confines the open to the root: a link swapped in after
+// any check made here leads nowhere outside it.
+func rootOf(roots []string, real string) (root, rel string, err error) {
+	for _, r := range roots {
+		// The root as resolved, then as spelled: a path kept before the
+		// root's own spelling resolved differently is still under it, and
+		// what is opened from it is confined by an os.Root either way.
+		spellings := []string{filepath.Clean(r)}
+		if resolved, err := filepath.EvalSymlinks(r); err == nil {
+			spellings = []string{resolved, filepath.Clean(r)}
 		}
-		if rel, err := filepath.Rel(root, real); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return real, nil
+		for _, root := range spellings {
+			rel, err := filepath.Rel(root, real)
+			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+				return root, rel, nil
+			}
 		}
 	}
-	return "", refuse(refusedPrecondition, "%s is not under any of the source roots (%s)", path, strings.Join(m.roots, ", "))
+	return "", "", fmt.Errorf("%s is not under any of the source roots (%s)", real, strings.Join(roots, ", "))
 }

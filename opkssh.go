@@ -116,5 +116,9 @@ func (f *federatedSFTP) openpubkey(user string, cert *ssh.Certificate) (*ssh.Per
 	if issuedAt > 0 {
 		perms.Extensions[issuedMark] = fmt.Sprint(issuedAt)
 	}
+	perms.Extensions[expiresMark] = fmt.Sprint(cert.ValidBefore)
+	if issS != "" && subS != "" {
+		perms.Extensions[issSubMark] = issS + " " + subS
+	}
 	return perms, nil
 }

@@ -23,7 +23,7 @@ require (
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.4.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
-	github.com/go-filesystems/osfs v0.1.0
+	github.com/go-filesystems/osfs v0.2.0
 	github.com/go-filesystems/s3 v0.1.0
 	github.com/go-filesystems/sftp v0.4.0
 	github.com/go-filesystems/smb v0.2.0

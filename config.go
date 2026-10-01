@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/directory/hcldir"
@@ -91,6 +93,8 @@ type config struct {
 	managed   map[string]bool
 	fromFiles []shareBlock
 	offline   []shareBlock
+	// sources are the configuration files this was read from.
+	sources []string
 }
 
 // An adminBlock turns on the gRPC admin API.
@@ -296,6 +300,9 @@ type shareBlock struct {
 	// says otherwise, so that a later grant of write does not need the
 	// image or the tree opened a second time.
 	noWriters bool
+	// confine is the source roots an admin API share must be opened
+	// through, with the kernel enforcing it; empty for a share of the files.
+	confine []string
 }
 
 // A serveBlock turns one protocol on. The label is the protocol's name.
@@ -357,6 +364,7 @@ func loadConfig(paths []string) (*config, error) {
 	if err := cfg.check(); err != nil {
 		return nil, err
 	}
+	cfg.sources = expandConfigPaths(paths)
 	return &cfg, nil
 }
 
@@ -409,6 +417,9 @@ func (c *config) check() error {
 		}
 		if strings.ContainsAny(s.Name, `\/`) {
 			return fmt.Errorf("share %q has a path separator in its name: it is a name, not a path", s.Name)
+		}
+		if err := checkShareName(s.Name); err != nil {
+			return err
 		}
 		if s.Filesystem != "" && !knownFilesystem(s.Filesystem) {
 			return fmt.Errorf("share %q names filesystem %q, which is not one here: %s",
@@ -887,6 +898,106 @@ func (c *config) checkRule(share, who string) error {
 	}
 	if c.OIDC == nil {
 		return fmt.Errorf("share %q names %s, and there is no oidc block: no identity provider here could say who that is", share, who)
+	}
+	return nil
+}
+
+// checkShareName refuses a name some protocol cannot carry, or that would
+// forge a line wherever a name is printed.
+//
+// ⛔ Measured by the security review: "my photos" was a ServeMux pattern
+// WebDAV panicked on, ".." a prefix the WebDAV and NFS libraries refuse, "{x}"
+// a wildcard route, and a name with a newline a forged audit line -- each
+// accepted by the admin API, written to its state file, and then fatal at
+// every start. A space is fine: "My Photos" is an ordinary SMB share.
+func checkShareName(name string) error {
+	switch {
+	case name == "":
+		return fmt.Errorf("a share needs a name")
+	case name == "." || name == "..":
+		return fmt.Errorf("share %q: . and .. are not names", name)
+	case utf8.RuneCountInString(name) > 80:
+		return fmt.Errorf("share %q: a name is 80 characters at most", name)
+	case strings.TrimSpace(name) != name:
+		return fmt.Errorf("share %q: a name does not begin or end with a space", name)
+	case !utf8.ValidString(name):
+		return fmt.Errorf("share %q: a name is UTF-8", name)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || strings.ContainsRune(`:*?"<>|{}%`, r) {
+			return fmt.Errorf("share %q: %q is not allowed in a name (control characters, and :*?\"<>|{}%%)", name, r)
+		}
+	}
+	return nil
+}
+
+// protectedPaths are the files a share must never contain: whoever may write
+// into a share holding them would rewrite who may do what -- the
+// configuration, the admin API's and the shared signals' state, the keys.
+func (c *config) protectedPaths() []string {
+	out := slices.Clone(c.sources)
+	add := func(p string) {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	if a := c.Admin; a != nil {
+		add(a.StateFile)
+		add(a.TLSKeyFile)
+		add(a.TLSCertFile)
+		add(a.ClientCAFile)
+	}
+	if s := c.SSF; s != nil {
+		add(s.StateFile)
+		add(s.TokenFile)
+		add(s.ClientSecretFile)
+	}
+	if t := c.TLS; t != nil {
+		add(t.KeyFile)
+		add(t.CertFile)
+		if t.ACME != nil {
+			add(t.ACME.CacheDir)
+			add(t.ACME.EABHMACKeyFile)
+		}
+	}
+	add(c.HostKeyFile)
+	add(c.TrustedUserCAFile)
+	if c.Kerberos != nil {
+		add(c.Kerberos.Keytab)
+	}
+	for _, u := range c.Users {
+		add(u.PasswordFile)
+	}
+	return out
+}
+
+// checkNoShareHoldsSecrets refuses a directory share, or an image, that is
+// or contains one of protectedPaths.
+func (c *config) checkNoShareHoldsSecrets(blocks []shareBlock) error {
+	protected := map[string]string{}
+	for _, p := range c.protectedPaths() {
+		if abs, err := filepath.Abs(p); err == nil {
+			if real, err := filepath.EvalSymlinks(abs); err == nil {
+				abs = real
+			} else if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+				abs = filepath.Join(dir, filepath.Base(abs)) // not created yet
+			}
+			protected[abs] = p
+		}
+	}
+	for _, b := range blocks {
+		src := b.source()
+		real, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			continue // opening it will say why
+		}
+		for abs, orig := range protected {
+			rel, err := filepath.Rel(real, abs)
+			if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
+				return fmt.Errorf("share %q (%s) holds %s: whoever may write into it would rewrite this server's configuration or keys",
+					b.Name, src, orig)
+			}
+		}
 	}
 	return nil
 }

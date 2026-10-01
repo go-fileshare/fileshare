@@ -98,6 +98,17 @@ type server struct {
 	// sshKRL is the provider's list of revoked SSH certificates, when the
 	// oidc block names one. It outlives generations, and is fetched by run.
 	sshKRL *revocationList
+
+	// What a protocol reads from files once, not once per generation: a
+	// host key generated per generation would change the server's SSH
+	// identity at every admin change, and a file unreadable since the start
+	// would turn a successful change into a server that stops.
+	sftpOnce  sync.Once
+	sftpState any // *sftpIdentity, where there is SFTP
+	sftpErr   error
+	nfsOnce   sync.Once
+	nfsState  any // the Kerberos acceptor, where there is NFS
+	nfsErr    error
 	// nfsCRL is the client CA's CRL, when NFS takes identities from
 	// certificates; see nfs_identity.go.
 	nfsCRL *revocationList
@@ -256,6 +267,10 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		s.oidc = v
 	}
 
+	if err := cfg.checkNoShareHoldsSecrets(append(slices.Clone(cfg.Shares), cfg.offline...)); err != nil {
+		s.Close()
+		return nil, err
+	}
 	shares, err := s.openShares(cfg.Shares, nil)
 	if err != nil {
 		s.Close()
@@ -331,8 +346,13 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 			allowNamed:   len(allowNames) > 0,
 			writersNamed: len(writerNames) > 0,
 		}
-		if prev := sameImage(previous, sh.opened); prev != nil {
-			if prev.openedReadOnly && !b.ReadOnly {
+		// The previous list's drivers, and this list's own: two shares of one
+		// configuration on one image share its driver too.
+		if prev := sameImage(append(slices.Clone(previous), out...), sh.opened); prev != nil {
+			// Refused only when the open never tried to write: a driver that
+			// fell back to read-only by itself stays read-only, served as it
+			// was, rather than blocking every change to every other share.
+			if prev.openedReadOnly && !b.ReadOnly && !prev.askedWrite {
 				// The file itself was opened read-only, and a driver cannot be
 				// made writable after the fact. Reopening it here would put a
 				// second driver on an image the first is still serving.
@@ -360,7 +380,14 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 // it happens -- every way the share ended up less writable than it asked.
 func (s *server) openImage(sh *share, b shareBlock) error {
 	out := s.out
-	f, ro, err := openImageFile(b.Image, b.ReadOnly)
+	var f *os.File
+	var ro bool
+	var err error
+	if len(b.confine) > 0 {
+		f, ro, err = openConfinedImage(b.confine, b.Image, b.ReadOnly)
+	} else {
+		f, ro, err = openImageFile(b.Image, b.ReadOnly)
+	}
 	if err != nil {
 		if hint := deviceOpenHint(b.Image, err); hint != "" {
 			return fmt.Errorf("opening %s: %w\n       %s", b.Image, err, hint)
@@ -402,6 +429,7 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 		return fmt.Errorf("%s: %w", b.Image, err)
 	}
 	sh.openedReadOnly = ro
+	sh.askedWrite = !b.ReadOnly
 	if ro && !sh.readOnly {
 		// Not what was asked for, so it is said out loud: the share works,
 		// and it will not take a write.
@@ -448,7 +476,7 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 // sameImage is the share among previous that has this image open, if any.
 func sameImage(previous []*share, k imageKey) *share {
 	for _, sh := range previous {
-		if sh.opened == k && sh.fsys != nil {
+		if sh.fsys != nil && sh.opened.same(k) {
 			return sh
 		}
 	}
@@ -777,6 +805,40 @@ func openImageFile(path string, readOnly bool) (*os.File, bool, error) {
 	}
 	f, err := os.Open(path)
 	return f, true, err
+}
+
+// openConfinedImage opens an admin API share's image through an os.Root on
+// its source root: the kernel refuses a path that leaves it, a symbolic link
+// swapped in since the share was created included. A device is not opened
+// this way -- an image under a source root is a file.
+func openConfinedImage(roots []string, path string, readOnly bool) (*os.File, bool, error) {
+	root, rel, err := rootOf(roots, path)
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	defer r.Close()
+	if !readOnly {
+		if f, err := r.OpenFile(rel, os.O_RDWR, 0); err == nil {
+			if fi, err := f.Stat(); err == nil && fi.Mode().IsRegular() {
+				return f, false, nil
+			}
+			f.Close()
+			return nil, false, fmt.Errorf("%s is not a regular file", path)
+		}
+	}
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, false, err
+	}
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		f.Close()
+		return nil, false, fmt.Errorf("%s is not a regular file", path)
+	}
+	return f, true, nil
 }
 
 // person is somebody the directories know, as of the last read.

@@ -924,8 +924,10 @@ func checkShareName(name string) error {
 		return fmt.Errorf("share %q: a name is UTF-8", name)
 	}
 	for _, r := range name {
-		if unicode.IsControl(r) || strings.ContainsRune(`:*?"<>|{}%`, r) {
-			return fmt.Errorf("share %q: %q is not allowed in a name (control characters, and :*?\"<>|{}%%)", name, r)
+		// Not IsControl: U+2028 is a line separator that is not a control
+		// character, and a log viewer breaks the line there all the same.
+		if !unicode.IsPrint(r) || strings.ContainsRune(`:*?"<>|{}%`, r) {
+			return fmt.Errorf("share %q: %q is not allowed in a name (unprintable characters, and :*?\"<>|{}%%)", name, r)
 		}
 	}
 	return nil

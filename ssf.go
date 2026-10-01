@@ -469,18 +469,22 @@ func (r *ssfReceiver) refreshKeys(ctx context.Context, force bool) error {
 	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&keys); err != nil {
 		return fmt.Errorf("jwks: %w", err)
 	}
-	// Public, asymmetric keys only: an HMAC secret published in a JWKS
-	// would let whoever reads the JWKS sign SETs (found by the review).
+	r.keys, r.last = publicKeys(keys), time.Now()
+	return nil
+}
+
+// publicKeys keeps the public, asymmetric keys of a set: an HMAC secret
+// published in a JWKS would let whoever reads the JWKS sign SETs. Applied
+// where keys are fetched AND where they are used, so that no path to the
+// verifier carries one.
+func publicKeys(keys jose.JSONWebKeySet) jose.JSONWebKeySet {
 	var public jose.JSONWebKeySet
 	for _, k := range keys.Keys {
-		if k.Valid() && k.IsPublic() {
-			if _, symmetric := k.Key.([]byte); !symmetric {
-				public.Keys = append(public.Keys, k)
-			}
+		if _, symmetric := k.Key.([]byte); !symmetric && k.Valid() && k.IsPublic() {
+			public.Keys = append(public.Keys, k)
 		}
 	}
-	r.keys, r.last = public, time.Now()
-	return nil
+	return public
 }
 
 // Verify is the SETVerifier the poller asks: the JWS layer, by go-ssf, with
@@ -488,18 +492,19 @@ func (r *ssfReceiver) refreshKeys(ctx context.Context, force bool) error {
 // verify, for a key rotated in since.
 func (r *ssfReceiver) Verify(jws string) ([]byte, error) {
 	r.mu.Lock()
-	keys := r.keys
+	keys := publicKeys(r.keys)
 	r.mu.Unlock()
 	payload, err := ssf.NewJOSESetVerifier(keys).Verify(jws)
 	if err == nil {
 		return payload, nil
 	}
-	// A key id not in the set is a key rotated in since the last fetch:
-	// fetched now, whatever the once-a-minute limit says, but once per kid.
+	// A SET that does not verify may be signed by a key rotated in since
+	// the last fetch -- under a new kid, or under the same one: fetched
+	// now, whatever the once-a-minute limit says, but once a minute per kid.
 	force := false
-	if kid := jwsKeyID(jws); kid != "" && len(keys.Key(kid)) == 0 {
+	if kid := jwsKeyID(jws); kid != "" {
 		r.mu.Lock()
-		if r.triedKids == nil {
+		if r.triedKids == nil || len(r.triedKids) > 1024 {
 			r.triedKids = map[string]time.Time{}
 		}
 		if time.Since(r.triedKids[kid]) > time.Minute {
@@ -511,7 +516,7 @@ func (r *ssfReceiver) Verify(jws string) ([]byte, error) {
 		return nil, err
 	}
 	r.mu.Lock()
-	keys = r.keys
+	keys = publicKeys(r.keys)
 	r.mu.Unlock()
 	return ssf.NewJOSESetVerifier(keys).Verify(jws)
 }

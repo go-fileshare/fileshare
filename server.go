@@ -717,6 +717,9 @@ func (s *server) shutdown(closeFeeds func()) {
 	s.stop()
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+	// Again, under the lock: a swap that ran since the first store has set
+	// it back to true, and no swap can after this one, the generation gone.
+	s.ready.Store(false)
 	closeFeeds()
 	if s.gen != nil {
 		s.gen.stop()

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-net-health/endpoint"
 	"github.com/grpc-transports/control"
@@ -346,6 +347,9 @@ func (a *adminService) Grant(ctx context.Context, req *adminv1.GrantRequest) (*a
 				ms.Grants[i] = g
 				return nil
 			}
+			if len(ms.Grants) >= maxGrants {
+				return refuse(refusedPrecondition, "share %q has %d grants already, the most one share takes: grant a group", ms.Name, len(ms.Grants))
+			}
 			ms.Grants = append(ms.Grants, g)
 			return nil
 		})
@@ -407,10 +411,11 @@ func (a *adminService) ReloadDirectory(ctx context.Context, _ *adminv1.ReloadDir
 	srv := a.m.srv
 	r, err := srv.reload()
 	if err != nil && !errors.Is(err, errUnchanged) {
+		fmt.Fprintf(a.m.audit, "admin (%s): reloading the directory failed: %s\n", logSafe(control.Caller(ctx)), logSafe(err.Error()))
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	srv.sayReload(r, err)
-	fmt.Fprintf(a.m.audit, "admin (%s): reloaded the directory\n", control.Caller(ctx))
+	fmt.Fprintf(a.m.audit, "admin (%s): reloaded the directory\n", logSafe(control.Caller(ctx)))
 	return &adminv1.ReloadDirectoryResponse{Added: r.added, Removed: r.removed, Changed: r.changed,
 		NewGeneration: r.swapped, Notes: r.notes,
 		Applied: &adminv1.Applied{Generation: srv.generationNumber(), ConnectionsClosed: r.closed}}, nil
@@ -525,7 +530,15 @@ func grantsOfBlock(b shareBlock) []grant {
 	return out
 }
 
+// maxGrants bounds one share's list: every grant is checked at every
+// connection, and the state file is rewritten whole at every change. A
+// thousand people by name is a group's job long before.
+const maxGrants = 1000
+
 func grantsOf(in []*adminv1.Grant) ([]grant, error) {
+	if len(in) > maxGrants {
+		return nil, refuse(refusedInvalid, "%d grants on one share; at most %d -- grant a group", len(in), maxGrants)
+	}
 	var out []grant
 	for _, g := range in {
 		subject, err := subjectOf(g.GetSubject())
@@ -552,7 +565,13 @@ func grantsOf(in []*adminv1.Grant) ([]grant, error) {
 // that would be read as something else -- a user called "@staff" is a group,
 // and one called "oidc:user:x" is a rule.
 func subjectOf(s *adminv1.Subject) (string, error) {
-	bad := func(v string) bool { return v == "" || strings.ContainsAny(v, " \t\n") }
+	// Nothing a log line or a configuration file would read as something
+	// else: no space, no control character, valid UTF-8, a sane length.
+	// A claim value may hold a space ("Domain Users"); a name may not.
+	unreadable := func(v string) bool {
+		return v == "" || len(v) > 256 || !utf8.ValidString(v) || strings.ContainsFunc(v, notPrintable)
+	}
+	bad := func(v string) bool { return unreadable(v) || strings.Contains(v, " ") }
 	switch k := s.GetKind().(type) {
 	case *adminv1.Subject_User:
 		if bad(k.User) || strings.HasPrefix(k.User, "@") || isRule(k.User) {
@@ -565,13 +584,13 @@ func subjectOf(s *adminv1.Subject) (string, error) {
 		}
 		return "@" + k.Group, nil
 	case *adminv1.Subject_OidcGroup:
-		if k.OidcGroup == "" {
-			return "", refuse(refusedInvalid, "an oidc_group needs a value")
+		if unreadable(k.OidcGroup) {
+			return "", refuse(refusedInvalid, "%q is not an oidc_group value", k.OidcGroup)
 		}
 		return "oidc:groups:" + k.OidcGroup, nil
 	case *adminv1.Subject_OidcUser:
-		if k.OidcUser == "" {
-			return "", refuse(refusedInvalid, "an oidc_user needs a name")
+		if unreadable(k.OidcUser) {
+			return "", refuse(refusedInvalid, "%q is not an oidc_user name", k.OidcUser)
 		}
 		return "oidc:user:" + k.OidcUser, nil
 	}

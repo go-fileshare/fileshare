@@ -11,9 +11,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode"
+	"unicode/utf8"
 )
 
 // The shares the admin API created, and who it granted them to.
@@ -342,20 +345,24 @@ func (m *manager) change(who, what string, edit func(st *stateFile) error) (appl
 	for _, s := range m.state.Shares {
 		next.Shares = append(next.Shares, s.clone())
 	}
+	// Refusals are audited too: a caller probing what it may do is what an
+	// audit log is read for.
 	if err := edit(next); err != nil {
 		m.srv.stats.refused.Add(1)
+		fmt.Fprintf(m.audit, "admin (%s): refused: %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
 		return applied{}, err
 	}
 	a, err := m.apply(next)
 	if err != nil {
 		m.srv.stats.refused.Add(1)
+		fmt.Fprintf(m.audit, "admin (%s): refused: %s: %s\n", logSafe(who), logSafe(what), logSafe(err.Error()))
 		return applied{}, err
 	}
 	m.state = next
 	m.recount(next)
 	m.srv.stats.applied.Add(1)
 	fmt.Fprintf(m.audit, "admin (%s): %s -- generation %d, %d connection(s) closed\n",
-		who, what, a.generation, a.closed)
+		logSafe(who), logSafe(what), a.generation, a.closed)
 	return a, nil
 }
 
@@ -469,3 +476,19 @@ func rootOf(roots []string, real string) (root, rel string, err error) {
 	}
 	return "", "", fmt.Errorf("%s is not under any of the source roots (%s)", real, strings.Join(roots, ", "))
 }
+
+// logSafe is s as one line of an audit log: a name, a subject, a caller or
+// an error carrying a line break or an escape sequence would otherwise write
+// a line of its own -- "admin (uid=0): deleted share payroll" -- that nobody
+// wrote. Such a string is quoted, Go-escaped; any other is left as it is.
+func logSafe(s string) string {
+	if !utf8.ValidString(s) || strings.ContainsFunc(s, notPrintable) {
+		return strconv.Quote(s)
+	}
+	return s
+}
+
+// notPrintable is a character a log line or a listing would not show as
+// itself: a control character, and also a line or paragraph separator
+// (U+2028, U+2029), which unicode.IsControl does not count.
+func notPrintable(r rune) bool { return !unicode.IsPrint(r) }

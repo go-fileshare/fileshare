@@ -174,6 +174,11 @@ func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
 			return false, rerr
 		}
 		defer res.Body.Close()
+		// Where the answer came FROM, whatever client asked: a redirect to
+		// http is refused by the client's own policy, and checked here too.
+		if res.Request != nil && res.Request.URL.Scheme != "https" {
+			return false, fmt.Errorf("%s was answered from %s, which is not https", l.url, res.Request.URL.Redacted())
+		}
 		switch res.StatusCode {
 		case http.StatusNotModified:
 			l.mu.Lock()

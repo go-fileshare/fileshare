@@ -43,6 +43,12 @@ type transmitter struct {
 	// tokens issued by the client-credentials endpoint, and the secret
 	// it checks.
 	issued int
+	// status, when set, is published as the stream's status_endpoint
+	// answer; keys are published beside key; jwksURI replaces the
+	// published jwks_uri. Set before the receiver starts.
+	status  string
+	keys    []jose.JSONWebKey
+	jwksURI string
 }
 
 func newTransmitter(t *testing.T, token string) *transmitter {
@@ -77,15 +83,34 @@ func newTransmitter(t *testing.T, token string) *transmitter {
 		json.NewEncoder(w).Encode(map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": 3600})
 	})
 	mux.HandleFunc("GET /.well-known/ssf-configuration", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		c := map[string]any{
 			"issuer": tr.URL, "jwks_uri": tr.URL + "/jwks",
 			"delivery_methods_supported": []string{"urn:ietf:rfc:8936"},
 			"configuration_endpoint":     tr.URL + "/streams",
-		})
+		}
+		if tr.jwksURI != "" {
+			c["jwks_uri"] = tr.jwksURI
+		}
+		if tr.status != "" {
+			c["status_endpoint"] = tr.URL + "/streams/status"
+		}
+		json.NewEncoder(w).Encode(c)
+	})
+	mux.HandleFunc("GET /streams/status", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		json.NewEncoder(w).Encode(map[string]any{"stream_id": r.URL.Query().Get("stream_id"), "status": tr.status})
 	})
 	mux.HandleFunc("GET /jwks", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{
-			{Key: &key.PublicKey, KeyID: "t1", Algorithm: "ES256", Use: "sig"}}})
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: append([]jose.JSONWebKey{
+			{Key: &key.PublicKey, KeyID: "t1", Algorithm: "ES256", Use: "sig"}}, tr.keys...)})
 	})
 	stream := func() map[string]any {
 		return map[string]any{"stream_id": "s1", "iss": tr.URL, "aud": tr.aud,

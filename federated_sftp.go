@@ -189,6 +189,12 @@ func (f *federatedSFTP) sessionRevoked(user string, perms *ssh.Permissions) func
 	var expires uint64
 	if v, err := strconv.ParseUint(perms.Extensions[expiresMark], 10, 64); err == nil {
 		expires = v
+	} else if raw, err := base64.StdEncoding.DecodeString(perms.Extensions[certMark]); err == nil && len(raw) > 0 {
+		if key, err := ssh.ParsePublicKey(raw); err == nil {
+			if cert, ok := key.(*ssh.Certificate); ok {
+				expires = cert.ValidBefore
+			}
+		}
 	}
 	return func() error {
 		if expires != 0 && expires != ssh.CertTimeInfinity && uint64(time.Now().Unix()) >= expires {

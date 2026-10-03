@@ -271,10 +271,26 @@ older than `ssh_krl_max_age`, the provider's certificates are refused: a
 revocation check that lets everything through when the list is unreachable is
 the one an attacker who can block the list defeats. The list must then be
 served as reliably as the logins it governs; `fileshare_revocation_list_age_seconds`
-is the metric to alert on before `max_age` is reached. The KRL is fetched over
-https only (`ssh_krl_ca_file` pins its authorities); it is not signed, because
-nothing checks a KRL's signature -- OpenSSH 9.6 and 10.3 read a signed one and
-skip the signature (measured by go-authn/krl against both).
+is the metric to alert on before `max_age` is reached.
+
+⛔ **A KRL from `ssh_krl_url` must be signed and say when it expires**, as
+[go-authn/revocation](https://github.com/go-authn/revocation) describes and
+go-authn/bridge serves from **v0.10.0**:
+- **The signature:** `<url>.sig` is a detached SSHSIG signature by the
+  provider's SSH CA (`ssh_ca_file`, which `ssh_krl_url` therefore requires), in
+  the namespace `krl@go-authn.github.io`. It is fetched with `If-Match` on the
+  list's ETag, and fetched again at once if the list was re-issued in between.
+- **The expiry:** the `expires@go-authn.github.io` extension. Past it, the list
+  is not current, however recently a `304` confirmed it.
+
+HTTPS (`ssh_krl_ca_file` pins its authorities) authenticates the server that
+answered, not the list: a mirror, a cache or a compromised web server could
+serve an empty one, and nothing in a KRL alone says it is stale. A list that
+does not verify is refused, and the last good copy is kept. A list placed by
+hand with `ssh_krl_file` is trusted as the filesystem that holds it, and needs
+neither signature nor expiry; one it carries is honoured. For a plain `sshd`
+next to fileshare, go-authn/revocation's `revokd` does the same and writes
+`RevokedKeys`.
 
 OpenPubkey (opkssh) certificates are not in any KRL — nothing issued them but
 the person's own key — and are bounded by `opkssh_max_age`.

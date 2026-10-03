@@ -49,8 +49,12 @@ type revocationList struct {
 	refresh time.Duration
 	maxAge  time.Duration
 	parse   func([]byte) (revoked, error)
-	now     func() time.Time
-	out     io.Writer
+	// verify, when set, authenticates a list fetched from url before it is
+	// read: the KRL's detached signature (krl_sftp.go). tag is the list's
+	// ETag, for the If-Match its signature is fetched with.
+	verify func(ctx context.Context, body []byte, tag string) error
+	now    func() time.Time
+	out    io.Writer
 
 	mu      sync.RWMutex
 	current revoked
@@ -138,9 +142,51 @@ func (l *revocationList) age() float64 {
 	return l.now().Sub(l.fetched).Seconds()
 }
 
+// errReissued is a list issued again between its fetch and its signature's:
+// the issuer answered 412 to If-Match. Fetched again at once.
+var errReissued = errors.New("the list was issued again while its signature was fetched")
+
 // fetch reads the list once, and keeps it if it parses. It reports whether
 // the content changed.
 func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
+	changed, err = l.fetchOnce(ctx)
+	if errors.Is(err, errReissued) {
+		changed, err = l.fetchOnce(ctx)
+	}
+	return changed, err
+}
+
+// fetchSignature fetches url + ".sig", the signature of the list whose ETag
+// is tag, with the rules the list itself is fetched with: https, bounded.
+func (l *revocationList) fetchSignature(ctx context.Context, tag string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url+".sig", nil)
+	if err != nil {
+		return nil, err
+	}
+	if tag != "" {
+		req.Header.Set("If-Match", tag)
+	}
+	res, err := l.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.Request != nil && res.Request.URL.Scheme != "https" {
+		return nil, fmt.Errorf("%s.sig was answered from %s, which is not https", l.url, res.Request.URL.Redacted())
+	}
+	switch res.StatusCode {
+	case http.StatusOK:
+	case http.StatusPreconditionFailed:
+		return nil, errReissued
+	default:
+		// go-authn/bridge before v0.10.0 serves no signature: its lists
+		// cannot be told from forged ones, and are refused.
+		return nil, fmt.Errorf("%s.sig answered %s: the list cannot be verified", l.url, res.Status)
+	}
+	return io.ReadAll(io.LimitReader(res.Body, 64<<10))
+}
+
+func (l *revocationList) fetchOnce(ctx context.Context) (changed bool, err error) {
 	defer func() {
 		if err != nil {
 			l.failures.Add(1)
@@ -214,6 +260,14 @@ func (l *revocationList) fetch(ctx context.Context) (changed bool, err error) {
 		l.fetched, l.lastErr, l.etag = l.now(), nil, tag
 		l.mu.Unlock()
 		return false, nil
+	}
+	if l.verify != nil && l.file == "" {
+		if err := l.verify(ctx, body, tag); err != nil {
+			if errors.Is(err, errReissued) {
+				return false, err
+			}
+			return false, fmt.Errorf("%s: %w; the last good copy is kept", l.source(), err)
+		}
 	}
 	parsed, err := l.parse(body)
 	if err != nil {

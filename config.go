@@ -203,7 +203,10 @@ type oidcBlock struct {
 	//
 	// ⛔ It fails closed: while the list cannot be fetched, or its last good
 	// copy is older than ssh_krl_max_age, the provider's certificates are
-	// refused. SSHKRLCAFile pins the authorities the list's HTTPS server is
+	// refused. A list from SSHKRLURL must come with its signature by the
+	// provider's SSH CA (SSHKRLURL + ".sig", against SSHCAFile) and say
+	// when it expires: go-authn/revocation's protocol, served by
+	// go-authn/bridge from v0.10.0. SSHKRLCAFile pins the authorities the list's HTTPS server is
 	// checked against, instead of the system's.
 	SSHKRLURL     string `hcl:"ssh_krl_url,optional"`
 	SSHKRLFile    string `hcl:"ssh_krl_file,optional"`
@@ -572,6 +575,11 @@ func (c *config) check() error {
 	if o := c.OIDC; o != nil {
 		if err := checkListSource("ssh_krl", o.SSHKRLURL, o.SSHKRLFile); err != nil {
 			return err
+		}
+		if o.SSHKRLURL != "" && o.SSHCAFile == "" {
+			// The list fetched is verified against the CA whose
+			// certificates it revokes: no CA, nothing to verify against.
+			return fmt.Errorf("ssh_krl_url needs ssh_ca_file: the KRL's signature is checked against the provider's SSH CA")
 		}
 		if _, _, err := o.krlTiming(); err != nil {
 			return err

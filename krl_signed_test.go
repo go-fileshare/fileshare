@@ -121,14 +121,18 @@ func (c testSSHCA) cert(t *testing.T, serial uint64) *ssh.Certificate {
 }
 
 // signedKRLList opens the list an oidc block names, against an issuer.
-func signedKRLList(t *testing.T, srv *httptest.Server, ca testSSHCA) *revocationList {
+func signedKRLList(t *testing.T, srv *httptest.Server, ca testSSHCA, stateFile ...string) *revocationList {
 	t.Helper()
 	dir := t.TempDir()
 	caFile := filepath.Join(dir, "ca.pub")
 	os.WriteFile(caFile, ssh.MarshalAuthorizedKey(ca.signer.PublicKey()), 0o644)
 	tlsCA := filepath.Join(dir, "tls.pem")
 	os.WriteFile(tlsCA, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o644)
-	l, err := openSSHKRL(&oidcBlock{SSHCAFile: caFile, SSHKRLURL: srv.URL + "/ssh/krl", SSHKRLCAFile: tlsCA}, io.Discard)
+	o := &oidcBlock{SSHCAFile: caFile, SSHKRLURL: srv.URL + "/ssh/krl", SSHKRLCAFile: tlsCA}
+	if len(stateFile) > 0 {
+		o.SSHKRLStateFile = stateFile[0]
+	}
+	l, err := openSSHKRL(o, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

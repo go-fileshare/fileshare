@@ -253,8 +253,9 @@ default, at most 168h, and never past the IdP session's end) and
 oidc {
   # ...
   ssh_ca_file     = "/etc/fileshare/bridge-ca.pub"
-  ssh_krl_url     = "https://bridge.example.org/ssh/krl"   # or ssh_krl_file
-  ssh_krl_max_age = "1h"                                   # default; ssh_krl_refresh = "1m"
+  ssh_krl_url        = "https://bridge.example.org/ssh/krl"   # or ssh_krl_file
+  ssh_krl_state_file = "/var/lib/fileshare/ssh.krl.state"    # the order, across a restart
+  ssh_krl_max_age    = "1h"                                  # default; ssh_krl_refresh = "1m"
 }
 ```
 
@@ -288,7 +289,17 @@ answered, not the list: a mirror, a cache or a compromised web server could
 serve an empty one, and nothing in a KRL alone says it is stale. A list that
 does not verify is refused, and the last good copy is kept. A list placed by
 hand with `ssh_krl_file` is trusted as the filesystem that holds it, and needs
-neither signature nor expiry; one it carries is honoured. For a plain `sshd`
+neither signature nor expiry; one it carries is honoured.
+
+**Never backwards, across a restart too.** A list is refused if it is older
+than the one held: a lower version (CRL number), or the same version issued
+earlier. With `ssh_krl_state_file` (`crl_state_file` for NFS), the last list
+that verified is kept on disk, verified again at start, and orders the next
+one. On its own it does not count as current until a list is fetched.
+Without it, a restart forgets the order, and fileshare says so at start: an
+older list, still signed and unexpired, would be taken. These files, like
+`ssh_ca_file`, the CA files and the list files, may not lie inside a share,
+since whoever writes there would decide who gets in. For a plain `sshd`
 next to fileshare, go-authn/revocation's `revokd` does the same and writes
 `RevokedKeys`.
 
@@ -961,6 +972,7 @@ serve "nfs" {
   client_ca_file = "/etc/fileshare/bridge-x509-ca.pem"
   identity       = "certificate"
   crl_url        = "https://bridge.example.org/x509/crl"   # or crl_file; required
+  crl_state_file = "/var/lib/fileshare/nfs.crl.state"     # the order, across a restart
 }
 ```
 

@@ -31,9 +31,13 @@ func (s sshKRL) describe() string {
 // that does not say, which only a local file may be; max_age bounds both.
 func (s sshKRL) expires() time.Time { return s.k.Expires }
 
+// older: a lower version, or the same version issued earlier -- an issuer
+// re-issues a list unchanged with a new expiry, and the earlier issue,
+// replayed, would shorten it (found by the adversarial review).
 func (s sshKRL) older(than revoked) bool {
 	o, ok := than.(sshKRL)
-	return ok && s.k.Version < o.k.Version
+	return ok && (s.k.Version < o.k.Version ||
+		s.k.Version == o.k.Version && s.k.GeneratedDate.Before(o.k.GeneratedDate))
 }
 
 func parseKRL(b []byte) (revoked, error) {
@@ -70,16 +74,26 @@ func openSSHKRL(o *oidcBlock, out io.Writer) (*revocationList, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh_krl_url: the list is verified against ssh_ca_file: %w", err)
 	}
-	l.verify = func(ctx context.Context, body []byte, tag string) error {
+	l.verify = func(ctx context.Context, body []byte, tag string) ([]byte, error) {
 		sig, err := l.fetchSignature(ctx, tag)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := revocation.VerifyKRL(body, sig, ca); err != nil {
-			return err
+			return nil, err
 		}
-		return nil
+		return sig, nil
 	}
+	l.reverify = func(raw, sig []byte) error {
+		_, err := revocation.VerifyKRL(raw, sig, ca)
+		return err
+	}
+	l.stateFile = o.SSHKRLStateFile
+	if l.stateFile == "" {
+		fmt.Fprintf(out, "ssh_krl: no ssh_krl_state_file, so a restart forgets which KRL is newer: "+
+			"an older one, still signed and unexpired, would be taken after it\n")
+	}
+	l.restore()
 	return l, nil
 }
 

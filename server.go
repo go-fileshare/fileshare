@@ -625,10 +625,16 @@ func (s *server) keysFor(user string) []ssh.PublicKey {
 	return keys
 }
 
-// sharesFor is what this person may see, in the order the configuration gave.
-func (s *server) sharesFor(p principal) []*share {
+// sharesFor is what this person may see over one protocol, in the order the
+// configuration gave: the shares that protocol EXPORTS -- a share's
+// `protocols` list and the refusal of a restricted share over a protocol that
+// cannot tell people apart both apply -- and of those, the ones this person
+// may use. Taking the protocol is the point: S3 once listed every share this
+// person may use, `protocols = ["webdav"]` or not.
+func (s *server) sharesFor(proto *protocol, p principal) []*share {
 	var out []*share
-	for _, sh := range s.currentShares() {
+	served, _ := proto.exports(s.cfg, s.currentShares())
+	for _, sh := range served {
 		if sh.mayUse(p) {
 			out = append(out, sh)
 		}

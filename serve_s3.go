@@ -80,7 +80,7 @@ func (h *s3ByUser) forUser(user string) (http.Handler, error) {
 	if srv, ok := h.byUser[user]; ok {
 		return srv, nil
 	}
-	shares := h.server.sharesFor(local(user))
+	shares := h.server.sharesFor(h.proto, local(user))
 	if len(shares) == 0 {
 		// A person with no shares gets a server over an empty tree rather than
 		// an error naming them: whether a user exists is not a thing an

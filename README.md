@@ -1071,7 +1071,9 @@ GET /photos/holiday.jpg    the file itself, Range and all
 
 It is served over the **same per-user tree SFTP uses**, so a share alice may
 not use is not a bucket alice can see — and the access rules are applied in
-one place rather than copied into a second protocol.
+one place rather than copied into a second protocol. A share's
+`protocols = [...]` holds here as everywhere: a share that does not name `s3`
+is not a bucket for anybody (up to v0.16.7 S3 ignored the list).
 
 **An access key is a user, and the secret key is their password.** SigV4
 proves possession by computing an HMAC, so the directory must hold the

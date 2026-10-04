@@ -245,7 +245,19 @@ func TestAdminManagesADirectoryShare(t *testing.T) {
 		t.Fatalf("alice, granted write, got %d", code)
 	}
 	if b, err := os.ReadFile(filepath.Join(tree, "b.txt")); err != nil || string(b) != "written" {
-		t.Fatalf("on the host: %q %v", b, err)
+		// Seen once on Linux CI and never reproduced (issue #36): say
+		// where the write went, if anywhere -- what the share directory
+		// holds, what any directory under the roots holds, and what the
+		// server said about its generations.
+		var found []string
+		filepath.WalkDir(m.roots, func(p string, d os.DirEntry, err error) error {
+			if err == nil {
+				found = append(found, strings.TrimPrefix(p, m.roots))
+			}
+			return nil
+		})
+		t.Fatalf("on the host: %q %v\nunder the roots: %v\ngeneration %d\nserver:\n%s",
+			b, err, found, m.srv.generationNumber(), m.out)
 	}
 
 	// The last grant cannot be revoked: the share would be open to anyone.

@@ -212,6 +212,11 @@ The signature, the validity window and the principals are checked by
 `x/crypto/ssh`'s `CertChecker`; verified against OpenSSH's own client, which
 also refuses the same key once its certificate is moved aside.
 
+⛔ An `authorized_keys_file` may not lie inside a share, and a share holding one
+is refused at start: whoever may write there would add a key of their own and
+log in as its owner. A `/home` share and `~/.ssh/authorized_keys` files are
+exactly that, so keep the keys this server reads outside every share.
+
 ### People the identity provider vouches for, over SFTP
 
 ```hcl
@@ -524,6 +529,13 @@ shape; a schema invented here would mean copying them into a second one. The
 LDAP side reads what a Samba-aware directory already publishes —
 `sambaNTPassword`, `sshPublicKey`, `memberUid` — and every name is
 configurable.
+
+⛔ The `dsn_file`, the `bind_password_file` and — for sqlite — the database
+file the DSN names (with its `-journal`, `-wal` and `-shm` files) may not lie
+inside a share: whoever may write there would read the directory's
+credentials, rewrite them, or point the server at a directory of their own. A
+share holding one is refused at start. The LDAP client verifies the server
+against the system's trust store; there is no CA file of its own to protect.
 
 Sources are asked **in the order they are written**, and the first one that
 knows a name owns it. The `user` and `group` blocks come first, so a service
@@ -843,7 +855,11 @@ it did — the generation now served and how many connections were closed.
   character and none of `:*?"<>|{}%`. Subjects hold no unprintable character
   either, and one share takes at most 1000 grants — a group's job long before.
 - **No share may contain** the configuration, the state file, or the secrets
-  they name: whoever writes into it would rewrite who may do what.
+  and trust anchors they name — keys and certificates, `password_file`,
+  `authorized_keys_file`, a `users` block's `dsn_file`, `bind_password_file`
+  and sqlite database, the shared signals' `ca_file`, token and state, the CA
+  and revocation-list files: whoever writes into it would rewrite who may do
+  what.
 - **No share may contain another share**, nor be another share's source —
   a configured one or one of the API's, served or offline (see
   [A directory, not only an image](#a-directory-not-only-an-image)).

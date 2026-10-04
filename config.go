@@ -969,6 +969,7 @@ func (c *config) protectedPaths() []string {
 		add(s.StateFile)
 		add(s.TokenFile)
 		add(s.ClientSecretFile)
+		add(s.CAFile) // whoever writes it chooses which transmitter is believed
 	}
 	if t := c.TLS; t != nil {
 		add(t.KeyFile)
@@ -999,16 +1000,56 @@ func (c *config) protectedPaths() []string {
 	if c.Kerberos != nil {
 		add(c.Kerberos.Keytab)
 	}
+	// Where the people come from, and what proves who they are: a share
+	// holding alice's authorized_keys_file lets its writers add their own key
+	// and log in as alice; one holding a dsn_file, the database it names, or
+	// a bind password lets them read the directory's credentials, or point
+	// the server at a directory of their own.
 	for _, u := range c.Users {
 		add(u.PasswordFile)
+		add(u.AuthorizedKeysFile)
+	}
+	for _, d := range c.Directories {
+		add(d.DSNFile)
+		add(d.BindPasswordFile)
+		if d.Driver == "sqlite" && d.DSNFile != "" {
+			for _, f := range sqliteFiles(d.DSNFile) {
+				add(f)
+			}
+		}
 	}
 	return out
+}
+
+// sqliteFiles is the database a sqlite DSN file names, with the journal and
+// write-ahead files sqlite keeps beside it -- nothing for a DSN that cannot
+// be read here (opening the directory will say why) or names no file.
+func sqliteFiles(dsnFile string) []string {
+	raw, err := os.ReadFile(dsnFile)
+	if err != nil {
+		return nil
+	}
+	db := strings.TrimSpace(string(raw))
+	if rest, ok := strings.CutPrefix(db, "file:"); ok {
+		db = rest
+		if rest, ok := strings.CutPrefix(db, "//"); ok {
+			db = strings.TrimPrefix(rest, "localhost")
+		}
+	}
+	db, _, _ = strings.Cut(db, "?")
+	if db == "" || strings.HasPrefix(db, ":") { // :memory: and the like
+		return nil
+	}
+	return []string{db, db + "-journal", db + "-wal", db + "-shm"}
 }
 
 // checkNoShareHoldsSecrets refuses a directory share, or an image, that is
 // or contains one of protectedPaths.
 func (c *config) checkNoShareHoldsSecrets(blocks []shareBlock) error {
-	protected := map[string]string{}
+	// In protectedPaths' order, so that a refusal names the same file every
+	// time: the first one written, not whichever a map hands out.
+	type protectedPath struct{ abs, orig string }
+	var protected []protectedPath
 	for _, p := range c.protectedPaths() {
 		if abs, err := filepath.Abs(p); err == nil {
 			if real, err := filepath.EvalSymlinks(abs); err == nil {
@@ -1016,7 +1057,7 @@ func (c *config) checkNoShareHoldsSecrets(blocks []shareBlock) error {
 			} else if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
 				abs = filepath.Join(dir, filepath.Base(abs)) // not created yet
 			}
-			protected[abs] = p
+			protected = append(protected, protectedPath{abs, p})
 		}
 	}
 	for _, b := range blocks {
@@ -1025,11 +1066,10 @@ func (c *config) checkNoShareHoldsSecrets(blocks []shareBlock) error {
 		if err != nil {
 			continue // opening it will say why
 		}
-		for abs, orig := range protected {
-			rel, err := filepath.Rel(real, abs)
-			if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
+		for _, p := range protected {
+			if pathWithin(real, p.abs) {
 				return fmt.Errorf("share %q (%s) holds %s: whoever may write into it would rewrite this server's configuration or keys",
-					b.Name, src, orig)
+					b.Name, src, p.orig)
 			}
 		}
 	}

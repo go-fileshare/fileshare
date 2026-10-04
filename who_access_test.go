@@ -18,7 +18,7 @@ import (
 // moment, and races: one came back with a rebase, from a branch written
 // before the lock existed. So the source is asked, not the race detector.
 func TestWhoIsReadOnlyThroughItsAccessors(t *testing.T) {
-	allowed := []string{"person", "anybody", "people", "setPeople", "open"}
+	allowed := []string{"person", "people", "setPeople", "open"}
 	files, _ := filepath.Glob("*.go")
 	fset := token.NewFileSet()
 	var found, checked int
@@ -55,7 +55,7 @@ func TestWhoIsReadOnlyThroughItsAccessors(t *testing.T) {
 					return true
 				}
 				found++
-				t.Errorf("%s: %s reads the who field directly; use person, anybody or people",
+				t.Errorf("%s: %s reads the who field directly; use person or people",
 					fset.Position(sel.Pos()), fn.Name.Name)
 				return true
 			})

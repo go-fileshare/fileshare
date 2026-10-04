@@ -941,6 +941,15 @@ authenticates", so what decides whether a share is open is what was
 *written*, not what it expands to now. Such a share is not offered over SMB at
 all, whose empty `AllowUsers` would read as everyone.
 
+⛔ The same holds one level up: a directory that is read and holds **nobody**
+— the last application password deleted — leaves a server whose people are
+gone, not an anonymous one. Whether WebDAV asks for a password is decided by
+whether the configuration has a `user` or `users` block (or a provider), never
+by how many people the directory holds at the moment; up to v0.16.7 an emptied
+directory turned "anyone who authenticates" into anyone, read-write. SMB, SFTP
+and S3 have no anonymous mode at all, and NFS serves only unrestricted shares
+by what the configuration says.
+
 It is the `users` blocks — SQL, LDAP — that are read again; the `user` blocks
 of the configuration file are the configuration, read at the start.
 

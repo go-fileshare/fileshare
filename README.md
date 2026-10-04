@@ -783,6 +783,17 @@ image driver owns one file and promises nothing about two calls at once, while
 a host tree is the kernel's. `filesystem` and `partition` are for an image, and
 a directory share naming one is refused.
 
+⛔ **A share may not lie inside another share, nor be another share's
+source.** A directory share holding an image or a directory that is a share
+of its own would be a second way in, with the outer share's rules: the people
+the inner share refuses — and every protocol that refuses it, NFS refusing a
+restricted share included — would read and write it as files of the outer one.
+So a share whose source (links followed) is another share's source, lies
+inside another share's directory, or is a directory holding one, is refused at
+start and by the admin API, whichever is written first. Two shares choosing
+*different* partitions of one disk image are the one overlap allowed: each
+driver is confined to its partition, and such a share is read-only.
+
 ## The admin API
 
 ```hcl
@@ -833,6 +844,9 @@ it did — the generation now served and how many connections were closed.
   either, and one share takes at most 1000 grants — a group's job long before.
 - **No share may contain** the configuration, the state file, or the secrets
   they name: whoever writes into it would rewrite who may do what.
+- **No share may contain another share**, nor be another share's source —
+  a configured one or one of the API's, served or offline (see
+  [A directory, not only an image](#a-directory-not-only-an-image)).
 - **Every share has at least one grant.** A share with none is open to anyone
   who authenticates; the file may say that on purpose, an API call should not
   say it by omission. So `CreateShare` needs a grant and revoking the last one

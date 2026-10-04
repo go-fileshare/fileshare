@@ -274,7 +274,12 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		s.oidc = v
 	}
 
-	if err := cfg.checkNoShareHoldsSecrets(append(slices.Clone(cfg.Shares), cfg.offline...)); err != nil {
+	every := append(slices.Clone(cfg.Shares), cfg.offline...)
+	if err := cfg.checkNoShareHoldsSecrets(every); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := checkNoShareHoldsShare(every, every); err != nil {
 		s.Close()
 		return nil, err
 	}

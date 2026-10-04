@@ -1035,3 +1035,82 @@ func (c *config) checkNoShareHoldsSecrets(blocks []shareBlock) error {
 	}
 	return nil
 }
+
+// resolvedSource is a share's source as the filesystem resolves it: through
+// its symbolic links when it exists, and by its spelling, made absolute, when
+// it does not (an image not attached yet, a share waiting offline).
+func resolvedSource(b shareBlock) string {
+	src := b.source()
+	if abs, err := filepath.Abs(src); err == nil {
+		src = abs
+	}
+	if real, err := filepath.EvalSymlinks(src); err == nil {
+		return real
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(src)); err == nil {
+		return filepath.Join(dir, filepath.Base(src))
+	}
+	return filepath.Clean(src)
+}
+
+// pathWithin reports whether path is dir itself or lies inside it.
+func pathWithin(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+}
+
+// choosesPartition reports whether a share opens one partition of its image
+// rather than the image itself, and which, as it was written.
+func (b shareBlock) choosesPartition() (string, bool) {
+	switch {
+	case b.Partition != nil:
+		return fmt.Sprintf("partition %d", *b.Partition), true
+	case b.PartitionLabel != "":
+		return "label " + b.PartitionLabel, true
+	case b.PartitionUUID != "":
+		return "uuid " + strings.ToLower(b.PartitionUUID), true
+	}
+	return "", false
+}
+
+// checkNoShareHoldsShare refuses a share whose source is another share's
+// source, or lies inside another share's directory, or is a directory holding
+// another share's source. Either way one share would be a way into the other:
+// the people the inner share refuses would read -- and write -- its image or
+// its files through the outer one, with the outer one's rules, and a
+// protocol that refuses the inner share (NFS refusing a restricted share, say)
+// would serve it all the same.
+//
+// changed is what is being written -- every share at a start, the admin API's
+// shares a change creates or alters -- and all is every share, served or
+// offline, that it must not overlap. Two shares choosing DIFFERENT partitions
+// of one disk image are the one overlap allowed: each driver is confined to
+// its own partition, and such a share is read-only.
+func checkNoShareHoldsShare(all, changed []shareBlock) error {
+	for _, b := range changed {
+		bsrc := resolvedSource(b)
+		for _, o := range all {
+			if strings.EqualFold(o.Name, b.Name) {
+				continue
+			}
+			osrc := resolvedSource(o)
+			switch {
+			case bsrc == osrc:
+				bp, bok := b.choosesPartition()
+				op, ook := o.choosesPartition()
+				if b.Image != "" && o.Image != "" && bok && ook && bp != op {
+					continue
+				}
+				return fmt.Errorf("share %q (%s) and share %q (%s) are the same source: "+
+					"whoever may use one would use the other with its rules", b.Name, b.source(), o.Name, o.source())
+			case o.Directory != "" && pathWithin(osrc, bsrc):
+				return fmt.Errorf("share %q (%s) lies inside share %q (%s): "+
+					"whoever may use %q would read and write it without being allowed %q", b.Name, b.source(), o.Name, o.source(), o.Name, b.Name)
+			case b.Directory != "" && pathWithin(bsrc, osrc):
+				return fmt.Errorf("share %q (%s) holds share %q (%s): "+
+					"whoever may use %q would read and write it without being allowed %q", b.Name, b.source(), o.Name, o.source(), b.Name, o.Name)
+			}
+		}
+	}
+	return nil
+}

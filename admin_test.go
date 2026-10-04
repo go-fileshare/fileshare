@@ -769,9 +769,13 @@ func TestDisableAndEnableAShare(t *testing.T) {
 	}
 
 	// Created disabled: defined, listed, not served. Deleted: forgotten.
+	// Its own tree: "t", disabled, still holds the first one, and a share
+	// may not be another share's source.
 	os.MkdirAll(tree, 0o755)
+	laterTree := filepath.Join(m.roots, "later")
+	os.MkdirAll(laterTree, 0o755)
 	created, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "later",
-		Source: &adminv1.CreateShareRequest_Directory{Directory: tree}, Disabled: true,
+		Source: &adminv1.CreateShareRequest_Directory{Directory: laterTree}, Disabled: true,
 		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_READ)}})
 	if err != nil || created.GetShare().GetEnabled() {
 		t.Fatalf("created disabled: %v %v", created, err)

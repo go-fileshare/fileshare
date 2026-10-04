@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	fat32 "github.com/go-filesystems/fat32"
 	"golang.org/x/crypto/ssh"
 
 	"google.golang.org/grpc/codes"
@@ -199,7 +198,10 @@ func TestFoundSFTPHostKeyChangesPerGeneration(t *testing.T) {
 }
 
 // R7: the same image, spelled two ways (the configuration through a symlink,
-// the API by its resolved path), gets two independent writable drivers.
+// the API by its resolved path). It once got two independent writable
+// drivers and lost files; one share per source is now the rule, so the second
+// spelling is refused -- by its RESOLVED path, which is what the symlink was
+// hiding -- and the first share is left as it was.
 func TestFoundTwoDriversOneImage(t *testing.T) {
 	dir := t.TempDir()
 	roots := filepath.Join(dir, "roots")
@@ -210,53 +212,23 @@ func TestFoundTwoDriversOneImage(t *testing.T) {
 		t.Skip(err)
 	}
 	m := startManaged(t, dir, `share "a" {
-  image = "`+hclPath(link)+`"
-  allow = ["alice"]
+  image  = "`+hclPath(link)+`"
+  allow  = ["alice"]
+  writers = ["alice"]
 }`)
 	ctx := context.Background()
-	if _, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "b",
+	_, err := m.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "b",
 		Source: &adminv1.CreateShareRequest_Image{Image: img},
-		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_WRITE)}}); err != nil {
-		t.Fatal(err)
+		Grants: []*adminv1.Grant{grantOf(userSubject("alice"), adminv1.Access_ACCESS_WRITE)}})
+	wantCode(t, err, codes.FailedPrecondition)
+	if !strings.Contains(err.Error(), "same source") {
+		t.Errorf("refused for another reason: %v", err)
 	}
-	var fa, fb any
-	for _, sh := range m.srv.currentShares() {
-		switch sh.name {
-		case "a":
-			fa = sh.fsys
-		case "b":
-			fb = sh.fsys
-		}
+	if m.srv.shareByName("b") != nil {
+		t.Fatal("the refused share is served")
 	}
-	t.Logf("drivers: a=%p b=%p", fa, fb)
-	var wg sync.WaitGroup
-	for _, s := range []string{"a", "b"} {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 20; i++ {
-				if c := m.put("alice", "hunter2", fmt.Sprintf("/%s/from%s%d.txt", s, strings.ToUpper(s), i), strings.Repeat(s, 5000)); c < 200 || c >= 300 {
-					t.Errorf("put %s: %d", s, c)
-				}
-			}
-		}()
-	}
-	wg.Wait()
-	m.stop()
-	m.stop = nil
-	fsys, err := fat32.Open(img, -1)
-	if err != nil {
-		t.Fatalf("BUG: the image no longer opens: %v", err)
-	}
-	defer fsys.Close()
-	ents, err := fsys.ListDir("/")
-	var names []string
-	for _, e := range ents {
-		names = append(names, e.Name())
-	}
-	t.Logf("after: %d entries %v (err %v)", len(names), names, err)
-	if fa != fb && len(names) != 41 {
-		t.Errorf("BUG: two drivers over one image: %d of 41 files survive", len(names))
+	if c := m.put("alice", "hunter2", "/a/after.txt", "still writable"); c < 200 || c >= 300 {
+		t.Errorf("the first share no longer takes a write: %d", c)
 	}
 }
 

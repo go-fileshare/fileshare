@@ -52,6 +52,16 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 			h.ServeHTTP(w, r)
 			return
 		}
+		if first != "" {
+			// No such share -- answered exactly as a share this person may
+			// not use is: the challenge first, to anybody who has not
+			// authenticated, and 404 only after. Answering 404 here and 401
+			// there told an anonymous client which names were shares.
+			if _, ok := (&byUser{server: s}).authenticated(w, r); ok {
+				http.NotFound(w, r)
+			}
+			return
+		}
 		index(w, r)
 	})).Serve(ln)
 }

@@ -63,10 +63,13 @@ type federatedSFTP struct {
 	krl *revocationList
 	// revoked is the shared signals check (caep.go): whether what the
 	// provider issued to a person at a moment has been revoked since.
-	revoked  func(name, iss, sub string, issued time.Time) error
-	opk      *opkVerifier
-	userClm  string
-	groupClm string
+	revoked func(name, iss, sub string, issued time.Time) error
+	opk     *opkVerifier
+	// opkMaxAge is opkssh_max_age: an opkssh session ends this long after
+	// its PK Token was issued, whatever the certificate says.
+	opkMaxAge time.Duration
+	userClm   string
+	groupClm  string
 }
 
 func newFederatedSFTP(o *oidcBlock, krl *revocationList, revoked func(name, iss, sub string, issued time.Time) error) (*federatedSFTP, error) {
@@ -97,6 +100,7 @@ func newFederatedSFTP(o *oidcBlock, krl *revocationList, revoked func(name, iss,
 			return nil, err
 		}
 		f.opk = v
+		f.opkMaxAge = opkMaxAge(o.OpksshMaxAge)
 	}
 	return f, nil
 }

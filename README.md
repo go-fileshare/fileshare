@@ -315,7 +315,11 @@ next to fileshare, go-authn/revocation's `revokd` does the same and writes
 `RevokedKeys`.
 
 OpenPubkey (opkssh) certificates are not in any KRL — nothing issued them but
-the person's own key — and are bounded by `opkssh_max_age`.
+the person's own key — and are bounded by `opkssh_max_age`: a login, and the
+session it opens, end when the PK Token's `iat` is older than that, or at the
+certificate's own end if sooner. The certificate's validity alone bounds
+nothing, since the person signs it themselves and may write "forever"; up to
+v0.16.7 an open session outlived `opkssh_max_age` that way.
 
 #### Revoking what no list covers: shared signals
 

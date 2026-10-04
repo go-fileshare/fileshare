@@ -6,6 +6,7 @@ package main
 
 import (
 	"errors"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -19,6 +20,8 @@ type opkVerifier struct{}
 const haveOpenPubkey = false
 
 func knownMaxAge(string) bool { return true }
+
+func opkMaxAge(string) time.Duration { return 0 }
 
 func newOPK(*oidcBlock) (*opkVerifier, error) {
 	return nil, errors.New("opkssh_client_id: this binary was built with -tags noopenpubkey")

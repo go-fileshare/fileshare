@@ -96,9 +96,11 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //
 // A share nobody is named on still authenticates when there are users: a
 // server with credentials should not hand its contents to somebody who never
-// gave any. Without users at all, everyone is anonymous and everyone gets in.
+// gave any. Only a configuration that declares no source of people and no
+// provider is anonymous -- what the configuration SAYS, never how many people
+// a directory holds at the moment (see declaresPeople).
 func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (principal, bool) {
-	if !b.server.anybody() && b.server.oidc == nil {
+	if !b.server.declaresPeople() && b.server.oidc == nil {
 		return principal{}, true
 	}
 	// A token first, because a client that sent one meant it: falling back to
@@ -129,7 +131,7 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			return
 		}
 		var user principal
-		if s.anybody() || s.oidc != nil {
+		if s.declaresPeople() || s.oidc != nil {
 			u, ok := s.bearer(r)
 			if !ok {
 				name, pw, basic := r.BasicAuth()

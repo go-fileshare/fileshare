@@ -283,7 +283,12 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		s.oidc = v
 	}
 
-	if err := cfg.checkNoShareHoldsSecrets(append(slices.Clone(cfg.Shares), cfg.offline...)); err != nil {
+	every := append(slices.Clone(cfg.Shares), cfg.offline...)
+	if err := cfg.checkNoShareHoldsSecrets(every); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := checkNoShareHoldsShare(every, every); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -874,11 +879,15 @@ func (s *server) person(name string) (*directory.Identity, bool) {
 	return id, ok
 }
 
-// anybody reports whether the directories know anybody at all.
-func (s *server) anybody() bool {
-	s.whoMu.RLock()
-	defer s.whoMu.RUnlock()
-	return len(s.who) > 0
+// declaresPeople reports whether the CONFIGURATION names a source of people:
+// a user block or a users block. It is what decides whether a protocol asks
+// for a password, and it is deliberately not how many people a source holds
+// right now: a directory read that comes back empty -- the last application
+// password deleted, a query that matches nobody -- is a server whose people
+// are gone, not a server that never had any. Counting them turned "anyone who
+// authenticates" into "anyone", read-write, the moment the count reached zero.
+func (s *server) declaresPeople() bool {
+	return len(s.cfg.Users) > 0 || len(s.cfg.Directories) > 0
 }
 
 // people is everybody, as of the last read. The map is never modified once

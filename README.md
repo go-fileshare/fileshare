@@ -220,6 +220,11 @@ The signature, the validity window and the principals are checked by
 `x/crypto/ssh`'s `CertChecker`; verified against OpenSSH's own client, which
 also refuses the same key once its certificate is moved aside.
 
+⛔ An `authorized_keys_file` may not lie inside a share, and a share holding one
+is refused at start: whoever may write there would add a key of their own and
+log in as its owner. A `/home` share and `~/.ssh/authorized_keys` files are
+exactly that, so keep the keys this server reads outside every share.
+
 ### People the identity provider vouches for, over SFTP
 
 ```hcl
@@ -541,6 +546,13 @@ LDAP side reads what a Samba-aware directory already publishes —
 `sambaNTPassword`, `sshPublicKey`, `memberUid` — and every name is
 configurable.
 
+⛔ The `dsn_file`, the `bind_password_file` and — for sqlite — the database
+file the DSN names (with its `-journal`, `-wal` and `-shm` files) may not lie
+inside a share: whoever may write there would read the directory's
+credentials, rewrite them, or point the server at a directory of their own. A
+share holding one is refused at start. The LDAP client verifies the server
+against the system's trust store; there is no CA file of its own to protect.
+
 Sources are asked **in the order they are written**, and the first one that
 knows a name owns it. The `user` and `group` blocks come first, so a service
 account written down locally is not overridden by somebody with the same name
@@ -799,6 +811,17 @@ image driver owns one file and promises nothing about two calls at once, while
 a host tree is the kernel's. `filesystem` and `partition` are for an image, and
 a directory share naming one is refused.
 
+⛔ **A share may not lie inside another share, nor be another share's
+source.** A directory share holding an image or a directory that is a share
+of its own would be a second way in, with the outer share's rules: the people
+the inner share refuses — and every protocol that refuses it, NFS refusing a
+restricted share included — would read and write it as files of the outer one.
+So a share whose source (links followed) is another share's source, lies
+inside another share's directory, or is a directory holding one, is refused at
+start and by the admin API, whichever is written first. Two shares choosing
+*different* partitions of one disk image are the one overlap allowed: each
+driver is confined to its partition, and such a share is read-only.
+
 ## The admin API
 
 ```hcl
@@ -848,7 +871,14 @@ it did — the generation now served and how many connections were closed.
   character and none of `:*?"<>|{}%`. Subjects hold no unprintable character
   either, and one share takes at most 1000 grants — a group's job long before.
 - **No share may contain** the configuration, the state file, or the secrets
-  they name: whoever writes into it would rewrite who may do what.
+  and trust anchors they name — keys and certificates, `password_file`,
+  `authorized_keys_file`, a `users` block's `dsn_file`, `bind_password_file`
+  and sqlite database, the shared signals' `ca_file`, token and state, the CA
+  and revocation-list files: whoever writes into it would rewrite who may do
+  what.
+- **No share may contain another share**, nor be another share's source —
+  a configured one or one of the API's, served or offline (see
+  [A directory, not only an image](#a-directory-not-only-an-image)).
 - **Every share has at least one grant.** A share with none is open to anyone
   who authenticates; the file may say that on purpose, an API call should not
   say it by omission. So `CreateShare` needs a grant and revoking the last one
@@ -926,6 +956,15 @@ what changed:
 authenticates", so what decides whether a share is open is what was
 *written*, not what it expands to now. Such a share is not offered over SMB at
 all, whose empty `AllowUsers` would read as everyone.
+
+⛔ The same holds one level up: a directory that is read and holds **nobody**
+— the last application password deleted — leaves a server whose people are
+gone, not an anonymous one. Whether WebDAV asks for a password is decided by
+whether the configuration has a `user` or `users` block (or a provider), never
+by how many people the directory holds at the moment; up to v0.16.7 an emptied
+directory turned "anyone who authenticates" into anyone, read-write. SMB, SFTP
+and S3 have no anonymous mode at all, and NFS serves only unrestricted shares
+by what the configuration says.
 
 It is the `users` blocks — SQL, LDAP — that are read again; the `user` blocks
 of the configuration file are the configuration, read at the start.

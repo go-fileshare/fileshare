@@ -161,7 +161,7 @@ func (s *server) challenge(w http.ResponseWriter) {
 		w.Header().Add("WWW-Authenticate",
 			fmt.Sprintf(`Bearer realm=%q, scope="openid"`, s.name))
 	}
-	if s.anybody() {
+	if s.declaresPeople() {
 		w.Header().Add("WWW-Authenticate", `Basic realm="`+s.name+`", charset="UTF-8"`)
 	}
 }

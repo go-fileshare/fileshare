@@ -404,6 +404,9 @@ func (m *manager) apply(next *stateFile) (applied, error) {
 	if err := m.files.checkNoShareHoldsSecrets(changed.Shares); err != nil {
 		return applied{}, refuse(refusedPrecondition, "%v", err)
 	}
+	if err := checkNoShareHoldsShare(all, changed.Shares); err != nil {
+		return applied{}, refuse(refusedPrecondition, "%v", err)
+	}
 	if err := changed.resolve(m.srv.dir, m.srv.people()); err != nil {
 		return applied{}, refuse(refusedInvalid, "%v", err)
 	}

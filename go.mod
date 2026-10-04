@@ -18,14 +18,14 @@ require (
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
-	github.com/go-filesystems/fat32 v0.3.1-0.20260909090037-17502e127a37
+	github.com/go-filesystems/fat32 v0.4.0
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.3.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.5.0
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.2.0
-	github.com/go-filesystems/s3 v0.1.0
+	github.com/go-filesystems/s3 v0.3.0
 	github.com/go-filesystems/sftp v0.4.0
 	github.com/go-filesystems/smb v0.2.0
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b

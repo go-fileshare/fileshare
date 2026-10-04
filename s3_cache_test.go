@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 )
 
@@ -29,15 +30,21 @@ func TestS3BuildsNothingForAnAccessKeyNobodyHas(t *testing.T) {
 		h.ServeHTTP(w, req)
 		return w
 	}
+	// The request id differs for every answer (go-filesystems/s3 v0.3.0);
+	// everything else must not depend on the key.
+	reqID := regexp.MustCompile(`<RequestId>[^<]*</RequestId>`)
+	body := func(w *httptest.ResponseRecorder) string { return reqID.ReplaceAllString(w.Body.String(), "") }
 	first := ask("stranger-0")
 	for i := 1; i < 1000; i++ {
 		w := ask(fmt.Sprintf("stranger-%d", i))
-		if w.Code != first.Code || w.Body.String() != first.Body.String() {
+		if w.Code != first.Code || body(w) != body(first) {
 			t.Fatalf("stranger %d answered %d %q, the first %d %q: the answer depends on the key",
 				i, w.Code, w.Body, first.Code, first.Body)
 		}
 	}
-	if first.Code != http.StatusForbidden {
+	// A refusal: 400 for a request with no date, as for a known key since
+	// go-filesystems/s3 v0.3.0, which no longer answers an unknown key first.
+	if first.Code < 400 || first.Code >= 500 {
 		t.Errorf("an unsigned request from a stranger answered %d", first.Code)
 	}
 	if n := len(h.byUser); n != 0 {

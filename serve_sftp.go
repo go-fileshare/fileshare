@@ -47,64 +47,66 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 	if fed != nil {
 		certificateFor = fed.certificate
 	}
-	d, err := sshd.New(nil, sshd.Config{
-		CertificateFor: certificateFor,
-		HostKeys:       []ssh.Signer{hostKey},
-		TrustedUserCAs: cas,
-		// A key proves who is asking without this server ever holding the
-		// secret, and a certificate says it with an expiry date on it. There
-		// is deliberately NO password here: an SSH client that prompts for one
-		// is an SSH client doing the thing keys exist to avoid, and the
-		// passwords in this configuration are for the protocols that have
-		// nothing better.
-		PublicKeyFor: func(user string, key ssh.PublicKey) bool {
-			for _, k := range s.keysFor(user) {
-				if string(k.Marshal()) == string(key.Marshal()) {
-					return true
+	// One daemon per connection, so that what is decided at login reaches
+	// the connection it was decided on: the handshake deadline is lifted
+	// there, and nowhere else can tell which connection just logged in.
+	// sshd.New only assembles an ssh.ServerConfig; it is cheap.
+	configFor := func(c *sshConn) sshd.Config {
+		return sshd.Config{
+			CertificateFor: certificateFor,
+			HostKeys:       []ssh.Signer{hostKey},
+			TrustedUserCAs: cas,
+			// A key proves who is asking without this server ever holding the
+			// secret, and a certificate says it with an expiry date on it. There
+			// is deliberately NO password here: an SSH client that prompts for one
+			// is an SSH client doing the thing keys exist to avoid, and the
+			// passwords in this configuration are for the protocols that have
+			// nothing better.
+			PublicKeyFor: func(user string, key ssh.PublicKey) bool {
+				for _, k := range s.keysFor(user) {
+					if string(k.Marshal()) == string(key.Marshal()) {
+						return true
+					}
 				}
-			}
-			return false
-		},
-		ServerForLogin: func(user string, perms *ssh.Permissions) (*sftp.Server, error) {
-			who := principalOf(user, perms)
-			if who.federated {
-				if err := s.admitFederated(who); err != nil {
-					return nil, fmt.Errorf("%s: the provider vouches for them %v", user, err)
+				return false
+			},
+			ServerForLogin: func(user string, perms *ssh.Permissions) (*sftp.Server, error) {
+				c.loggedIn()
+				who := principalOf(user, perms)
+				if who.federated {
+					if err := s.admitFederated(who); err != nil {
+						return nil, fmt.Errorf("%s: the provider vouches for them %v", user, err)
+					}
+					// Said once per login: which groups the provider says this person
+					// is in is the first thing asked when a share does not appear.
+					fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
 				}
-				// Said once per login: which groups the provider says this person
-				// is in is the first thing asked when a share does not appear.
-				fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
-			}
-			tree := unionFor(served, who)
-			tree.revoked = fed.sessionRevoked(user, perms)
-			if len(tree.entries) == 0 {
-				// Nothing here for them. Refusing says so; an empty directory
-				// would look like a server that lost their files.
-				return nil, fmt.Errorf("no shares for %q", user)
-			}
-			// ReadWrite, because the TREE decides: an sftp.Server that is
-			// read-only refuses every write for everybody, and what this
-			// program promises is per share and per person. unionFS refuses
-			// the writes that must be refused, before a driver sees them.
-			return sftp.New(tree, sftp.ReadWrite())
-		},
-	})
-	if err != nil {
+				tree := unionFor(served, who)
+				tree.revoked = fed.sessionRevoked(user, perms)
+				if len(tree.entries) == 0 {
+					// Nothing here for them. Refusing says so; an empty directory
+					// would look like a server that lost their files.
+					return nil, fmt.Errorf("no shares for %q", user)
+				}
+				// ReadWrite, because the TREE decides: an sftp.Server that is
+				// read-only refuses every write for everybody, and what this
+				// program promises is per share and per person. unionFS refuses
+				// the writes that must be refused, before a driver sees them.
+				return sftp.New(tree, sftp.ReadWrite())
+			},
+		}
+	}
+	// Refused here, once, rather than at every connection.
+	if _, err := sshd.New(nil, configFor(nil)); err != nil {
 		return err
 	}
-	// Closed when the server stops, or when this generation's listener does
-	// -- a change to the shares starts another daemon, and this one must not
-	// wait for the process to end to be let go of.
-	returned := make(chan struct{})
-	defer close(returned)
-	go func() {
-		select {
-		case <-s.stopping:
-		case <-returned:
+	return serveSSH(ln, s.stopping, s.preAuthTimeout, func(c *sshConn) error {
+		d, err := sshd.New(nil, configFor(c))
+		if err != nil {
+			return err
 		}
-		d.Close()
-	}()
-	return d.Serve(ln)
+		return d.HandleConn(c)
+	})
 }
 
 // trustedUserCAs reads the authorities whose certificates are accepted.

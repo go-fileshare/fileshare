@@ -139,6 +139,14 @@ protocol handing photos to whoever connects cannot both be honoured, and
 quietly widening access is the worse of the two failures. The refusal is
 printed at startup and in `check`, with the reason.
 
+⛔ **Nothing waits for ever on somebody who has not said who they are.** WebDAV
+and S3 give a request 30 seconds to finish its headers — the TLS handshake
+included — and close a keep-alive connection idle for two minutes; SFTP gives
+the SSH handshake and its authentication 30 seconds, and lifts the deadline at
+login, so a session left idle stays open. Up to v0.16.7 none of the three had
+a deadline, and a client that sent half a request held its connection for
+good.
+
 ## The configuration
 
 ```hcl

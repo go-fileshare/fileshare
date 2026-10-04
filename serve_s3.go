@@ -46,7 +46,7 @@ import (
 // verify the signature, so naming somebody else buys nothing.
 func serveS3(s *server, p *protocol, ln net.Listener) error {
 	h := &s3ByUser{server: s, proto: p, byUser: map[string]http.Handler{}}
-	return http.Serve(ln, h)
+	return s.httpServer(h).Serve(ln)
 }
 
 type s3ByUser struct {

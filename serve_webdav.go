@@ -46,14 +46,14 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 		routes[sh.name] = &byUser{server: s, share: sh, read: read, write: write}
 	}
 	index := s.webdavIndex(served)
-	return http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.httpServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		first, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		if h, ok := routes[first]; ok && first != "" {
 			h.ServeHTTP(w, r)
 			return
 		}
 		index(w, r)
-	}))
+	})).Serve(ln)
 }
 
 // byUser authenticates, then hands the request to the handler that matches

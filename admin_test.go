@@ -144,12 +144,23 @@ func startManaged(t *testing.T, dir, extra string) *managed {
 	return m
 }
 
+// webClient is how the tests reach WebDAV: a connection per request. An
+// admin change closes the protocol servers' connections by design; a client
+// keeping one alive across a change can send its next request on it while
+// it closes, and get EOF -- net/http retries a GET, not a PUT. That is what
+// issue #36 was: 3 PUTs in 400 on GitHub's runner, read as successes.
+var webClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+// transportError is the code get and put return when no answer came: a
+// value no check can take for a status, success or refusal.
+const transportError = -1
+
 func (m *managed) get(user, password, path string) (int, string) {
 	req, _ := http.NewRequest(http.MethodGet, "http://"+m.webdav+path, nil)
 	req.SetBasicAuth(user, password)
-	res, err := http.DefaultClient.Do(req)
+	res, err := webClient.Do(req)
 	if err != nil {
-		return 0, err.Error()
+		return transportError, err.Error()
 	}
 	defer res.Body.Close()
 	b, _ := io.ReadAll(res.Body)
@@ -159,9 +170,9 @@ func (m *managed) get(user, password, path string) (int, string) {
 func (m *managed) put(user, password, path, body string) int {
 	req, _ := http.NewRequest(http.MethodPut, "http://"+m.webdav+path, strings.NewReader(body))
 	req.SetBasicAuth(user, password)
-	res, err := http.DefaultClient.Do(req)
+	res, err := webClient.Do(req)
 	if err != nil {
-		return 0
+		return transportError
 	}
 	res.Body.Close()
 	return res.StatusCode
@@ -234,6 +245,7 @@ func TestAdminManagesADirectoryShare(t *testing.T) {
 		t.Fatalf("bob, granted nothing, got %d", code)
 	}
 	if code := m.put("alice", "hunter2", "/photos/b.txt", "x"); code < 400 {
+		// transportError is below 400 too: no answer is not a refusal.
 		t.Fatalf("alice wrote with a READ grant: %d", code)
 	}
 
@@ -241,7 +253,7 @@ func TestAdminManagesADirectoryShare(t *testing.T) {
 		Grant: grantOf(userSubject("alice"), adminv1.Access_ACCESS_WRITE)}); err != nil {
 		t.Fatal(err)
 	}
-	if code := m.put("alice", "hunter2", "/photos/b.txt", "written"); code >= 300 {
+	if code := m.put("alice", "hunter2", "/photos/b.txt", "written"); code < 200 || code >= 300 {
 		t.Fatalf("alice, granted write, got %d", code)
 	}
 	if b, err := os.ReadFile(filepath.Join(tree, "b.txt")); err != nil || string(b) != "written" {

@@ -82,12 +82,16 @@ func (r *reloading) exec(t *testing.T, q string) {
 	}
 }
 
+// reloadClient opens a connection per request: a reload that changes a
+// generation closes the protocol servers' connections (issue #36).
+var reloadClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 func (r *reloading) get(user, password, path string) int {
 	req, _ := http.NewRequest(http.MethodGet, "http://"+r.webdav+path, nil)
 	req.SetBasicAuth(user, password)
-	res, err := http.DefaultClient.Do(req)
+	res, err := reloadClient.Do(req)
 	if err != nil {
-		return 0
+		return -1 // no answer: neither a success nor a refusal
 	}
 	io.Copy(io.Discard, res.Body)
 	res.Body.Close()

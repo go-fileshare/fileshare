@@ -62,6 +62,7 @@ type crlList struct {
 	issuer  []byte
 	serials map[string]bool
 	number  *big.Int
+	this    time.Time
 	next    time.Time
 }
 
@@ -72,7 +73,14 @@ func (c crlList) expires() time.Time { return c.next }
 
 func (c crlList) older(than revoked) bool {
 	o, ok := than.(crlList)
-	return ok && c.number != nil && o.number != nil && c.number.Cmp(o.number) < 0
+	if !ok || c.number == nil || o.number == nil {
+		return false
+	}
+	// A lower number, or the same number issued earlier: RFC 5280 5.2.3
+	// gives two CRLs with different thisUpdate different numbers, but
+	// go-authn/bridge before v0.10.1 did not.
+	cmp := c.number.Cmp(o.number)
+	return cmp < 0 || cmp == 0 && c.this.Before(o.this)
 }
 
 func (c crlList) revoked(serial *big.Int) bool { return c.serials[serial.String()] }
@@ -120,7 +128,7 @@ func crlParser(cas []*x509.Certificate) func([]byte) (revoked, error) {
 				}
 			}
 		}
-		out := crlList{issuer: issuer, serials: map[string]bool{}, number: rl.Number, next: rl.NextUpdate}
+		out := crlList{issuer: issuer, serials: map[string]bool{}, number: rl.Number, this: rl.ThisUpdate, next: rl.NextUpdate}
 		for _, e := range rl.RevokedCertificateEntries {
 			out.serials[e.SerialNumber.String()] = true
 		}
@@ -176,7 +184,17 @@ func openNFSCRL(b *serveBlock, out io.Writer) (*revocationList, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nfs: %w", err)
 	}
-	return newRevocationList("x509_crl", b.CRLURL, b.CRLFile, b.CRLCAFile, refresh, maxAge, crlParser(cas), out)
+	l, err := newRevocationList("x509_crl", b.CRLURL, b.CRLFile, b.CRLCAFile, refresh, maxAge, crlParser(cas), out)
+	if err != nil {
+		return nil, err
+	}
+	l.stateFile = b.CRLStateFile
+	if l.stateFile == "" && b.CRLURL != "" {
+		fmt.Fprintf(out, "nfs: no crl_state_file, so a restart forgets which CRL is newer: "+
+			"an older one, still signed and current, would be taken after it\n")
+	}
+	l.restore()
+	return l, nil
 }
 
 // groupsOfCert is the groups go-authn/bridge put in a certificate, or none.

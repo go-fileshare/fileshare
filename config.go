@@ -213,6 +213,9 @@ type oidcBlock struct {
 	SSHKRLCAFile  string `hcl:"ssh_krl_ca_file,optional"`
 	SSHKRLRefresh string `hcl:"ssh_krl_refresh,optional"` // default 1m
 	SSHKRLMaxAge  string `hcl:"ssh_krl_max_age,optional"` // default 1h
+	// SSHKRLStateFile keeps the last KRL that verified across a restart,
+	// so that an older one is still refused after it.
+	SSHKRLStateFile string `hcl:"ssh_krl_state_file,optional"`
 }
 
 // krlTiming is how often the KRL is fetched, and how old its last good copy
@@ -338,6 +341,9 @@ type serveBlock struct {
 	CRLCAFile  string `hcl:"crl_ca_file,optional"`
 	CRLRefresh string `hcl:"crl_refresh,optional"`
 	CRLMaxAge  string `hcl:"crl_max_age,optional"`
+	// CRLStateFile keeps the last CRL that verified across a restart, so
+	// that an older one is still refused after it.
+	CRLStateFile string `hcl:"crl_state_file,optional"`
 }
 
 // loadConfig reads every file named, and every .hcl file in every directory
@@ -972,6 +978,22 @@ func (c *config) protectedPaths() []string {
 	}
 	add(c.HostKeyFile)
 	add(c.TrustedUserCAFile)
+	// The provider's trust anchors and revocation lists: a share holding
+	// ssh_ca_file would let its writers mint the CA's certificates, one
+	// holding a list would let them un-revoke (found while fixing the
+	// adversarial review: none of these was protected).
+	if o := c.OIDC; o != nil {
+		add(o.SSHCAFile)
+		add(o.SSHKRLFile)
+		add(o.SSHKRLCAFile)
+		add(o.SSHKRLStateFile)
+	}
+	for _, b := range c.Serves {
+		add(b.ClientCAFile)
+		add(b.CRLFile)
+		add(b.CRLCAFile)
+		add(b.CRLStateFile)
+	}
 	if c.Kerberos != nil {
 		add(c.Kerberos.Keytab)
 	}

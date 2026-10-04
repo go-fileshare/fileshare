@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -52,9 +53,19 @@ type revocationList struct {
 	// verify, when set, authenticates a list fetched from url before it is
 	// read: the KRL's detached signature (krl_sftp.go). tag is the list's
 	// ETag, for the If-Match its signature is fetched with.
-	verify func(ctx context.Context, body []byte, tag string) error
-	now    func() time.Time
-	out    io.Writer
+	// It returns the signature it checked, which the state file keeps.
+	verify func(ctx context.Context, body []byte, tag string) (sig []byte, err error)
+	// reverify checks a list and signature read back from stateFile.
+	reverify func(raw, sig []byte) error
+	// stateFile, when set, keeps the last list that verified across a
+	// restart: what orders the next one (go-authn/revocation's PROTOCOL.md
+	// rule 2). Without it, a restart forgets which list is newer, and a
+	// replayed older list -- signed, unexpired -- is taken (found by the
+	// adversarial review of v0.15.0).
+	stateFile string
+	sig       []byte
+	now       func() time.Time
+	out       io.Writer
 
 	mu      sync.RWMutex
 	current revoked
@@ -261,8 +272,9 @@ func (l *revocationList) fetchOnce(ctx context.Context) (changed bool, err error
 		l.mu.Unlock()
 		return false, nil
 	}
+	var sig []byte
 	if l.verify != nil && l.file == "" {
-		if err := l.verify(ctx, body, tag); err != nil {
+		if sig, err = l.verify(ctx, body, tag); err != nil {
 			if errors.Is(err, errReissued) {
 				return false, err
 			}
@@ -280,9 +292,69 @@ func (l *revocationList) fetchOnce(ctx context.Context) (changed bool, err error
 			parsed.describe(), current.describe())
 	}
 	l.mu.Lock()
-	l.current, l.raw, l.fetched, l.lastErr, l.etag = parsed, body, l.now(), nil, tag
+	l.current, l.raw, l.sig, l.fetched, l.lastErr, l.etag = parsed, body, sig, l.now(), nil, tag
 	l.mu.Unlock()
+	if l.stateFile != "" {
+		if err := writeFileAtomically(l.stateFile, encodeListState(body, sig)); err != nil {
+			// Kept in memory and served; only the order across a restart
+			// is at stake, and said.
+			fmt.Fprintf(l.out, "%s: keeping it in %s: %v\n", l.name, l.stateFile, err)
+		}
+	}
 	return true, nil
+}
+
+// listStateMagic heads a state file: the list, its length first, then its
+// signature (none for a CRL or a list from a file).
+const listStateMagic = "fileshare-list-state 1\n"
+
+func encodeListState(raw, sig []byte) []byte {
+	b := append([]byte(listStateMagic), binary.BigEndian.AppendUint64(nil, uint64(len(raw)))...)
+	return append(append(b, raw...), sig...)
+}
+
+func decodeListState(b []byte) (raw, sig []byte, err error) {
+	rest, ok := bytes.CutPrefix(b, []byte(listStateMagic))
+	if !ok || len(rest) < 8 {
+		return nil, nil, errors.New("not a fileshare list state")
+	}
+	n := binary.BigEndian.Uint64(rest)
+	if rest = rest[8:]; n > uint64(len(rest)) {
+		return nil, nil, errors.New("a truncated fileshare list state")
+	}
+	return rest[:n], rest[n:], nil
+}
+
+// restore reads back the list kept in stateFile. It is verified again, and
+// held to ORDER the next list only: it is not current -- its fetch time is
+// unknown -- until a list is fetched. Anything wrong with it is said, and
+// it is not used.
+func (l *revocationList) restore() {
+	if l.stateFile == "" {
+		return
+	}
+	data, err := os.ReadFile(l.stateFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	var raw, sig []byte
+	if err == nil {
+		raw, sig, err = decodeListState(data)
+	}
+	if err == nil && l.reverify != nil {
+		err = l.reverify(raw, sig)
+	}
+	var parsed revoked
+	if err == nil {
+		parsed, err = l.parse(raw)
+	}
+	if err != nil {
+		fmt.Fprintf(l.out, "%s: the list kept in %s is not used: %v\n", l.name, l.stateFile, err)
+		return
+	}
+	l.mu.Lock()
+	l.current, l.raw, l.sig = parsed, raw, sig
+	l.mu.Unlock()
 }
 
 func (l *revocationList) source() string {

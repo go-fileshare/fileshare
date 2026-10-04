@@ -235,7 +235,7 @@ func TestFoundTwoDriversOneImage(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 20; i++ {
-				if c := m.put("alice", "hunter2", fmt.Sprintf("/%s/from%s%d.txt", s, strings.ToUpper(s), i), strings.Repeat(s, 5000)); c >= 300 {
+				if c := m.put("alice", "hunter2", fmt.Sprintf("/%s/from%s%d.txt", s, strings.ToUpper(s), i), strings.Repeat(s, 5000)); c < 200 || c >= 300 {
 					t.Errorf("put %s: %d", s, c)
 				}
 			}

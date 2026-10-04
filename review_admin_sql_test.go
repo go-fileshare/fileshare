@@ -101,9 +101,9 @@ serve "webdav" { addr = "127.0.0.1:0" }`)
 	get := func(u, p string) int {
 		req, _ := http.NewRequest(http.MethodGet, "http://"+addrs["webdav"]+"/open/b.txt", nil)
 		req.SetBasicAuth(u, p)
-		res, err := http.DefaultClient.Do(req)
+		res, err := webClient.Do(req)
 		if err != nil {
-			return 0
+			return transportError // no answer: neither a success nor a refusal
 		}
 		res.Body.Close()
 		return res.StatusCode

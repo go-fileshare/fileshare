@@ -75,3 +75,35 @@ func TestASameNumberCRLIssuedEarlierIsRefused(t *testing.T) {
 		t.Error("control: the later issue is older")
 	}
 }
+
+// A CRL signed by none of the client CAs is refused on its signature,
+// before it is parsed: before v0.16.2 it was parsed first, and a 63 MB one
+// cost 3 GB allocated (found by a security audit). 100 000 entries here,
+// about 2 MB: a parse is hundreds of thousands of allocations.
+func TestACRLFromAnotherCAIsRefusedBeforeItIsParsed(t *testing.T) {
+	ca, other := newBridgeCA(t, t.TempDir()), newBridgeCA(t, t.TempDir())
+	now := time.Now()
+	entries := make([]x509.RevocationListEntry, 100_000)
+	for i := range entries {
+		entries[i] = x509.RevocationListEntry{SerialNumber: big.NewInt(int64(i + 1)), RevocationTime: now}
+	}
+	der, err := x509.CreateRevocationList(rand.Reader, &x509.RevocationList{Number: big.NewInt(1),
+		ThisUpdate: now, NextUpdate: now.Add(time.Hour), RevokedCertificateEntries: entries}, other.cert, other.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parse := crlParser([]*x509.Certificate{ca.cert})
+	allocs := testing.AllocsPerRun(1, func() {
+		if _, err := parse(der); err == nil {
+			t.Fatal("accepted")
+		}
+	})
+	t.Logf("%d bytes refused in %.0f allocations", len(der), allocs)
+	if allocs > 1000 {
+		t.Errorf("refusing a CRL from another CA took %.0f allocations: it was parsed first", allocs)
+	}
+	// Control: its own CA's CRL is read.
+	if _, err := crlParser([]*x509.Certificate{other.cert})(der); err != nil {
+		t.Errorf("control: %v", err)
+	}
+}

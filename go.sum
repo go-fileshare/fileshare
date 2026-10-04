@@ -47,12 +47,12 @@ github.com/go-authn/directory v0.8.0 h1:aeonZteikL6CCfZ/jsowoq4chhcNP1TjYx4Q7xB3
 github.com/go-authn/directory v0.8.0/go.mod h1:bki9j8LDhb2B2wmmaFIce3mSEqeBeP8XdOWdwa4FOz8=
 github.com/go-authn/krb5 v0.2.1 h1:bLJ6fEl26aeWg6GUZDzwQI/ohtyElMW8kDOfibTxPeE=
 github.com/go-authn/krb5 v0.2.1/go.mod h1:OKwOP1tWIqY6GhTEDYXHvtQUKDmGuvxTIN7TOjv7Xjs=
-github.com/go-authn/krl v0.2.0 h1:VtXXZQ66WSu3W2dWrbShMkGkp+l68rHmtmGZoJWh04o=
-github.com/go-authn/krl v0.2.0/go.mod h1:PW5Vt8KOJRNEboQuoSoYgXC6MS5jH/YgGXX19RhmT5c=
+github.com/go-authn/krl v0.4.0 h1:XFoWGxB9Rw4kz+qsKBMVIWkfsUtWxk43jJaSEf5uiqE=
+github.com/go-authn/krl v0.4.0/go.mod h1:PW5Vt8KOJRNEboQuoSoYgXC6MS5jH/YgGXX19RhmT5c=
 github.com/go-authn/oidc v0.1.0 h1:aUBEIZ0aESaT3Ps0+GpPJuF8PYXai4iFrzkMKAK9ZnE=
 github.com/go-authn/oidc v0.1.0/go.mod h1:FbF6Ltu6sj0Sb8RP/wbtrpIy9w95wGJC6AJQloQt130=
-github.com/go-authn/revocation v0.1.1 h1:oNlDcZYe9qQ6GFdR+U+Qdugptcz+OkrAgTfLK2XEPlI=
-github.com/go-authn/revocation v0.1.1/go.mod h1:5T3su5/aiE7aXr72nWQlpmbvZr7x8TGiLovKG4g59n4=
+github.com/go-authn/revocation v0.2.1 h1:7tSyX5rdyZPIbHHgM9OibrSoj5mDBVYvwilaLxBj/IA=
+github.com/go-authn/revocation v0.2.1/go.mod h1:WKqv1yAIy2i9BfxwfL9Rg7es3cI/4P2erBn7EmEHzBo=
 github.com/go-authn/servercert v0.1.2 h1:yE9mckPo9Ognvjc8lwCDYRSVwTgKtYW4/AYZGL36x5w=
 github.com/go-authn/servercert v0.1.2/go.mod h1:8rtB3BDKcwCWM4w+4XgE7qnc4oU7MlluLy7H6jC7j3M=
 github.com/go-chi/chi/v5 v5.0.12 h1:9euLV5sTrTNTRUU9POmDUvfxyj6LAABLUcEWO+JJb4s=

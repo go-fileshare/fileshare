@@ -1,0 +1,25 @@
+name: stress-36
+# Throwaway (issue #36): never merged. The test from #36, 1000 times, on the
+# runner where it failed 3 in 400 before the fix.
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with: { go-version: stable, check-latest: true, cache: true }
+      - shell: bash
+        run: |
+          go test -tags "nosql,noldap,nonfs,nosftp" -count=1000 -run '^TestAdminManagesADirectoryShare$' . > out.log 2>&1 || true
+          echo "failures: $(grep -c -- '--- FAIL: TestAdminManagesADirectoryShare' out.log)"
+          grep -A12 -- '--- FAIL' out.log | head -40 || true
+          tail -3 out.log
+          ! grep -q -- '--- FAIL' out.log

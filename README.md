@@ -28,11 +28,14 @@ nfs    on 0.0.0.0:2049 — scratch
        photos is not served over nfs: it is restricted to alice and bob, and
        NFSv3 on its own has no authentication: AUTH_UNIX is a claim the client
        makes about itself and the wire cannot disagree with it. A kerberos
-       block lifts this: sec=krb5 carries a principal a ticket proves
+       block lifts this: sec=krb5 carries a principal a ticket proves; so
+       does identity = "certificate" on the nfs serve block: RPC-over-TLS
+       with a client certificate naming the person
 ```
 
 That last refusal is the one that used to be permanent. A `kerberos` block
-makes NFS able to tell people apart, and `photos` is then served over it like
+makes NFS able to tell people apart (so does a client certificate, with
+[`identity = "certificate"`](#nfs-with-identities-from-certificates)), and `photos` is then served over it like
 anywhere else — to `alice` and `bob`, and to nobody else:
 
 ```hcl

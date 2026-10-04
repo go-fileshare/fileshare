@@ -46,7 +46,7 @@ import (
 // verify the signature, so naming somebody else buys nothing.
 func serveS3(s *server, p *protocol, ln net.Listener) error {
 	h := &s3ByUser{server: s, proto: p, byUser: map[string]http.Handler{}}
-	return http.Serve(ln, h)
+	return s.httpServer(h).Serve(ln)
 }
 
 type s3ByUser struct {
@@ -55,7 +55,18 @@ type s3ByUser struct {
 
 	mu     sync.Mutex
 	byUser map[string]http.Handler
+	// limit bounds byUser; zero means s3CachedUsers. Only somebody the
+	// directory knows gets an entry, so the directory already bounds it --
+	// this is the second wall, for a directory of a million people.
+	limit int
+
+	strangerOnce sync.Once
+	stranger     http.Handler
+	strangerErr  error
 }
+
+// s3CachedUsers is how many people's servers are kept built at once.
+const s3CachedUsers = 4096
 
 func (h *s3ByUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	user, ok := accessKeyOf(r)
@@ -74,13 +85,32 @@ func (h *s3ByUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // forUser builds, once, the server this person sees.
+//
+// ⛔ The access key is the request's CLAIM, read before any signature is
+// checked. A name the directory does not know gets the one shared server
+// that knows no secret -- the same answer it always got, the signature
+// failing -- and never an entry of its own: keyed by an unverified string,
+// the cache grew by a server and a key per request (200 requests with
+// 512 KiB keys pinned 101 MiB, after GC, without one valid signature).
 func (h *s3ByUser) forUser(user string) (http.Handler, error) {
+	if _, known := h.server.person(user); !known {
+		return h.strangers()
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if srv, ok := h.byUser[user]; ok {
 		return srv, nil
 	}
-	shares := h.server.sharesFor(local(user))
+	limit := h.limit
+	if limit <= 0 {
+		limit = s3CachedUsers
+	}
+	if len(h.byUser) >= limit {
+		// Rebuilt on demand: a server is a view over shares already open,
+		// cheap to make again, and dropping them all keeps this simple.
+		clear(h.byUser)
+	}
+	shares := h.server.sharesFor(h.proto, local(user))
 	if len(shares) == 0 {
 		// A person with no shares gets a server over an empty tree rather than
 		// an error naming them: whether a user exists is not a thing an
@@ -97,6 +127,22 @@ func (h *s3ByUser) forUser(user string) (http.Handler, error) {
 	srv.ReadOnly = true
 	h.byUser[user] = srv
 	return srv, nil
+}
+
+// strangers is the server every access key the directory does not know is
+// sent to: an empty tree, and a credential lookup that knows nobody, so the
+// library refuses the signature exactly as it would for that key's own.
+func (h *s3ByUser) strangers() (http.Handler, error) {
+	h.strangerOnce.Do(func() {
+		srv, err := objectapi.New(unionFor(nil, principal{}), func(string) (string, bool) { return "", false })
+		if err != nil {
+			h.strangerErr = err
+			return
+		}
+		srv.ReadOnly = true // as everybody else's
+		h.stranger = srv
+	})
+	return h.stranger, h.strangerErr
 }
 
 // s3Secret answers the library's credential lookup for ONE user.

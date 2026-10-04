@@ -127,7 +127,7 @@ the server can tell **who** is asking.
 | | |
 |---|---|
 | **SMB** | NTLMv2. The password never crosses the wire, and the share tells a reader they are one — in the access mask, before they try. |
-| **WebDAV** | HTTP Basic, over whatever TLS the transport gives it. A share a person may not use answers 404, not 403: it is not confirmed to exist. |
+| **WebDAV** | HTTP Basic, over whatever TLS the transport gives it. A share a person may not use answers 404, not 403: it is not confirmed to exist. Nor to somebody who has not authenticated: a share and a name that is none get the same challenge, and only then the same 404. |
 | **SFTP** | A **public key**, or an **SSH certificate** from an authority you trust: the server never holds the secret, and with a certificate a person's access is issued and expires elsewhere. No password: a client that prompts for one is doing the thing keys exist to avoid. |
 | **S3** | **SigV4**, header or presigned. The secret proves itself by computing an HMAC and never crosses the wire — so, like NTLMv2, the directory must HOLD the password rather than merely check it. A share is a bucket. |
 | **OIDC** (over WebDAV) | A **bearer token** an identity provider signed. Verified by [go-authn/oidc](https://github.com/go-authn/oidc): signature, issuer, audience, expiry. No other protocol here has anywhere to put one. |
@@ -138,6 +138,14 @@ warning, not an option: a configuration saying "photos belongs to alice" and a
 protocol handing photos to whoever connects cannot both be honoured, and
 quietly widening access is the worse of the two failures. The refusal is
 printed at startup and in `check`, with the reason.
+
+⛔ **Nothing waits for ever on somebody who has not said who they are.** WebDAV
+and S3 give a request 30 seconds to finish its headers — the TLS handshake
+included — and close a keep-alive connection idle for two minutes; SFTP gives
+the SSH handshake and its authentication 30 seconds, and lifts the deadline at
+login, so a session left idle stays open. Up to v0.16.7 none of the three had
+a deadline, and a client that sent half a request held its connection for
+good.
 
 ## The configuration
 
@@ -1110,7 +1118,9 @@ GET /photos/holiday.jpg    the file itself, Range and all
 
 It is served over the **same per-user tree SFTP uses**, so a share alice may
 not use is not a bucket alice can see — and the access rules are applied in
-one place rather than copied into a second protocol.
+one place rather than copied into a second protocol. A share's
+`protocols = [...]` holds here as everywhere: a share that does not name `s3`
+is not a bucket for anybody (up to v0.16.7 S3 ignored the list).
 
 **An access key is a user, and the secret key is their password.** SigV4
 proves possession by computing an HMAC, so the directory must hold the
@@ -1121,6 +1131,12 @@ HMAC can be built from.
 ⛔ The secret never leaves the directory. `Identity.Derive` runs the key
 schedule over the password and hands back only the result, which is why there
 is no `Password()` accessor anywhere in this program.
+
+⛔ The access key is read before any signature is checked, so it is a claim
+and nothing is built from it: a key the directory does not know is answered by
+one shared server that knows no secret, and only the people the directory
+knows get a server of their own — at most 4096 kept at once. Up to v0.16.7
+every unsigned request with a fresh key pinned a server and the key itself.
 
 The object API itself is [`go-filesystems/s3`](https://github.com/go-filesystems/s3):
 `ListBuckets`, `ListObjectsV2` with prefix and delimiter, `HeadObject`,

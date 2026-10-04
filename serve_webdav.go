@@ -46,14 +46,24 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 		routes[sh.name] = &byUser{server: s, share: sh, read: read, write: write}
 	}
 	index := s.webdavIndex(served)
-	return http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.httpServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		first, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		if h, ok := routes[first]; ok && first != "" {
 			h.ServeHTTP(w, r)
 			return
 		}
+		if first != "" {
+			// No such share -- answered exactly as a share this person may
+			// not use is: the challenge first, to anybody who has not
+			// authenticated, and 404 only after. Answering 404 here and 401
+			// there told an anonymous client which names were shares.
+			if _, ok := (&byUser{server: s}).authenticated(w, r); ok {
+				http.NotFound(w, r)
+			}
+			return
+		}
 		index(w, r)
-	}))
+	})).Serve(ln)
 }
 
 // byUser authenticates, then hands the request to the handler that matches

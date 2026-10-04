@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -67,6 +68,13 @@ type server struct {
 	// stopping is closed when the server is going away, for protocols whose
 	// own Close is what stops them rather than the listener closing.
 	stopping chan struct{}
+
+	// preAuthTimeout bounds what a connection may take before it has said who
+	// it is: an HTTP request's headers, an SSH handshake. idleTimeout is how
+	// long an HTTP keep-alive connection waits for its next request. Copied
+	// from the package defaults at open, so a test can shorten them without a
+	// race against servers already running.
+	preAuthTimeout, idleTimeout time.Duration
 
 	closers []io.Closer
 
@@ -195,7 +203,8 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		// announcing themselves -- and two goroutines writing one io.Writer
 		// is a data race whatever the writer is.
 		out: &syncWriter{w: out}, hostKeyFile: cfg.HostKeyFile, trustedCAFile: cfg.TrustedUserCAFile,
-		stopping: make(chan struct{}), stats: serverStats{started: time.Now()}}
+		stopping: make(chan struct{}), stats: serverStats{started: time.Now()},
+		preAuthTimeout: defaultPreAuthTimeout, idleTimeout: defaultIdleTimeout}
 	if s.name == "" {
 		s.name = "FILESHARE"
 	}
@@ -630,10 +639,16 @@ func (s *server) keysFor(user string) []ssh.PublicKey {
 	return keys
 }
 
-// sharesFor is what this person may see, in the order the configuration gave.
-func (s *server) sharesFor(p principal) []*share {
+// sharesFor is what this person may see over one protocol, in the order the
+// configuration gave: the shares that protocol EXPORTS -- a share's
+// `protocols` list and the refusal of a restricted share over a protocol that
+// cannot tell people apart both apply -- and of those, the ones this person
+// may use. Taking the protocol is the point: S3 once listed every share this
+// person may use, `protocols = ["webdav"]` or not.
+func (s *server) sharesFor(proto *protocol, p principal) []*share {
 	var out []*share
-	for _, sh := range s.currentShares() {
+	served, _ := proto.exports(s.cfg, s.currentShares())
+	for _, sh := range served {
 		if sh.mayUse(p) {
 			out = append(out, sh)
 		}
@@ -893,4 +908,22 @@ func (s *server) revocationLists() []*revocationList {
 		out = append(out, s.nfsCRL)
 	}
 	return out
+}
+
+// The defaults for preAuthTimeout and idleTimeout. Thirty seconds is long for
+// a client on a bad link to send a request line and its headers, or to finish
+// an SSH key exchange and its authentication, and short for an attacker
+// holding thousands of connections open by never finishing either.
+var (
+	defaultPreAuthTimeout = 30 * time.Second
+	defaultIdleTimeout    = 2 * time.Minute
+)
+
+// httpServer is the one way WebDAV and S3 serve HTTP: with a deadline on the
+// request headers -- which is everything before anybody is authenticated,
+// the TLS handshake included -- and on an idle keep-alive connection. A bare
+// http.Serve has neither, and a client that never finishes its headers holds
+// its connection for ever.
+func (s *server) httpServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: s.preAuthTimeout, IdleTimeout: s.idleTimeout}
 }

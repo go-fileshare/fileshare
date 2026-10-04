@@ -68,6 +68,15 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 		fmt.Fprintf(s.out, "a token carries no %s: nobody to be\n", s.usernameClaim())
 		return principal{}, false
 	}
+	// ⛔ An email names somebody only once the provider has verified it
+	// (OpenID Connect Core 5.1, email_verified): unverified, it is what the
+	// person typed. go-authn/oidc v0.2.0 falls back to the email only when
+	// verified; a username_claim of "email" asks for the claim as it is,
+	// so the same rule is applied here.
+	if s.usernameClaim() == "email" && !tok.EmailVerified() {
+		fmt.Fprintf(s.out, "a token names %s by an email its provider has not verified: refused\n", name)
+		return principal{}, false
+	}
 	// ⛔ A token proves who the PROVIDER says this is. It does not put them in
 	// this server's shares: a name that no source here knows is somebody this
 	// server cannot decide about, and the safe reading of "I do not know you"

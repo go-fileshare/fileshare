@@ -32,6 +32,10 @@ type testOP struct {
 	groups   []string
 	// iat is when the ID token says it was issued; zero is now.
 	iat time.Time
+	// email and emailVerified, when email is set, go into the ID token;
+	// emailVerified nil leaves email_verified out.
+	email         string
+	emailVerified any
 }
 
 func (o *testOP) RequestTokens(ctx context.Context, cic *clientinstance.Claims) (*simpleoidc.Tokens, error) {
@@ -48,11 +52,18 @@ func (o *testOP) RequestTokens(ctx context.Context, cic *clientinstance.Claims) 
 	if !o.iat.IsZero() {
 		now = o.iat
 	}
-	idt, err := jwt.Signed(sig).Claims(map[string]any{
+	claims := map[string]any{
 		"iss": o.p.URL, "aud": o.clientID, "sub": "s-" + o.user, "nonce": string(nonce),
 		"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(),
 		"preferred_username": o.user, "groups": o.groups,
-	}).Serialize()
+	}
+	if o.email != "" {
+		claims["email"] = o.email
+		if o.emailVerified != nil {
+			claims["email_verified"] = o.emailVerified
+		}
+	}
+	idt, err := jwt.Signed(sig).Claims(claims).Serialize()
 	if err != nil {
 		return nil, err
 	}
@@ -189,4 +200,47 @@ func pktFor(t *testing.T, priv ed25519.PrivateKey, op *testOP) string {
 		t.Fatal(err)
 	}
 	return string(compact)
+}
+
+// With username_claim = "email", an opkssh login is refused unless the
+// provider verified the email (OpenID Connect Core 5.1): unverified, it is
+// what the person typed. The control is the same login, verified.
+func TestAnOpksshLoginByAnUnverifiedEmailIsRefused(t *testing.T) {
+	needUsers(t)
+	keygen, _ := needOpenSSH(t)
+	p := newIDP(t)
+	dir := t.TempDir()
+	photos := image(t, dir, "photos.img", map[string]string{"/a.txt": "a"})
+	r := start(t, fmt.Sprintf(`
+name = "TESTFS"
+
+oidc {
+  issuer           = %q
+  audience         = "fileshare"
+  opkssh_client_id = "opkssh"
+  username_claim   = "email"
+}
+
+share "photos" {
+  image = %q
+  allow = ["oidc:groups:%s"]
+}
+
+serve "sftp" { addr = "127.0.0.1:0" }
+`, p.URL, hclPath(photos), photosGroup))
+	for i, c := range []struct {
+		verified any
+		ok       bool
+	}{{true, true}, {false, false}, {nil, false}} {
+		op := &testOP{p: p, clientID: "opkssh", user: "x", groups: []string{photosGroup},
+			email: "eve@univ-example.fr", emailVerified: c.verified}
+		_, signer := opksshCert(t, keygen, dir, fmt.Sprintf("eve%d", i), op)
+		_, done, err := sftpAs(t, r.addrs["sftp"], "eve@univ-example.fr", ssh.PublicKeys(signer))
+		if err == nil {
+			done()
+		}
+		if (err == nil) != c.ok {
+			t.Errorf("email_verified %v: logged in = %v, want %v (%v)", c.verified, err == nil, c.ok, err)
+		}
+	}
 }

@@ -358,6 +358,14 @@ keys used are its public, asymmetric ones only. `max_age` is a minute or more;
 A session's certificate is also checked against its own end, since an expired
 certificate leaves the provider's revocation list.
 
+**The name.** It is `preferred_username`, or `username_claim`. Without
+`preferred_username`, it is the email only if the provider says
+`email_verified: true`, and otherwise `sub`. With `username_claim = "email"`, a
+token or PK Token whose email is not verified is refused. Until it is
+verified, the email is only what the person typed, and a signed token that
+carried it would bind as an address nobody checked (OpenID Connect Core 5.1;
+go-authn/oidc v0.2.0).
+
 #### Which institutions, and which groups
 
 ```hcl

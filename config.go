@@ -162,7 +162,9 @@ type oidcBlock struct {
 	// /.well-known/openid-configuration.
 	JWKSURL string `hcl:"jwks_url,optional"`
 	// UsernameClaim is which claim names the person, in the names the shares
-	// are written with. Default preferred_username.
+	// are written with. Default preferred_username, then a VERIFIED email,
+	// then sub. "email" is accepted only with email_verified true (OpenID
+	// Connect Core 5.1), over WebDAV and opkssh alike.
 	UsernameClaim string `hcl:"username_claim,optional"`
 	// GroupsClaim is which claim carries their groups. Default groups.
 	GroupsClaim string `hcl:"groups_claim,optional"`

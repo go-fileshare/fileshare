@@ -94,6 +94,12 @@ func (f *federatedSFTP) openpubkey(user string, cert *ssh.Certificate) (*ssh.Per
 	if err := json.Unmarshal(claims[f.userClm], &name); err != nil || name == "" {
 		return nil, fmt.Errorf("the PK Token carries no %s", f.userClm)
 	}
+	// An email names somebody only once verified (OpenID Connect Core 5.1):
+	// as for a token over WebDAV (oidcauth.go).
+	var verified bool
+	if f.userClm == "email" && (json.Unmarshal(claims["email_verified"], &verified) != nil || !verified) {
+		return nil, fmt.Errorf("the PK Token names %s by an email its provider has not verified", name)
+	}
 	if name != user {
 		return nil, fmt.Errorf("logging in as %q with a PK Token for %q", user, name)
 	}

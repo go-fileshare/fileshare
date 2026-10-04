@@ -33,6 +33,22 @@ const haveOpenPubkey = true
 
 func knownMaxAge(s string) bool { return opksshPolicies[s] != nil }
 
+// opksshMaxAges are the same policies as durations: how long after the
+// provider issued it a PK Token is honoured -- at login by the verifier, and
+// for the rest of the session by sessionRevoked.
+var opksshMaxAges = map[string]time.Duration{
+	"12h": 12 * time.Hour, "24h": 24 * time.Hour, "48h": 48 * time.Hour, "1week": 7 * 24 * time.Hour,
+}
+
+// opkMaxAge is opkssh_max_age as a duration, 24h when it is not written --
+// the verifier's default in newOPK.
+func opkMaxAge(s string) time.Duration {
+	if d, ok := opksshMaxAges[s]; ok {
+		return d
+	}
+	return opksshMaxAges["24h"]
+}
+
 type opkVerifier = verifier.Verifier
 
 func newOPK(o *oidcBlock) (*opkVerifier, error) {
@@ -122,7 +138,19 @@ func (f *federatedSFTP) openpubkey(user string, cert *ssh.Certificate) (*ssh.Per
 	if issuedAt > 0 {
 		perms.Extensions[issuedMark] = fmt.Sprint(issuedAt)
 	}
-	perms.Extensions[expiresMark] = fmt.Sprint(cert.ValidBefore)
+	// ⛔ The session ends when the PK Token ages out, or when the certificate
+	// does, whichever is first. ValidBefore alone is no bound: the person
+	// signs this certificate with their OWN key and may write "forever", and
+	// a session opened a minute before opkssh_max_age was served for as long
+	// as the connection lasted.
+	if issuedAt <= 0 {
+		return nil, errors.New("the PK Token carries no iat: how old it is cannot be known")
+	}
+	end := uint64(time.Unix(issuedAt, 0).Add(f.opkMaxAge).Unix())
+	if cert.ValidBefore < end {
+		end = cert.ValidBefore
+	}
+	perms.Extensions[expiresMark] = fmt.Sprint(end)
 	if issS != "" && subS != "" {
 		perms.Extensions[issSubMark] = issS + " " + subS
 	}

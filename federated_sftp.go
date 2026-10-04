@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-filesystems/sftp/sshd"
@@ -63,10 +64,13 @@ type federatedSFTP struct {
 	krl *revocationList
 	// revoked is the shared signals check (caep.go): whether what the
 	// provider issued to a person at a moment has been revoked since.
-	revoked  func(name, iss, sub string, issued time.Time) error
-	opk      *opkVerifier
-	userClm  string
-	groupClm string
+	revoked func(name, iss, sub string, issued time.Time) error
+	opk     *opkVerifier
+	// opkMaxAge is opkssh_max_age: an opkssh session ends this long after
+	// its PK Token was issued, whatever the certificate says.
+	opkMaxAge time.Duration
+	userClm   string
+	groupClm  string
 }
 
 func newFederatedSFTP(o *oidcBlock, krl *revocationList, revoked func(name, iss, sub string, issued time.Time) error) (*federatedSFTP, error) {
@@ -97,6 +101,7 @@ func newFederatedSFTP(o *oidcBlock, krl *revocationList, revoked func(name, iss,
 			return nil, err
 		}
 		f.opk = v
+		f.opkMaxAge = opkMaxAge(o.OpksshMaxAge)
 	}
 	return f, nil
 }
@@ -174,7 +179,41 @@ func (f *federatedSFTP) revokedCert(cert *ssh.Certificate) error {
 // sessionRevoked is what an open session asks before each operation: the
 // KRL, for a certificate the provider's CA signed, and the shared signals,
 // for anything the provider vouched for.
-func (f *federatedSFTP) sessionRevoked(user string, perms *ssh.Permissions) func() error {
+//
+// ⛔ A session found revoked STAYS revoked, and ended is called once, to close
+// its connection. A shared-signals revocation is forgotten after `retain`,
+// and a session that asked again then was served again: refused for a week,
+// and back. Only a list that is not known to be current
+// (errRevocationUnknown) does not latch: that is the provider not being heard
+// from, not the provider saying no, and the session resumes when it is.
+func (f *federatedSFTP) sessionRevoked(user string, perms *ssh.Permissions, ended func(error)) func() error {
+	check := f.sessionCheck(user, perms)
+	if check == nil {
+		return nil
+	}
+	var (
+		mu    sync.Mutex
+		final error
+	)
+	return func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		if final != nil {
+			return final
+		}
+		err := check()
+		if err != nil && !errors.Is(err, errRevocationUnknown) {
+			final = err
+			if ended != nil {
+				ended(err)
+			}
+		}
+		return err
+	}
+}
+
+// sessionCheck is one look at whether a session may still be served.
+func (f *federatedSFTP) sessionCheck(user string, perms *ssh.Permissions) func() error {
 	if f == nil || perms == nil || perms.Extensions[federatedMark] != federatedSecret {
 		return nil
 	}

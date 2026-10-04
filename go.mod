@@ -6,7 +6,7 @@
 // same command inside go-filesystems/smb was broken for as long as it existed.
 module github.com/go-fileshare/fileshare
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c

@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       # The tokens in the OIDC tests are signed by pyjwt, which nobody in this
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       # One image, two protocols, at once: this is the lane where that claim
@@ -87,7 +87,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       # A `replace` directive makes `go install pkg@version` refuse outright,
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       # A tag that leaves a protocol out must leave a program that still
@@ -147,7 +147,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       - run: |
@@ -179,7 +179,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       # The judge belongs in every lane that RUNS the tests: without it the
@@ -214,7 +214,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          go-version: '1.27.1'
           check-latest: true
           cache: true
       - run: GOARCH=${{ matrix.goarch }} go build ./...

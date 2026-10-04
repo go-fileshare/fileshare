@@ -1,0 +1,37 @@
+name: stress-36
+# Throwaway (issue #36): never merged. Runs TestAdminManagesADirectoryShare
+# many times on the runner where it failed once, alone and in the package.
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  stress:
+    name: stress ${{ matrix.mode }} (${{ matrix.tags }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ["nosql,noldap,nonfs,nosftp", ""]
+        mode: [alone, package]
+    env:
+      GOWORK: "off"
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with: { go-version: stable, check-latest: true, cache: true }
+      - name: stress
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "${{ matrix.mode }}" = alone ]; then
+            run='^TestAdminManagesADirectoryShare$'; count=400
+          else
+            run='^TestAdmin'; count=40
+          fi
+          go test -tags "${{ matrix.tags }}" -count=$count -run "$run" . > out.log 2>&1 || true
+          echo "failures: $(grep -c -- '--- FAIL: TestAdminManagesADirectoryShare' out.log)"
+          grep -A30 -- '--- FAIL: TestAdminManagesADirectoryShare' out.log | head -120 || true
+          ! grep -q -- '--- FAIL: TestAdminManagesADirectoryShare' out.log

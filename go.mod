@@ -12,7 +12,7 @@ require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.8.0
 	github.com/go-authn/krl v0.4.0
-	github.com/go-authn/oidc v0.2.0
+	github.com/go-authn/oidc v0.2.2
 	github.com/go-authn/revocation v0.2.1
 	github.com/go-authn/servercert v0.1.2
 	github.com/go-filesystems/detect v0.1.0

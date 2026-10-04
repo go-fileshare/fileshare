@@ -75,8 +75,8 @@ github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee h1:X1MQIC2E
 github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee/go.mod h1:2DwQ2e5PeiJkXtEXSKnA23M0Y/uuBPg3V2YqnIcExBw=
 github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a h1:dxa2Kjwocil9+sDiyGKGW8kMI5BtKX4LVdqXEMv3SO4=
 github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a/go.mod h1:7Ccg8daFNV0DLoSQMVoe+QySqVUmWrY/2lRFQvlce4Y=
-github.com/go-filesystems/fat32 v0.3.1-0.20260909090037-17502e127a37 h1:NekoV7zsMES2sCvJbU8Pr499dsrOOwcxolW49J/TrKY=
-github.com/go-filesystems/fat32 v0.3.1-0.20260909090037-17502e127a37/go.mod h1:aL4mEIAr2Xxa0iMB4j4jg5ErOj2j7DrS+Dg1muFtRrE=
+github.com/go-filesystems/fat32 v0.4.0 h1:wX4LGoTxdUAq9OJrsCcAg1lKtxTcuLaW3/Tk7Ape9Sc=
+github.com/go-filesystems/fat32 v0.4.0/go.mod h1:4x09jEjl85nLiRE1Ojm3eWjmefYV48JG1YjLStESl/k=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd h1:rOHq51t4ZpD5/2TauUfrcJCKpWyg8eDe5EmCIMZBjvU=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd/go.mod h1:DMXqQLSl8Nk3XhpV7pmlzCzwmBXTsrCLMH02CG6Q3mE=
 github.com/go-filesystems/interface v0.3.0 h1:cV4+2mvW1eCPyde+KIDRaGuIPAcr2sDgKrxGuGQr98k=
@@ -89,8 +89,8 @@ github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177 h1:0aEO+w2id
 github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177/go.mod h1:PYr8TCa1lQI3KC5Q/ONPScmaQ55iCMWBhdBv9twz++0=
 github.com/go-filesystems/osfs v0.2.0 h1:4G2cBO9TauFLIBmreWQ4iHN/hwijiMobeGPumGQDyBw=
 github.com/go-filesystems/osfs v0.2.0/go.mod h1:/iYkhh2MPMchgX5t3YRY+1R4FYV8dVHIwSS74sDMvf0=
-github.com/go-filesystems/s3 v0.1.0 h1:bKqPMwDF/dKKhPbwV2hR4FYFkvhc8iSjfcXAp4kl0MQ=
-github.com/go-filesystems/s3 v0.1.0/go.mod h1:tOeCPfrAlc4tZPbe/vyfQ7HYfZedij6v8uX+VA3xPDk=
+github.com/go-filesystems/s3 v0.3.0 h1:9lNwCgmowYv8JqhE+OuO7MXsTnWTDBnH27tp0BLr21I=
+github.com/go-filesystems/s3 v0.3.0/go.mod h1:HzG6ZkIcGBS+oMQsUD8Aq1xDJU+BlDaTz/3Dc6/njS4=
 github.com/go-filesystems/sftp v0.4.0 h1:OnBYhoJI3tmXXuHuj9+HayPm6EiwczzzVsOuZnVeKdg=
 github.com/go-filesystems/sftp v0.4.0/go.mod h1:JaL1hgQfUb2y14prGslIvCOGT1amSsp7Wj+k/UsVnSo=
 github.com/go-filesystems/smb v0.2.0 h1:vY0z8RMDXcy4LR0ZUe6ekMYdaV4EYxqmfck2ZyDtMm0=

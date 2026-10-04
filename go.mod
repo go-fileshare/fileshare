@@ -6,7 +6,7 @@
 // same command inside go-filesystems/smb was broken for as long as it existed.
 module github.com/go-fileshare/fileshare
 
-go 1.26.4
+go 1.26.6
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
@@ -36,6 +36,7 @@ require (
 	github.com/go-volumes/s3 v0.0.0-20260903051126-cfe79d096697
 	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
+	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/lestrrat-go/jwx/v3 v3.3.0
@@ -62,7 +63,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
-	github.com/hiddeco/sshsig v0.2.0 // indirect
 	github.com/hstern/go-subjectid v0.0.0-20260525222327-b47140763585 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect

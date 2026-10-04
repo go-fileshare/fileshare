@@ -345,8 +345,12 @@ per person, when it happened. **Everything the provider issued them before is
 refused** — a token over WebDAV (its `iat`), a provider or OpenPubkey
 certificate over SFTP (its validity start, the ID token's `iat`), a client
 certificate over NFS (its `NotBefore`) — and **the sessions those opened stop
-being served**. What the provider issues after is theirs: a person re-enabled is
-not locked out.
+being served**, for good: an SFTP session found revoked stays revoked after the
+revocation is forgotten (`retain`), and its connection is closed. (Up to
+v0.16.7 it was only refused, and served again once the revocation was pruned.)
+A list that is merely not known to be current refuses without ending the
+session, which resumes when the transmitter is heard from again. What the
+provider issues after is theirs: a person re-enabled is not locked out.
 
 The subject is RFC 9493's `account` (`acct:user@domain`, the name the shares use),
 `iss_sub`, `email`, or `aliases` of them. **An IdP disabled whole** arrives as a

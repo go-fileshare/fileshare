@@ -82,7 +82,13 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 					fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
 				}
 				tree := unionFor(served, who)
-				tree.revoked = fed.sessionRevoked(user, perms)
+				tree.revoked = fed.sessionRevoked(user, perms, func(why error) {
+					// Refusing each operation is not enough: the client is
+					// told, and the connection is not kept for a session
+					// that will never be served again.
+					fmt.Fprintf(s.out, "sftp: %s: %v; connection closed\n", user, why)
+					c.Close()
+				})
 				if len(tree.entries) == 0 {
 					// Nothing here for them. Refusing says so; an empty directory
 					// would look like a server that lost their files.

@@ -138,7 +138,7 @@ func TestFoundSFTPSessionIgnoresExpiry(t *testing.T) {
 	perms := marked(nil)
 	perms.Extensions[certMark] = b64(cert.Marshal())
 	perms.Extensions[issuedMark] = fmt.Sprint(cert.ValidAfter)
-	gone := f.sessionRevoked("alice@univ-a.fr", perms)
+	gone := f.sessionRevoked("alice@univ-a.fr", perms, nil)
 	if gone() == nil {
 		t.Fatal("control: revoked session still served")
 	}
@@ -190,3 +190,33 @@ func b64(b []byte) string {
 func base64Std(b []byte) string { return b64enc.EncodeToString(b) }
 
 var b64enc = base64.StdEncoding
+
+// What latches and what does not: a revocation latches for the session's
+// life and ends it once; a list that is not known to be current refuses, and
+// lets the session resume once it is.
+func TestASessionRevocationLatchesAndAnUnknownListDoesNot(t *testing.T) {
+	answer := errRevocationUnknown
+	f := &federatedSFTP{revoked: func(string, string, string, time.Time) error { return answer }}
+	perms := marked(nil)
+	perms.Extensions[issuedMark] = fmt.Sprint(time.Now().Add(-time.Minute).Unix())
+	var ended []error
+	gone := f.sessionRevoked("alice@univ-a.fr", perms, func(err error) { ended = append(ended, err) })
+	if gone() == nil {
+		t.Fatal("refused while the list is unknown: want an error")
+	}
+	answer = nil
+	if err := gone(); err != nil || len(ended) != 0 {
+		t.Fatalf("the list current again: err = %v, ended %d times; want served, never ended", err, len(ended))
+	}
+	answer = fmt.Errorf("alice's sessions were revoked")
+	if gone() == nil {
+		t.Fatal("a revocation was not seen")
+	}
+	answer = nil // pruned, or the provider changed its mind
+	if err := gone(); err == nil {
+		t.Error("a revoked session was served again once the revocation was gone")
+	}
+	if len(ended) != 1 {
+		t.Errorf("ended called %d times, want once", len(ended))
+	}
+}

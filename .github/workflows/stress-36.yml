@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tags: ["nosql,noldap,nonfs,nosftp", ""]
-        mode: [alone, package]
+        tags: ["nosql,noldap,nonfs,nosftp"]
+        mode: [alone]
     env:
       GOWORK: "off"
       CGO_ENABLED: "0"
@@ -34,4 +34,6 @@ jobs:
           go test -tags "${{ matrix.tags }}" -count=$count -run "$run" . > out.log 2>&1 || true
           echo "failures: $(grep -c -- '--- FAIL: TestAdminManagesADirectoryShare' out.log)"
           grep -A30 -- '--- FAIL: TestAdminManagesADirectoryShare' out.log | head -120 || true
+          echo "granted-put codes:"; grep -o 'STRESS36 granted put code=[0-9]*' out.log | sort | uniq -c || true
+          echo "transport errors:"; grep 'STRESS36 put' out.log | sed 's/127.0.0.1:[0-9]*/ADDR/g' | sort | uniq -c | head -5 || true
           ! grep -q -- '--- FAIL: TestAdminManagesADirectoryShare' out.log

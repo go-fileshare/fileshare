@@ -161,6 +161,7 @@ func (m *managed) put(user, password, path, body string) int {
 	req.SetBasicAuth(user, password)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
+		fmt.Printf("STRESS36 put %s: transport error: %v\n", path, err)
 		return 0
 	}
 	res.Body.Close()
@@ -243,6 +244,8 @@ func TestAdminManagesADirectoryShare(t *testing.T) {
 	}
 	if code := m.put("alice", "hunter2", "/photos/b.txt", "written"); code >= 300 {
 		t.Fatalf("alice, granted write, got %d", code)
+	} else {
+		fmt.Printf("STRESS36 granted put code=%d\n", code)
 	}
 	if b, err := os.ReadFile(filepath.Join(tree, "b.txt")); err != nil || string(b) != "written" {
 		// Seen once on Linux CI and never reproduced (issue #36): say

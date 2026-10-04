@@ -1085,6 +1085,12 @@ HMAC can be built from.
 schedule over the password and hands back only the result, which is why there
 is no `Password()` accessor anywhere in this program.
 
+⛔ The access key is read before any signature is checked, so it is a claim
+and nothing is built from it: a key the directory does not know is answered by
+one shared server that knows no secret, and only the people the directory
+knows get a server of their own — at most 4096 kept at once. Up to v0.16.7
+every unsigned request with a fresh key pinned a server and the key itself.
+
 The object API itself is [`go-filesystems/s3`](https://github.com/go-filesystems/s3):
 `ListBuckets`, `ListObjectsV2` with prefix and delimiter, `HeadObject`,
 `GetObject` with `Range`. Costs **0.1 MB** — SigV4 is stdlib crypto.

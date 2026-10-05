@@ -387,6 +387,17 @@ func report(cmd *cobra.Command, cfg *config) error {
 			who = "trust_all: anybody that provider vouches for is let in, whether or not this file knows them"
 		}
 		fmt.Fprintf(out, "%s\n", who)
+		// ⛔ That rule has a second half a security audit found nobody had
+		// written down: the name a token or a provider certificate carries is
+		// matched against the plain names in allow and writers, so the
+		// provider's "alice" gets the shares of this file's alice. Without
+		// domains, a provider where people choose their own username hands
+		// anybody a local account.
+		if !cfg.OIDC.TrustAll && len(cfg.OIDC.Domains) == 0 {
+			fmt.Fprintf(out, "no domains: a token or provider certificate naming %q is given the shares of the local %q, "+
+				"if that name exists here -- set domains, so a federated name must be scoped, "+
+				"or take the name from a claim the provider controls\n", "alice", "alice")
+		}
 	}
 
 	// Which protocols a password or a file crosses the network encrypted

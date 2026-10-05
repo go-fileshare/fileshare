@@ -237,6 +237,20 @@ share "open" { image = %q }
 			t.Errorf("check did not say %q:\n%s", want, out)
 		}
 	}
+	// With no domains, a provider's bare name is matched against this file's
+	// names, and check says so; with domains it cannot be, and check is quiet.
+	if !strings.Contains(out, "no domains: a token or provider certificate") {
+		t.Errorf("check did not warn that a provider name reaches a local account:\n%s", out)
+	}
+	scoped := strings.Replace(body, `audience = "fileshare"`, `audience = "fileshare"
+  domains  = ["univ-example.fr"]`, 1)
+	out, err = execute(t, "check", write(t, dir, "d.hcl", scoped))
+	if err != nil {
+		t.Fatalf("check: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "no domains:") {
+		t.Errorf("check warned about domains when they are set:\n%s", out)
+	}
 }
 
 // sign mints a token with pyjwt: an implementation nobody in this repository

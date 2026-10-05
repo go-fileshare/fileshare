@@ -515,6 +515,18 @@ somebody else and matches no rule. A rule with no `oidc` block, a malformed
 one, or one that may write without being allowed to connect is refused at
 startup.
 
+⛔ **The other direction is not symmetric.** A plain name in `allow` or
+`writers` is matched against the name a token or a provider certificate
+carries: the provider's `alice` gets the shares this file grants `alice`, write
+included, as long as a source here knows that name ("both halves agree"). That
+is deliberate, and it is only as safe as the provider's names. Without
+`domains`, a provider where people choose their own `preferred_username` hands
+anybody who signs up a local account's shares. **Set `domains`** — a federated
+name must then be scoped (`alice@univ-a.fr`), and a bare `alice` from the
+provider is refused — or take the name from a claim the provider controls
+(`username_claim`), or grant provider people only through `oidc:` rules.
+`fileshare check` says so when `domains` is not set.
+
 There is no login flow here: no redirect, no client secret, no cookies. This is
 the resource server.
 

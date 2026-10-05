@@ -515,17 +515,32 @@ somebody else and matches no rule. A rule with no `oidc` block, a malformed
 one, or one that may write without being allowed to connect is refused at
 startup.
 
-⛔ **The other direction is not symmetric.** A plain name in `allow` or
-`writers` is matched against the name a token or a provider certificate
-carries: the provider's `alice` gets the shares this file grants `alice`, write
-included, as long as a source here knows that name ("both halves agree"). That
-is deliberate, and it is only as safe as the provider's names. Without
-`domains`, a provider where people choose their own `preferred_username` hands
-anybody who signs up a local account's shares. **Set `domains`** — a federated
-name must then be scoped (`alice@univ-a.fr`), and a bare `alice` from the
-provider is refused — or take the name from a claim the provider controls
-(`username_claim`), or grant provider people only through `oidc:` rules.
-`fileshare check` says so when `domains` is not set.
+⛔ **Nor is the provider's `alice` the local `alice`, unless the configuration
+says so.** A plain name in `allow` or `writers` is a local account; a token or
+a provider certificate is reached only by a share's `oidc:` rules. A site whose
+provider's names ARE its local names says it:
+
+```hcl
+oidc {
+  # ...
+  local_names = true   # the provider's "alice" is this file's alice
+  domains     = ["univ-a.fr"]
+}
+```
+
+Only then does the provider's `alice` get the shares written for the local
+`alice`, write included — so set `domains` with it, or take the name from a
+claim the provider controls (`username_claim`): a provider where people choose
+their own `preferred_username` would otherwise hand anybody who signs up a
+local account's shares. Before v0.20.0 that was the default (security audit
+F4). A federated name that is also a local account's, refused for want of
+`local_names`, is logged with the line to add, and `fileshare check` says which
+rule is in force.
+
+An NFS client certificate (`identity = "certificate"`) is the exception: it is
+signed by the CA its serve block's `client_ca_file` pins, chosen for exactly
+that, and plain names are the only way an NFS share can name somebody — so its
+names are local names, whatever `local_names` says.
 
 There is no login flow here: no redirect, no client secret, no cookies. This is
 the resource server.

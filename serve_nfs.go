@@ -178,7 +178,13 @@ func (s *server) certificateGate(k *kerberosBlock, sh *share) func(*rpc.Call) (b
 		if !bytes.Equal(leaf.RawIssuer, crl.issuer) || crl.revoked(leaf.SerialNumber) {
 			return false, false
 		}
-		p := principal{name: c.Principal, federated: true, groups: groupsOfCert(leaf)}
+		// localName: an NFS client certificate is signed by the CA this serve
+		// block's client_ca_file pins -- the operator's choice for exactly
+		// this -- and plain names are the only way an NFS share can name
+		// somebody (oidc: rules need an oidc block, which NFS identity does
+		// not). So its names ARE local names, whatever local_names says;
+		// local_names governs what the oidc block admits.
+		p := principal{name: c.Principal, federated: true, groups: groupsOfCert(leaf), localName: true}
 		if s.admitFederated(p) != nil || s.federatedRevoked(p.name, "", "", leaf.NotBefore) != nil {
 			return false, false
 		}

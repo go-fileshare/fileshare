@@ -167,7 +167,7 @@ func (s *share) mayUse(p principal) bool {
 	if s.allowsAnyone() {
 		return true
 	}
-	return slices.Contains(s.allow, p.name) || p.matches(s.allowClaims)
+	return (p.byName() && slices.Contains(s.allow, p.name)) || p.matches(s.allowClaims)
 }
 
 // readOnlyFor reports whether this person's view of the share is read-only.
@@ -178,7 +178,7 @@ func (s *share) readOnlyFor(p principal) bool {
 	if s.anyAllowedWrites() {
 		return false
 	}
-	return !slices.Contains(s.writers, p.name) && !p.matches(s.writerClaims)
+	return !(p.byName() && slices.Contains(s.writers, p.name)) && !p.matches(s.writerClaims)
 }
 
 // anyoneWrites reports whether the share is writable with no question asked --

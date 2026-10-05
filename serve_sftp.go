@@ -73,6 +73,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 			ServerForLogin: func(user string, perms *ssh.Permissions) (*sftp.Server, error) {
 				c.loggedIn()
 				who := principalOf(user, perms)
+				who.localName = who.federated && s.localNames()
 				if who.federated {
 					if err := s.admitFederated(who); err != nil {
 						return nil, fmt.Errorf("%s: the provider vouches for them %v", user, err)

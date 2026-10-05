@@ -28,8 +28,9 @@ func TestATokenOpensWebDAVAndNothingElse(t *testing.T) {
 	open := image(t, dir, "open.img", map[string]string{"/b.txt": "b"})
 	body := people(t, dir) + fmt.Sprintf(`
 oidc {
-  issuer   = %q
-  audience = "fileshare"
+  issuer      = %q
+  audience    = "fileshare"
+  local_names = true   # this provider's names are this file's names
 }
 
 share "photos" {
@@ -42,7 +43,8 @@ share "open" { image = %q }
 `, p.URL, hclPath(img), hclPath(open)) + serveBlocks()
 	r := start(t, body)
 
-	// alice is named in this file AND in the token: both halves agree.
+	// alice is named in this file AND in the token, and local_names says the
+	// two are the same person.
 	token := p.sign(t, map[string]any{
 		"iss": p.URL, "sub": "u-1", "aud": "fileshare",
 		"exp": time.Now().Add(time.Hour).Unix(), "preferred_username": "alice",
@@ -237,19 +239,28 @@ share "open" { image = %q }
 			t.Errorf("check did not say %q:\n%s", want, out)
 		}
 	}
-	// With no domains, a provider's bare name is matched against this file's
-	// names, and check says so; with domains it cannot be, and check is quiet.
-	if !strings.Contains(out, "no domains: a token or provider certificate") {
-		t.Errorf("check did not warn that a provider name reaches a local account:\n%s", out)
+	// Without local_names, check says the provider's names are not local
+	// ones. With it and no domains, it warns; with domains too, it is quiet.
+	if !strings.Contains(out, "the provider's names are not local names") {
+		t.Errorf("check did not say provider names are not local names:\n%s", out)
 	}
-	scoped := strings.Replace(body, `audience = "fileshare"`, `audience = "fileshare"
+	local := strings.Replace(body, `audience = "fileshare"`, `audience = "fileshare"
+  local_names = true`, 1)
+	out, err = execute(t, "check", write(t, dir, "l.hcl", local))
+	if err != nil {
+		t.Fatalf("check: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "local_names, no domains:") {
+		t.Errorf("check did not warn that local_names without domains hands out local accounts:\n%s", out)
+	}
+	scoped := strings.Replace(local, `local_names = true`, `local_names = true
   domains  = ["univ-example.fr"]`, 1)
 	out, err = execute(t, "check", write(t, dir, "d.hcl", scoped))
 	if err != nil {
 		t.Fatalf("check: %v\n%s", err, out)
 	}
-	if strings.Contains(out, "no domains:") {
-		t.Errorf("check warned about domains when they are set:\n%s", out)
+	if strings.Contains(out, "no domains:") || strings.Contains(out, "not local names") {
+		t.Errorf("check warned with local_names and domains both set:\n%s", out)
 	}
 }
 
@@ -326,4 +337,59 @@ func webdavPutToken(r *running, token, path, body string) error {
 		return fmt.Errorf("%s: %d", path, res.StatusCode)
 	}
 	return nil
+}
+
+// ⛔ Without local_names, the provider's "alice" is NOT the local alice: she
+// gets none of the shares written for the local account, and the refusal
+// names the line that would make them one (security audit F4). Before
+// v0.20.0 a provider where people choose their own username handed anybody a
+// local account's shares this way. An oidc: rule still names her.
+func TestAProviderNameIsNotALocalAccountUnlessSaidSo(t *testing.T) {
+	needUsers(t)
+	p := newIDP(t)
+	dir := t.TempDir()
+	img := image(t, dir, "photos.img", map[string]string{"/greeting.txt": "hello"})
+	ruled := image(t, dir, "ruled.img", map[string]string{"/r.txt": "ruled"})
+	body := people(t, dir) + fmt.Sprintf(`
+oidc {
+  issuer   = %q
+  audience = "fileshare"
+}
+
+share "photos" {
+  image   = %q
+  allow   = ["alice", "bob"]
+  writers = ["bob"]
+}
+
+share "ruled" {
+  image = %q
+  allow = ["oidc:user:alice"]
+}
+
+share "open" { image = %q }
+`, p.URL, hclPath(img), hclPath(ruled), hclPath(image(t, dir, "open.img", nil))) + serveBlocks()
+	r := start(t, body)
+	token := p.sign(t, map[string]any{
+		"iss": p.URL, "sub": "u-1", "aud": "fileshare",
+		"exp": time.Now().Add(time.Hour).Unix(), "preferred_username": "alice",
+	})
+	if got, err := webdavGetToken(r, token, "/photos/greeting.txt"); err == nil {
+		t.Errorf("the provider's alice read the local alice's share: %q", got)
+	}
+	// Named by a rule, she is known as far as that share goes.
+	if got, err := webdavGetToken(r, token, "/ruled/r.txt"); err != nil || string(got) != "ruled" {
+		t.Errorf("an oidc:user rule did not let the provider's alice in: %q, %v", got, err)
+	}
+	// A name no rule and no local account reach is told what would.
+	stranger := p.sign(t, map[string]any{
+		"iss": p.URL, "sub": "u-2", "aud": "fileshare",
+		"exp": time.Now().Add(time.Hour).Unix(), "preferred_username": "bob",
+	})
+	if _, err := webdavGetToken(r, stranger, "/photos/greeting.txt"); err == nil {
+		t.Error("the provider's bob reached the local bob's share")
+	}
+	if !strings.Contains(r.out.String(), "local_names = true") {
+		t.Errorf("the refusal did not say what would make the names one:\n%s", r.out.String())
+	}
 }

@@ -176,6 +176,16 @@ type oidcBlock struct {
 	// PROVIDER says somebody is -- not that this server has a share for them.
 	TrustAll bool `hcl:"trust_all,optional"`
 
+	// LocalNames says the provider's names ARE this configuration's local
+	// names: the provider's "alice" is the local alice, and gets the shares
+	// written for her, write included.
+	//
+	// ⛔ Off by default, since v0.20.0. A provider where people choose their
+	// own username (preferred_username) would otherwise hand anybody who signs
+	// up a local account's shares (security audit, F4). Without it, a
+	// federated name is reached only by the oidc: rules of a share.
+	LocalNames bool `hcl:"local_names,optional"`
+
 	// Domains, when set, are the only institutions whose people are let in:
 	// a federated name must be <something>@<one of these>. The rest of the
 	// federation -- hundreds of IdPs in RENATER, thousands in eduGAIN -- is

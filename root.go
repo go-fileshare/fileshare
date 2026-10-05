@@ -387,16 +387,18 @@ func report(cmd *cobra.Command, cfg *config) error {
 			who = "trust_all: anybody that provider vouches for is let in, whether or not this file knows them"
 		}
 		fmt.Fprintf(out, "%s\n", who)
-		// ⛔ That rule has a second half a security audit found nobody had
-		// written down: the name a token or a provider certificate carries is
-		// matched against the plain names in allow and writers, so the
-		// provider's "alice" gets the shares of this file's alice. Without
-		// domains, a provider where people choose their own username hands
-		// anybody a local account.
-		if !cfg.OIDC.TrustAll && len(cfg.OIDC.Domains) == 0 {
-			fmt.Fprintf(out, "no domains: a token or provider certificate naming %q is given the shares of the local %q, "+
-				"if that name exists here -- set domains, so a federated name must be scoped, "+
-				"or take the name from a claim the provider controls\n", "alice", "alice")
+		// ⛔ Whether the provider's names are this file's names (security
+		// audit F4). Off, a token or provider certificate is reached only by a
+		// share's oidc: rules; on, the provider's "alice" gets the local
+		// alice's shares -- which, without domains, is anybody a provider that
+		// lets people choose their username lets in.
+		switch {
+		case !cfg.OIDC.LocalNames:
+			fmt.Fprintf(out, "the provider's names are not local names: its %q reaches only shares whose oidc: rules name it, "+
+				"not the local %q (local_names = true says they are the same person)\n", "alice", "alice")
+		case len(cfg.OIDC.Domains) == 0:
+			fmt.Fprintf(out, "local_names, no domains: a token or provider certificate naming %q is given the shares of the local %q -- "+
+				"set domains, so a federated name must be scoped, or take the name from a claim the provider controls\n", "alice", "alice")
 		}
 	}
 

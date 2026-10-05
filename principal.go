@@ -25,7 +25,16 @@ type principal struct {
 	// asserted.
 	federated bool
 	groups    []string
+	// localName is set on a federated principal when the oidc block says
+	// local_names: its name is then the local account of that name.
+	localName bool
 }
+
+// byName reports whether the plain names of a share's allow and writers
+// lists may match this principal: always for somebody this server
+// authenticated, and for the provider's people only when local_names says
+// their names are local names.
+func (p principal) byName() bool { return !p.federated || p.localName }
 
 // local is somebody authenticated by this server's own directory.
 func local(name string) principal { return principal{name: name} }

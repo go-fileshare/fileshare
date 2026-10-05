@@ -90,7 +90,7 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// And a share that names people through the provider -- oidc:groups:...,
 	// oidc:user:... -- is that same statement made for one share: somebody
 	// it names is known here, as far as that share goes.
-	p := principal{name: name, federated: true, groups: tok.Groups()}
+	p := principal{name: name, federated: true, groups: tok.Groups(), localName: s.localNames()}
 	if err := s.admitFederated(p); err != nil {
 		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
 		return principal{}, false
@@ -113,11 +113,22 @@ func (s *server) admitFederated(p principal) error {
 	if !s.cfg.OIDC.domainAllowed(p) {
 		return fmt.Errorf("from a domain this server does not admit: refused")
 	}
-	if _, known := s.person(p.name); !known && !s.trustAllTokens() && !s.namedByARule(p) {
+	_, local := s.person(p.name)
+	if (!local || !p.localName) && !s.trustAllTokens() && !s.namedByARule(p) {
+		if local {
+			// The likeliest reason a site meets this after upgrading, so the
+			// message says the line to add -- and what it means.
+			return fmt.Errorf("is also the name of a local account, and the oidc block does not say "+
+				"local_names = true (the provider's %q is not this file's %q unless it does): refused", p.name, p.name)
+		}
 		return fmt.Errorf("and is %s: refused", nobodyIn(s.dir))
 	}
 	return nil
 }
+
+// localNames reports whether the oidc block says the provider's names are
+// this configuration's local names.
+func (s *server) localNames() bool { return s.cfg.OIDC != nil && s.cfg.OIDC.LocalNames }
 
 // namedByARule reports whether any share names this person through the
 // identity provider.

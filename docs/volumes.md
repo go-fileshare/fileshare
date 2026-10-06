@@ -84,11 +84,24 @@ Rules, each taken from somewhere it is already practice:
 
 One rule for all kinds: **a volume is `<parent root>/<name>`**.
 
-- **ZFS**: dataset `<parent dataset>/<name>`, created in ONE ioctl with
+- **ZFS**: dataset `<parent dataset>/<name>`, created in one ioctl with
   `refquota` (the share's visible size; `quota` would also count snapshots),
-  `mountpoint=legacy` (so nothing mounts it behind the provisioner's back) and
-  the ownership property; then mounted at `<root>/<name>`. Legacy mounts do not
-  survive a reboot, so the provisioner remounts the volumes it owns at start.
+  `mountpoint=legacy` and the ownership property
+  (go-fsctl/zfs `CreateFilesystemWithProps`); then mounted at `<root>/<name>`.
+  - ⛔ One ioctl is not one transaction: `zfs_ioc_create` creates the dataset,
+    then applies the properties (module/zfs/zfs_ioctl.c), so it exists untagged
+    for a moment, and a rejected property makes the kernel destroy it again. No
+    mount happens in between — the kernel never mounts on create — so nothing
+    is served unquota'd; the provisioner treats a dataset under its parent with
+    no ownership mark as not its own.
+  - Nothing mounts a `mountpoint=legacy` dataset behind the provisioner's back:
+    automatic mounting is userspace's (`zfs create`, `zfs mount -a` at boot,
+    `zpool import`), and all of them skip legacy datasets. Legacy mounts do not
+    survive a reboot either, so the provisioner remounts the volumes it owns at
+    start.
+  - ⛔ User properties are inherited: a child of a tagged dataset reports the
+    same `fileshare:volume` value. Ownership is the property's SOURCE being the
+    dataset itself, not its value (go-fsctl/zfs `UserProp` returns both).
 - **btrfs**: subvolume `<root>/<name>` on a filesystem with quotas enabled,
   limited by its level-0 qgroup (`max_rfer`). Caveat from btrfs's own docs:
   qgroups slow commits as snapshots multiply.

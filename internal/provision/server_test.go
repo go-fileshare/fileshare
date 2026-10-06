@@ -198,7 +198,7 @@ func TestAnUnknownMethodClosesTheConnection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s was answered", method)
 		}
-		if _, err := c.Capabilities(ctx); err != nil {
+		if err := capabilitiesOnANewConnection(ctx, c); err != nil {
 			t.Fatalf("after %s: %v", method, err)
 		}
 		if d.n.Load() == before {
@@ -249,7 +249,7 @@ func TestAMalformedMessageClosesTheConnection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: answered", what)
 		}
-		if _, err := c.Capabilities(ctx); err != nil {
+		if err := capabilitiesOnANewConnection(ctx, c); err != nil {
 			t.Fatalf("after %s: %v", what, err)
 		}
 		if d.n.Load() == before {
@@ -266,6 +266,29 @@ func TestAMalformedMessageClosesTheConnection(t *testing.T) {
 	g := &gate{}
 	if err := g.unknown(nil, fakeStream{}); status.Code(err) != codes.Unimplemented {
 		t.Errorf("unknown = %v", err)
+	}
+}
+
+// capabilitiesOnANewConnection is the client's next call after the server
+// closed its connection. On a slow machine (riscv64 under qemu, where this
+// failed once with "error reading from server: EOF") that call can leave on
+// the transport being torn down before the client has seen it go, and is
+// answered Unavailable. That is the close being observed, not a defect: the
+// call is retried while it is Unavailable, within the test's deadline, and any
+// other error is returned at once.
+func capabilitiesOnANewConnection(ctx context.Context, c interface {
+	Capabilities(context.Context) (*pb.GetCapabilitiesResponse, error)
+}) error {
+	for {
+		_, err := c.Capabilities(ctx)
+		if status.Code(err) != codes.Unavailable {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 }
 

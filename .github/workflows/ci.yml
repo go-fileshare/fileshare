@@ -304,6 +304,37 @@ jobs:
           done
           echo "integration tests passed: $(grep -c -- '--- PASS: TestIntegrationProvisioner' it-output.txt)"
 
+      # ⛔ THE WHOLE CHAIN: `fileshare serve` as uid nobody, driving its admin
+      # API (allowed_uids = nobody) to create a volume on each of the four
+      # filesystems, make a share of it, and fill it as a granted person over
+      # WebDAV and SFTP until the protocol says the share is full; then
+      # DeleteVolume refused while used, DeleteShare, DeleteVolume. And
+      # `fileshare check` as root, which must say it would serve no volume.
+      # See volume_e2e_linux_test.go.
+      - name: fileshare serve on volumes, as nobody, end to end
+        run: |
+          set -o pipefail
+          go test -c -o "$RUNNER_TEMP/fileshare.test" .
+          status=0
+          sudo env FILESHARE_VOLUME_E2E=1 FILESHARE_BIN="$RUNNER_TEMP/fileshare" \
+            FILESHARE_IT_ZFS_DATASET=itpool/fileshare FILESHARE_IT_ZFS_ROOT=/srv/it/zfs \
+            FILESHARE_IT_BTRFS=/srv/it/btrfs FILESHARE_IT_XFS=/srv/it/xfs FILESHARE_IT_EXT4=/srv/it/ext4 \
+            "$RUNNER_TEMP/fileshare.test" -test.count=1 -test.v -test.timeout=15m -test.run '^TestVolumesEndToEnd$' 2>&1 | tee e2e-output.txt || status=$?
+          [ $status -eq 0 ] || sudo dmesg | tail -40
+          exit $status
+
+      - name: the end-to-end test must have run
+        run: |
+          if grep -E -- "--- SKIP|volume e2e: " e2e-output.txt; then
+            echo "::error::the volume end-to-end test skipped"
+            exit 1
+          fi
+          grep -q -- "--- PASS: TestVolumesEndToEnd " e2e-output.txt || { echo "::error::TestVolumesEndToEnd did not pass"; exit 1; }
+          grep -q -- "--- PASS: TestVolumesE2EHelper " e2e-output.txt || { echo "::error::the unprivileged helper did not pass"; exit 1; }
+          n=$(grep -c "bytes into a" e2e-output.txt)
+          [ "$n" -eq 8 ] || { echo "::error::$n fills measured, want 8"; exit 1; }
+          grep "bytes into a" e2e-output.txt
+
   arches:
     name: arch ${{ matrix.goarch }}
     runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 # Volumes: shares on storage fileshare provisions
 
-**Status: the provisioner role is implemented (#59); the admin API side (phase 3) is not yet.**
+**Status: the provisioner role is implemented (#59); phase 3 implemented — the admin API's volume calls, `volume` sources and the admin socket's peer check (see "As built (phase 3)" below).**
 
 fileshare serves what already exists: a disk image, a device, a directory. This
 adds storage it **creates** — a ZFS dataset, a btrfs subvolume, an XFS or ext4
@@ -220,6 +220,62 @@ Measured in #59's root CI job, writing as an unprivileged uid into a 32 MiB
 volume: zfs 33554432 bytes then EDQUOT, btrfs 33521664 EDQUOT, xfs 33554432
 ENOSPC, ext4 32505856 EDQUOT (the first run's ZFS fill wrote 64 MiB: a
 repeating pattern that lz4 compressed away — the test now writes random bytes).
+
+## As built (phase 3): what the sketch above left out or got wrong
+
+- **`provisioner_uid`** (default 0) is the uid the provisioner's socket must
+  answer as, checked by the client at every connection
+  (`peercred.RequireServer`): a socket somebody else bound gets nothing.
+- **Status codes** are relayed as the provisioner gives them, with two
+  exceptions of fileshare's own: no `provisioner` configured is
+  FAILED_PRECONDITION, and so is a PERMISSION_DENIED from the provisioner —
+  passed through, it would tell an allowed admin caller that *they* may not,
+  when it is fileshare's uid the provisioner refused (a deployment mistake).
+  A provisioner that does not answer is UNAVAILABLE.
+- **"Which shares use a volume"** is the shares made from it AND any share —
+  of the configuration files too, served, disabled or unavailable — whose
+  source lies inside its path. DeleteVolume refuses either, and takes the
+  manager's lock across the question and the provisioner's answer, so no
+  share can be made from the volume in between.
+- **Checks before serving** go further than the sketch: btrfs, the path must
+  be a subvolume's root (inode 256) — a plain directory under the parent has
+  no qgroup; XFS/ext4, the directory must carry a non-zero project id with
+  PROJINHERIT (FS_IOC_FSGETXATTR, unprivileged) — a directory outside every
+  project is served unbounded; and the path must be clean before it is
+  resolved. ZFS: "a mount of that dataset" is checked as "a mount point of a
+  ZFS filesystem" (st_dev differs from the parent's, f_type is ZFS): the
+  provisioner's Volume does not say which dataset, so which one is mounted
+  there is not verified.
+- **A volume share that fails at a start is not a failed start.** Every other
+  share whose source cannot be opened stops the server (it always did); a
+  volume share whose volume is gone, fails a check, or whose provisioner does
+  not answer within 10 s is kept, not served, and reported — at the start,
+  in `check`, and in `Share.unavailable`. EnableShare retries it, also on a
+  share that is enabled and unavailable.
+- **The root / CAP_SYS_RESOURCE refusal applies to every kind**, not only
+  ext4: it is one rule for the process, read from the effective uid and
+  `/proc/self/status` CapEff bit 24; a status that cannot be read is judged
+  exempt. It refuses serving, not the volume calls: creating storage as root
+  is harmless, writing into it as root is not.
+- **"Full"**: ENOSPC and EDQUOT are both rewritten, for every directory share
+  (not only volumes), to one error reading "no space left on device", which
+  WebDAV maps to 507 and NFS to NFS3ERR_NOSPC; SFTP v3 has no code for it
+  (SSH_FX_FAILURE, with that text). ⛔ SMB cannot be fixed here:
+  go-filesystems/smb maps by sentinel only and answers STATUS_ACCESS_DENIED;
+  STATUS_DISK_FULL needs a change there. NFS3ERR_DQUOT would be more exact
+  for EDQUOT; go-filesystems/nfs never sends it.
+- **`allowed_uids`** can only narrow what the socket's 0600 mode allows (its
+  owner and root): the sketch's "checking its peer's uid against a configured
+  list" cannot let anybody else in. It is refused over TCP (the client
+  certificate is the check) and where internal/peercred cannot read a peer
+  (not Linux or macOS).
+- **The share's size** is what statfs says inside the volume: the quota for
+  ZFS (refquota), XFS and ext4 (project statfs); the whole filesystem for
+  btrfs, whose statfs ignores qgroups.
+
+Measured in the end-to-end CI job (the provisioner job's last steps):
+`fileshare serve` as nobody, filling a 32 MiB volume of each kind over WebDAV
+and over SFTP.
 
 ## Phases
 

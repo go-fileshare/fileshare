@@ -1,6 +1,6 @@
 # Volumes: shares on storage fileshare provisions
 
-**Status: design, for review. Nothing here is implemented yet.**
+**Status: the provisioner role is implemented (#59); the admin API side (phase 3) is not yet.**
 
 fileshare serves what already exists: a disk image, a device, a directory. This
 adds storage it **creates** — a ZFS dataset, a btrfs subvolume, an XFS or ext4
@@ -137,7 +137,7 @@ admin {
   listen       = "unix:///run/fileshare/admin.sock"
   state_file   = "/var/lib/fileshare/shares.json"
   source_roots = ["/srv/fileshare/volumes"]
-  provisioner  = "unix:///run/fileshare/provisioner.sock"   # new
+  provisioner  = "unix:///run/fileshare-provisioner/provisioner.sock"   # new
 }
 ```
 
@@ -145,7 +145,7 @@ and the provisioner's own file:
 
 ```hcl
 provisioner {
-  listen      = "unix:///run/fileshare/provisioner.sock"
+  listen      = "unix:///run/fileshare-provisioner/provisioner.sock"   # its OWN directory: it refuses one others can write
   client_uid  = 990                       # fileshare's
   group       = "fileshare"
   max_volume  = "10T"
@@ -170,6 +170,56 @@ Admin API (`fileshare.admin.v1`), relayed to the provisioner:
 
 And, while there: the admin socket starts checking its peer's uid against a
 configured list, where today only its 0600 mode stands in the way.
+
+## As built (#59): what the sketch above left out or got wrong
+
+- **Its own socket directory.** fileshare must not be able to write where the
+  provisioner's socket lives (the provisioner refuses a socket directory
+  others can write): `/run/fileshare-provisioner/`, not `/run/fileshare/`.
+- **Malformed requests.** grpc-go decodes a message before any interceptor
+  runs, so an UnknownServiceHandler alone cannot close the connection of a
+  peer that sends garbage. The provisioner refuses in three places: a
+  `grpc.InTapHandle` (before routing or decoding: unknown method → connection
+  closed, other uid → PERMISSION_DENIED), a strict codec that refuses bytes
+  that do not decode and messages carrying unknown fields, and a stats handler
+  that closes the connection of a call the codec refused. Refusing unknown
+  fields means `serve` and the provisioner run the same version: upgrade the
+  provisioner first.
+- **Snapshots** carry a `snapshot` name; there is no DeleteSnapshot or
+  ListSnapshots: a volume's snapshots go with it (`destroy_data`), and
+  `Volume` lists their names. `GetVolume` exists.
+- **RESOURCE_EXHAUSTED** is: the requested quota (or a resize's growth)
+  exceeds the parent's free space now (no overcommit at creation, nothing
+  tracked afterwards); an exhausted project-id range; a kernel ENOSPC/EDQUOT.
+  Shrinking below what is used is FAILED_PRECONDITION on every kind (btrfs and
+  XFS would accept it).
+- **Idempotency**: "the same parameters" is the quota.
+- **Ownership marks, as built**: ZFS — the `fileshare:volume` property's
+  SOURCE is the dataset itself, with the expected value; btrfs — the
+  subvolume id and uuid recorded in the provisioner's state file, checked
+  against the subvolume's root inode (a subvolume under its directory proves
+  nothing: root can make one there); XFS/ext4 — the project id inside the
+  parent's range AND equal to the recorded one. Every creation is recorded
+  pending first, so a retry finishes it and a delete removes it.
+- **btrfs**: deleting a subvolume leaves its qgroup behind (removed best
+  effort); a subvolume nested inside a volume escapes the volume's qgroup and
+  blocks deletion (ENOTEMPTY).
+- **ZFS**: only ZFS volumes are mounted nosuid,nodev (btrfs and XFS volumes
+  have their filesystem's flags); a tagged dataset whose state record was lost
+  is taken back by the next Create or Delete, not remounted at start.
+- **`client_uid = 0`** is refused by the provisioner itself.
+- **Tree removal** (XFS/ext4 delete) never follows a link and stops at another
+  filesystem by st_dev — which a bind mount of the SAME filesystem does not
+  change: a bind mount inside a volume would be walked.
+- **systemd**: the example unit's `SystemCallFilter` names `quotactl
+  quotactl_fd` explicitly; the unit is not exercised in CI, and whether
+  namespacing options other than ProtectSystem/ReadWritePaths (PrivateTmp…)
+  also break ZFS mount propagation is unverified.
+
+Measured in #59's root CI job, writing as an unprivileged uid into a 32 MiB
+volume: zfs 33554432 bytes then EDQUOT, btrfs 33521664 EDQUOT, xfs 33554432
+ENOSPC, ext4 32505856 EDQUOT (the first run's ZFS fill wrote 64 MiB: a
+repeating pattern that lz4 compressed away — the test now writes random bytes).
 
 ## Phases
 

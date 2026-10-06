@@ -10,4 +10,7 @@ import "syscall"
 var (
 	errNoSpace error = syscall.ENOSPC
 	errQuota   error = syscall.ENOSPC
+
+	noSpaceErrno error = syscall.ENOSPC
+	quotaErrno   error = syscall.ENOSPC
 )

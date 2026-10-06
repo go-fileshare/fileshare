@@ -59,13 +59,23 @@ func serveFull(t *testing.T, errno error) {
 	t.Cleanup(func() { hostTreeOf = orig })
 }
 
-// The errnos a full share is reported with, by name.
+// The errnos a full share is reported with, by name, and what the two
+// protocols that answer by errno must say for each. The numbers are the
+// specifications', not the libraries' constants:
+//
+//	nfs  RFC 1813 §2.6   NFS3ERR_NOSPC = 28, NFS3ERR_DQUOT = 69
+//	smb  MS-ERREF §2.3.1 STATUS_DISK_FULL = 0xC000007F, for both: Samba's
+//	     unix_nt_errmap (source3/lib/errmap_unix.c) maps EDQUOT to DISK_FULL,
+//	     "Windows apps need this, not NT_STATUS_QUOTA_EXCEEDED".
 var fullErrnos = []struct {
 	name  string
 	errno func() error
+	posix func() error // what errors.Is must find, for the libraries
+	nfs   uint32
+	smb   uint32
 }{
-	{"ENOSPC (XFS)", func() error { return errNoSpace }},
-	{"EDQUOT (ext4, btrfs, ZFS)", func() error { return errQuota }},
+	{"ENOSPC (XFS)", func() error { return errNoSpace }, func() error { return noSpaceErrno }, 28, 0xC000007F},
+	{"EDQUOT (ext4, btrfs, ZFS)", func() error { return errQuota }, func() error { return quotaErrno }, 69, 0xC000007F},
 }
 
 func TestAFullShareSaysSoOneWay(t *testing.T) {
@@ -82,6 +92,10 @@ func TestAFullShareSaysSoOneWay(t *testing.T) {
 		if !errors.Is(err, e.errno()) {
 			t.Errorf("%s: %v no longer unwraps to its errno", e.name, err)
 		}
+		// smb and nfs ask by errno, the POSIX one, whatever the host said.
+		if !errors.Is(err, e.posix()) {
+			t.Errorf("%s: %v is not %v for a protocol library", e.name, err, e.posix())
+		}
 		if again := shareFull(err); again != err {
 			t.Errorf("%s: rewritten twice: %v", e.name, again)
 		}
@@ -89,6 +103,36 @@ func TestAFullShareSaysSoOneWay(t *testing.T) {
 	other := &fs.PathError{Op: "write", Path: "/a", Err: fs.ErrPermission}
 	if shareFull(other) != error(other) || shareFull(nil) != nil {
 		t.Error("an error that is not a full share was rewritten")
+	}
+}
+
+// A host that spells "full" its own way -- Windows' ERROR_DISK_FULL and
+// ERROR_DISK_QUOTA_EXCEEDED -- is still read as ENOSPC and EDQUOT by a
+// library that asks by errno. Simulated here on any platform, with two
+// errors no library knows standing for the host's.
+func TestAHostsOwnSpellingIsReadAsThePOSIXErrno(t *testing.T) {
+	hostNoSpace, hostQuota := errors.New("host: disk full"), errors.New("host: quota")
+	posixNoSpace, posixQuota := errors.New("posix: ENOSPC"), errors.New("posix: EDQUOT")
+	saved := [4]error{errNoSpace, errQuota, noSpaceErrno, quotaErrno}
+	errNoSpace, errQuota, noSpaceErrno, quotaErrno = hostNoSpace, hostQuota, posixNoSpace, posixQuota
+	t.Cleanup(func() { errNoSpace, errQuota, noSpaceErrno, quotaErrno = saved[0], saved[1], saved[2], saved[3] })
+
+	for _, tc := range []struct {
+		host, want, not error
+	}{
+		{hostNoSpace, posixNoSpace, posixQuota},
+		{hostQuota, posixQuota, posixNoSpace},
+	} {
+		err := shareFull(&fs.PathError{Op: "write", Path: "/a", Err: tc.host})
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%v: not read as %v", tc.host, tc.want)
+		}
+		if errors.Is(err, tc.not) {
+			t.Errorf("%v: read as %v too", tc.host, tc.not)
+		}
+		if !errors.Is(err, tc.host) {
+			t.Errorf("%v: no longer unwraps to the host's error", tc.host)
+		}
 	}
 }
 

@@ -14,34 +14,44 @@ import (
 // A full share is one answer on every protocol, whichever errno said so.
 //
 // A host tree under a quota reports "full" two ways: XFS answers a full
-// project quota with ENOSPC, ext4, btrfs and ZFS with EDQUOT. The protocol
-// servers know only the first: go-filesystems' interface has no error
-// taxonomy, so webdav, nfs and sftp map a driver's error by its TEXT, and
-// "no space" is in their tables while "quota" is not. Measured on v0.1.0,
-// v0.5.0 and v0.4.0:
+// project quota with ENOSPC, ext4, btrfs and ZFS with EDQUOT. Two of the
+// protocol servers read the errno, and two read the TEXT:
 //
-//	            ENOSPC                         EDQUOT, before this
-//	webdav      507 Insufficient Storage        500 Internal Server Error
-//	nfs         NFS3ERR_NOSPC                   NFS3ERR_IO
-//	sftp        SSH_FX_FAILURE "no space ..."   SSH_FX_FAILURE "disk quota exceeded"
+//	            ENOSPC                         EDQUOT
+//	smb         STATUS_DISK_FULL                STATUS_DISK_FULL  (by errno, as Samba)
+//	nfs         NFS3ERR_NOSPC                   NFS3ERR_DQUOT     (by errno, RFC 1813)
+//	webdav      507 Insufficient Storage        500, before this  (by text)
+//	sftp        SSH_FX_FAILURE "no space ..."   "disk quota exceeded", before this
 //
-// So a directory share's errors are rewritten here: EDQUOT and ENOSPC both
-// read "no space left on device (the share is full)" -- without the path,
-// which the tables would search too: a file named "not found" would turn
-// the answer into a 404 -- and both still unwrap to their errno.
+// So a directory share's errors are rewritten here, for the two that read
+// text: EDQUOT and ENOSPC both read "no space left on device (the share is
+// full)" -- without the path, which the tables would search too: a file
+// named "not found" would turn the answer into a 404 -- and both still
+// unwrap to their errno, which is what smb and nfs look for. SFTP version 3
+// has no code for it at all (SSH_FX_NO_SPACE_ON_FILESYSTEM and
+// QUOTA_EXCEEDED are version 5's): the text is what the person reads. S3 is
+// served read-only.
 //
-// ⛔ Two protocols cannot be helped from here. SMB maps by sentinel only
-// (os.ErrNotExist, ErrExist, ErrPermission, io.EOF): a full share is its
-// write's fallback, STATUS_ACCESS_DENIED, whichever errno -- go-filesystems/smb
-// defines STATUS_DISK_FULL and never sends it. And SFTP version 3 has no
-// code for it at all (SSH_FX_NO_SPACE_ON_FILESYSTEM and QUOTA_EXCEEDED are
-// version 5's): the text is what the person reads. S3 is served read-only.
+// On Windows the host says it its own way (ERROR_DISK_FULL,
+// ERROR_DISK_QUOTA_EXCEEDED), which no protocol library knows: the
+// rewritten error also answers errors.Is for the POSIX errno Go defines
+// there, so smb and nfs give the same answer as on a unix host.
 
 // errShareFull is what a full share says.
 type errShareFull struct{ err error }
 
 func (e *errShareFull) Error() string { return "no space left on device (the share is full)" }
 func (e *errShareFull) Unwrap() error { return e.err }
+
+// Is answers for the errno a protocol library asks about -- ENOSPC or
+// EDQUOT as Go spells them on this platform -- even where the host's own
+// error is another one (Windows). On a unix host it is what Unwrap finds.
+func (e *errShareFull) Is(target error) bool {
+	if errors.Is(e.err, errQuota) {
+		return target == quotaErrno
+	}
+	return target == noSpaceErrno
+}
 
 // shareFull is err, rewritten when it says the share is full.
 func shareFull(err error) error {

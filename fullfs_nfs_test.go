@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// NFS: a full share is NFS3ERR_NOSPC (28), whichever errno. NFS3ERR_DQUOT
-// (69) would say "quota" more exactly, and go-filesystems/nfs maps nothing
-// to it: a client shows both as "no space left", and the share's size IS
-// its quota.
+// NFS: a full share answers by errno (go-filesystems/nfs reads it through
+// the rewrite, which unwraps to it): NFS3ERR_NOSPC (28) for no space,
+// NFS3ERR_DQUOT (69) for a quota -- RFC 1813 §2.6, and what Linux's knfsd
+// sends (fs/nfsd/vfs.c, nfserrno).
 func TestAFullShareOverNFS(t *testing.T) {
 	if protocolByName("nfs") == nil {
 		t.Skip("built without nfs")
@@ -26,8 +26,8 @@ func TestAFullShareOverNFS(t *testing.T) {
 			res := nfsRPC(t, r.addrs["nfs"], 100003, 3, 9, args)
 			st := getBE32(res)
 			t.Logf("MKDIR: nfsstat3 %d", st)
-			if st != 28 {
-				t.Errorf("MKDIR on a full share: nfsstat3 %d, want 28 (NFS3ERR_NOSPC)", st)
+			if st != e.nfs {
+				t.Errorf("MKDIR on a full share: nfsstat3 %d, want %d (RFC 1813 §2.6)", st, e.nfs)
 			}
 		})
 	}

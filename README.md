@@ -1071,16 +1071,17 @@ the server starts. `EnableShare` tries it again.
 past a project quota — root wrote 16 MiB into an 8 MiB project in
 go-fsctl/projquota's CI. `fileshare check` says which it is.
 
-**A full share is one answer on every protocol.** XFS says a full project
-with `ENOSPC`, ext4, btrfs and ZFS with `EDQUOT`; both are reported the same:
+**A full share says so on every protocol.** XFS says a full project with
+`ENOSPC`, ext4, btrfs and ZFS with `EDQUOT` (Windows: `ERROR_DISK_FULL`,
+`ERROR_DISK_QUOTA_EXCEEDED`):
 
-| protocol | a full share |
-|---|---|
-| WebDAV | `507 Insufficient Storage` |
-| NFS | `NFS3ERR_NOSPC` |
-| SFTP | `SSH_FX_FAILURE`, "no space left on device (the share is full)" — version 3 has no code for it |
-| SMB | ⛔ `STATUS_ACCESS_DENIED`: go-filesystems/smb never sends `STATUS_DISK_FULL` yet |
-| S3 | served read-only |
+| protocol | no space (`ENOSPC`) | quota (`EDQUOT`) |
+|---|---|---|
+| WebDAV | `507 Insufficient Storage` | `507 Insufficient Storage` |
+| NFS | `NFS3ERR_NOSPC` (28) | `NFS3ERR_DQUOT` (69), RFC 1813 §2.6 |
+| SMB | `STATUS_DISK_FULL` (0xC000007F) | `STATUS_DISK_FULL`, as Samba answers |
+| SFTP | `SSH_FX_FAILURE`, "no space left on device (the share is full)" — version 3 has no code for it | the same |
+| S3 | served read-only | |
 
 Both processes, configured:
 

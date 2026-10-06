@@ -25,17 +25,20 @@ require (
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.3.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
-	github.com/go-filesystems/nfs v0.5.0
+	github.com/go-filesystems/nfs v0.6.1
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.2.0
 	github.com/go-filesystems/s3 v0.3.0
 	github.com/go-filesystems/sftp v0.4.0
-	github.com/go-filesystems/smb v0.2.0
+	github.com/go-filesystems/smb v0.4.1
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/ufs v0.2.0
 	github.com/go-filesystems/webdav v0.1.0
 	github.com/go-filesystems/xfs v0.1.0
 	github.com/go-filesystems/zfs v0.1.0
+	github.com/go-fsctl/btrfs v0.1.0
+	github.com/go-fsctl/projquota v0.1.0
+	github.com/go-fsctl/zfs v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
@@ -82,9 +85,6 @@ require (
 	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect
 	github.com/go-fde/apfs v0.0.0-20260620062418-22bb63627e03 // indirect
-	github.com/go-fsctl/btrfs v0.1.0 // indirect
-	github.com/go-fsctl/projquota v0.1.0 // indirect
-	github.com/go-fsctl/zfs v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

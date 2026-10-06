@@ -259,11 +259,14 @@ repeating pattern that lz4 compressed away — the test now writes random bytes)
   is harmless, writing into it as root is not.
 - **"Full"**: ENOSPC and EDQUOT are both rewritten, for every directory share
   (not only volumes), to one error reading "no space left on device", which
-  WebDAV maps to 507 and NFS to NFS3ERR_NOSPC; SFTP v3 has no code for it
-  (SSH_FX_FAILURE, with that text). ⛔ SMB cannot be fixed here:
-  go-filesystems/smb maps by sentinel only and answers STATUS_ACCESS_DENIED;
-  STATUS_DISK_FULL needs a change there. NFS3ERR_DQUOT would be more exact
-  for EDQUOT; go-filesystems/nfs never sends it.
+  WebDAV maps to 507 and SFTP v3, which has no code for it, sends as the
+  SSH_FX_FAILURE text. The rewrite still unwraps to the errno, and SMB and
+  NFS answer by errno: STATUS_DISK_FULL for both (go-filesystems/smb, as
+  Samba's `unix_nt_errmap` does — EDQUOT is DISK_FULL there, "Windows apps
+  need this, not NT_STATUS_QUOTA_EXCEEDED"), NFS3ERR_NOSPC and NFS3ERR_DQUOT
+  (go-filesystems/nfs, RFC 1813 §2.6, as Linux's knfsd). On Windows the
+  rewritten error also answers `errors.Is` for Go's ENOSPC/EDQUOT, which no
+  Windows call returns, so the answers are the same there.
 - **`allowed_uids`** can only narrow what the socket's 0600 mode allows (its
   owner and root): the sketch's "checking its peer's uid against a configured
   list" cannot let anybody else in. It is refused over TCP (the client

@@ -232,19 +232,36 @@ func quotaExemptFrom(euid int, status []byte, readErr error) string {
 	if readErr != nil {
 		return fmt.Sprintf("cannot tell whether it holds CAP_SYS_RESOURCE (%v)", readErr)
 	}
+	// ⛔ The PERMITTED set counts as much as the effective one: a process
+	// holding CAP_SYS_RESOURCE in CapPrm raises it into CapEff with one
+	// capset(2) call, so a compromised server would write past the quota
+	// whenever it liked. Only a capability in neither set is out of reach.
+	sets := map[string]uint64{}
 	for _, line := range strings.Split(string(status), "\n") {
-		hex, ok := strings.CutPrefix(line, "CapEff:")
-		if !ok {
-			continue
+		for _, name := range []string{"CapPrm", "CapEff"} {
+			hex, ok := strings.CutPrefix(line, name+":")
+			if !ok {
+				continue
+			}
+			var caps uint64
+			if _, err := fmt.Sscanf(strings.TrimSpace(hex), "%x", &caps); err != nil {
+				return fmt.Sprintf("cannot tell whether it holds CAP_SYS_RESOURCE (%s %q)", name, strings.TrimSpace(hex))
+			}
+			sets[name] = caps
 		}
-		var caps uint64
-		if _, err := fmt.Sscanf(strings.TrimSpace(hex), "%x", &caps); err != nil {
-			return fmt.Sprintf("cannot tell whether it holds CAP_SYS_RESOURCE (CapEff %q)", strings.TrimSpace(hex))
+	}
+	for _, name := range []string{"CapEff", "CapPrm"} {
+		caps, ok := sets[name]
+		if !ok {
+			return fmt.Sprintf("cannot tell whether it holds CAP_SYS_RESOURCE (no %s in /proc/self/status)", name)
 		}
 		if caps&(1<<capSysResource) != 0 {
-			return "holds CAP_SYS_RESOURCE in its effective set"
+			set := "effective"
+			if name == "CapPrm" {
+				set = "permitted"
+			}
+			return "holds CAP_SYS_RESOURCE in its " + set + " set"
 		}
-		return ""
 	}
-	return "cannot tell whether it holds CAP_SYS_RESOURCE (no CapEff in /proc/self/status)"
+	return ""
 }

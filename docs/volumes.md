@@ -254,7 +254,7 @@ repeating pattern that lz4 compressed away — the test now writes random bytes)
   share that is enabled and unavailable.
 - **The root / CAP_SYS_RESOURCE refusal applies to every kind**, not only
   ext4: it is one rule for the process, read from the effective uid and
-  `/proc/self/status` CapEff bit 24; a status that cannot be read is judged
+  `/proc/self/status` CapEff or CapPrm bit 24 (a permitted capability is one capset(2) away from effective); a status that cannot be read is judged
   exempt. It refuses serving, not the volume calls: creating storage as root
   is harmless, writing into it as root is not.
 - **"Full"**: ENOSPC and EDQUOT are both rewritten, for every directory share

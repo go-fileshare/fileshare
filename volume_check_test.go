@@ -10,12 +10,14 @@ import (
 	"testing"
 )
 
-// Root, or CAP_SYS_RESOURCE (bit 24) in CapEff, would write past an ext4
-// project quota; a status that cannot be read is judged the same way.
+// Root, or CAP_SYS_RESOURCE (bit 24) in CapEff OR CapPrm, would write past an
+// ext4 project quota -- a permitted capability is one capset(2) away from
+// effective; a status that cannot be read is judged the same way.
 func TestQuotaExemption(t *testing.T) {
-	status := func(capEff string) []byte {
-		return []byte("Name:\tfileshare\nCapInh:\t0000000000000000\nCapPrm:\t000001ffffffffff\nCapEff:\t" + capEff + "\nCapBnd:\t000001ffffffffff\n")
+	status := func(capPrm, capEff string) []byte {
+		return []byte("Name:\tfileshare\nCapInh:\t0000000000000000\nCapPrm:\t" + capPrm + "\nCapEff:\t" + capEff + "\nCapBnd:\t000001ffffffffff\n")
 	}
+	const none, resource, admin, all = "0000000000000000", "0000000001000000", "0000000000200000", "000001ffffffffff"
 	for _, c := range []struct {
 		name   string
 		euid   int
@@ -23,13 +25,16 @@ func TestQuotaExemption(t *testing.T) {
 		err    error
 		want   string
 	}{
-		{"an unprivileged user", 990, status("0000000000000000"), nil, ""},
-		{"root", 0, status("0000000000000000"), nil, "root"},
-		{"CAP_SYS_RESOURCE alone", 990, status("0000000001000000"), nil, "CAP_SYS_RESOURCE in its effective set"},
-		{"everything", 990, status("000001ffffffffff"), nil, "CAP_SYS_RESOURCE in its effective set"},
-		{"CAP_SYS_ADMIN but not RESOURCE", 990, status("0000000000200000"), nil, ""},
-		{"no CapEff", 990, []byte("Name:\tx\n"), nil, "cannot tell"},
-		{"garbage", 990, status("zz"), nil, "cannot tell"},
+		{"an unprivileged user", 990, status(none, none), nil, ""},
+		{"root", 0, status(none, none), nil, "root"},
+		{"CAP_SYS_RESOURCE effective", 990, status(resource, resource), nil, "effective set"},
+		{"CAP_SYS_RESOURCE permitted, not effective", 990, status(resource, none), nil, "permitted set"},
+		{"everything permitted, nothing effective", 990, status(all, none), nil, "permitted set"},
+		{"everything", 990, status(all, all), nil, "effective set"},
+		{"CAP_SYS_ADMIN but not RESOURCE", 990, status(admin, admin), nil, ""},
+		{"no CapEff", 990, []byte("Name:\tx\nCapPrm:\t" + none + "\n"), nil, "no CapEff"},
+		{"no CapPrm", 990, []byte("Name:\tx\nCapEff:\t" + none + "\n"), nil, "no CapPrm"},
+		{"garbage", 990, status(none, "zz"), nil, "cannot tell"},
 		{"unreadable", 990, nil, errors.New("EACCES"), "cannot tell"},
 	} {
 		got := quotaExemptFrom(c.euid, c.status, c.err)

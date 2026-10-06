@@ -82,6 +82,9 @@ require (
 	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect
 	github.com/go-fde/apfs v0.0.0-20260620062418-22bb63627e03 // indirect
+	github.com/go-fsctl/btrfs v0.1.0 // indirect
+	github.com/go-fsctl/projquota v0.1.0 // indirect
+	github.com/go-fsctl/zfs v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

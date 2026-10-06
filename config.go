@@ -93,6 +93,12 @@ type config struct {
 	managed   map[string]bool
 	fromFiles []shareBlock
 	offline   []shareBlock
+	// unavailable are the admin API's volume shares that are not served
+	// because their volume is gone or failed a check, with why; volumes is
+	// what resolving each volume share found, for the admin API to start
+	// from. Both are filled by withState.
+	unavailable []unavailableShare
+	volumes     map[string]*volumeResolution
 	// sources are the configuration files this was read from.
 	sources []string
 }
@@ -108,7 +114,18 @@ type config struct {
 // ⛔ Over TCP it is mutual TLS or nothing: tls_cert_file, tls_key_file and
 // client_ca_file together, loopback included, because every local user can
 // reach loopback and the API decides who reads whose files. A unix socket is
-// made 0600, and its permissions are its access control.
+// made 0600, and its permissions are its access control -- the floor, which
+// allowed_uids narrows and never widens.
+//
+// With a provisioner it also creates volumes; see docs/volumes.md:
+//
+//	admin {
+//	  listen       = "unix:///run/fileshare/admin.sock"
+//	  state_file   = "/var/lib/fileshare/shares.json"
+//	  source_roots = ["/srv/fileshare/volumes"]
+//	  provisioner  = "unix:///run/fileshare-provisioner/provisioner.sock"
+//	  allowed_uids = [990]
+//	}
 type adminBlock struct {
 	Listen       string `hcl:"listen"`
 	TLSCertFile  string `hcl:"tls_cert_file,optional"`
@@ -124,6 +141,20 @@ type adminBlock struct {
 	SourceRoots []string `hcl:"source_roots,optional"`
 	// Reflection turns on gRPC server reflection, for grpcurl.
 	Reflection bool `hcl:"reflection,optional"`
+	// Provisioner is the socket of `fileshare provisioner`, which creates
+	// volumes: "unix:///path". Without it the volume calls answer
+	// FAILED_PRECONDITION and no share is made from a volume.
+	Provisioner string `hcl:"provisioner,optional"`
+	// ProvisionerUID is the uid the process answering on that socket must
+	// run as, read from the kernel (SO_PEERCRED) at every connection. Unset,
+	// it is 0: the provisioner needs CAP_SYS_ADMIN and runs as root.
+	ProvisionerUID *uint32 `hcl:"provisioner_uid,optional"`
+	// AllowedUIDs, on a unix socket, are the only uids whose calls are
+	// answered; any other is PERMISSION_DENIED, and audited. The socket's
+	// 0600 mode still stands first -- only its owner and root can connect
+	// at all -- so this narrows who may call (root, say, may not) and can
+	// never widen it.
+	AllowedUIDs []uint32 `hcl:"allowed_uids,optional"`
 }
 
 // A metricsBlock serves the endpoints a supervisor asks: whether the process
@@ -321,6 +352,9 @@ type shareBlock struct {
 	// confine is the source roots an admin API share must be opened
 	// through, with the kernel enforcing it; empty for a share of the files.
 	confine []string
+	// volume is the volume an admin API share was made from, "parent/name",
+	// for a person reading `check`; Directory is where it was found.
+	volume string
 }
 
 // A serveBlock turns one protocol on. The label is the protocol's name.
@@ -835,6 +869,9 @@ func (c *config) checkControl() error {
 			}
 		}
 		if err := checkAdminListen(a); err != nil {
+			return fmt.Errorf("admin: %w", err)
+		}
+		if err := a.checkVolumes(); err != nil {
 			return fmt.Errorf("admin: %w", err)
 		}
 	}

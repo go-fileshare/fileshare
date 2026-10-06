@@ -280,6 +280,9 @@ func report(cmd *cobra.Command, cfg *config) error {
 			kind += "*"
 		}
 		image := sh.image
+		if sh.block.volume != "" {
+			image += "  [volume " + sh.block.volume + "]"
+		}
 		if sh.partition != "" {
 			// The image alone would not say which of its partitions is being
 			// served, and that is the thing somebody restarting a server
@@ -459,6 +462,21 @@ func report(cmd *cobra.Command, cfg *config) error {
 			names = append(names, b.Name)
 		}
 		fmt.Fprintf(out, "\n%s: taken offline through the admin API (DisableShare), and not served\n", list(names))
+	}
+
+	// Not served either, and not by anybody's choice: a volume share whose
+	// volume is gone or failed a check.
+	for _, u := range cfg.unavailable {
+		fmt.Fprintf(out, "\n%s: made from volume %s, and NOT served: %s\n", u.block.Name, u.block.volume, u.why)
+	}
+	if a := cfg.Admin; a != nil && a.Provisioner != "" {
+		if why := quotaExempt(); why != "" {
+			fmt.Fprintf(out, "\nvolumes: this process %s, so it serves no volume share -- ext4 lets it write past a "+
+				"project quota. Run `fileshare serve` as an unprivileged user without CAP_SYS_RESOURCE\n", why)
+		} else {
+			fmt.Fprintf(out, "\nvolumes: created by the provisioner at %s; this process is held by their quotas "+
+				"(not root, no CAP_SYS_RESOURCE)\n", a.Provisioner)
+		}
 	}
 
 	fmt.Fprintln(out, "\nthis configuration can be served")

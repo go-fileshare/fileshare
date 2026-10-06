@@ -284,6 +284,14 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	}
 
 	every := append(slices.Clone(cfg.Shares), cfg.offline...)
+	for _, u := range cfg.unavailable {
+		every = append(every, u.block)
+	}
+	for _, u := range cfg.unavailable {
+		// Said at the start, where a person watching it come up looks: a
+		// share they expect is defined, and not served.
+		fmt.Fprintf(s.out, "share %s is not served: %s\n", u.block.Name, u.why)
+	}
 	if err := cfg.checkNoShareHoldsSecrets(every); err != nil {
 		s.Close()
 		return nil, err

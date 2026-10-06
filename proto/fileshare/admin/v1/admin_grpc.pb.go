@@ -50,6 +50,13 @@ const (
 	AdminService_ReloadDirectory_FullMethodName = "/fileshare.admin.v1.AdminService/ReloadDirectory"
 	AdminService_ListUsers_FullMethodName       = "/fileshare.admin.v1.AdminService/ListUsers"
 	AdminService_ListGroups_FullMethodName      = "/fileshare.admin.v1.AdminService/ListGroups"
+	AdminService_ListParents_FullMethodName     = "/fileshare.admin.v1.AdminService/ListParents"
+	AdminService_CreateVolume_FullMethodName    = "/fileshare.admin.v1.AdminService/CreateVolume"
+	AdminService_ResizeVolume_FullMethodName    = "/fileshare.admin.v1.AdminService/ResizeVolume"
+	AdminService_SnapshotVolume_FullMethodName  = "/fileshare.admin.v1.AdminService/SnapshotVolume"
+	AdminService_DeleteVolume_FullMethodName    = "/fileshare.admin.v1.AdminService/DeleteVolume"
+	AdminService_GetVolume_FullMethodName       = "/fileshare.admin.v1.AdminService/GetVolume"
+	AdminService_ListVolumes_FullMethodName     = "/fileshare.admin.v1.AdminService/ListVolumes"
 )
 
 // AdminServiceClient is the client API for AdminService service.
@@ -92,6 +99,21 @@ type AdminServiceClient interface {
 	// Who a grant can name.
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
 	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
+	// ListParents is where volumes may be created, as the provisioner's own
+	// configuration says.
+	ListParents(ctx context.Context, in *ListParentsRequest, opts ...grpc.CallOption) (*ListParentsResponse, error)
+	// CreateVolume is idempotent by name: the same quota answers with the
+	// volume that exists (created false), another is ALREADY_EXISTS.
+	CreateVolume(ctx context.Context, in *CreateVolumeRequest, opts ...grpc.CallOption) (*CreateVolumeResponse, error)
+	// ResizeVolume changes the quota, either way, never below what is used.
+	ResizeVolume(ctx context.Context, in *ResizeVolumeRequest, opts ...grpc.CallOption) (*ResizeVolumeResponse, error)
+	// SnapshotVolume takes a read-only snapshot (ZFS, btrfs).
+	SnapshotVolume(ctx context.Context, in *SnapshotVolumeRequest, opts ...grpc.CallOption) (*SnapshotVolumeResponse, error)
+	// DeleteVolume is refused with FAILED_PRECONDITION while a share uses the
+	// volume -- delete the share first. DeleteShare never deletes a volume.
+	DeleteVolume(ctx context.Context, in *DeleteVolumeRequest, opts ...grpc.CallOption) (*DeleteVolumeResponse, error)
+	GetVolume(ctx context.Context, in *GetVolumeRequest, opts ...grpc.CallOption) (*GetVolumeResponse, error)
+	ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error)
 }
 
 type adminServiceClient struct {
@@ -232,6 +254,76 @@ func (c *adminServiceClient) ListGroups(ctx context.Context, in *ListGroupsReque
 	return out, nil
 }
 
+func (c *adminServiceClient) ListParents(ctx context.Context, in *ListParentsRequest, opts ...grpc.CallOption) (*ListParentsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListParentsResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListParents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) CreateVolume(ctx context.Context, in *CreateVolumeRequest, opts ...grpc.CallOption) (*CreateVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_CreateVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ResizeVolume(ctx context.Context, in *ResizeVolumeRequest, opts ...grpc.CallOption) (*ResizeVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResizeVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_ResizeVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SnapshotVolume(ctx context.Context, in *SnapshotVolumeRequest, opts ...grpc.CallOption) (*SnapshotVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SnapshotVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_SnapshotVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteVolume(ctx context.Context, in *DeleteVolumeRequest, opts ...grpc.CallOption) (*DeleteVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_DeleteVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetVolume(ctx context.Context, in *GetVolumeRequest, opts ...grpc.CallOption) (*GetVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVolumeResponse)
+	err := c.cc.Invoke(ctx, AdminService_GetVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) ListVolumes(ctx context.Context, in *ListVolumesRequest, opts ...grpc.CallOption) (*ListVolumesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListVolumesResponse)
+	err := c.cc.Invoke(ctx, AdminService_ListVolumes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService service.
 // All implementations must embed UnimplementedAdminServiceServer
 // for forward compatibility.
@@ -272,6 +364,21 @@ type AdminServiceServer interface {
 	// Who a grant can name.
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
 	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
+	// ListParents is where volumes may be created, as the provisioner's own
+	// configuration says.
+	ListParents(context.Context, *ListParentsRequest) (*ListParentsResponse, error)
+	// CreateVolume is idempotent by name: the same quota answers with the
+	// volume that exists (created false), another is ALREADY_EXISTS.
+	CreateVolume(context.Context, *CreateVolumeRequest) (*CreateVolumeResponse, error)
+	// ResizeVolume changes the quota, either way, never below what is used.
+	ResizeVolume(context.Context, *ResizeVolumeRequest) (*ResizeVolumeResponse, error)
+	// SnapshotVolume takes a read-only snapshot (ZFS, btrfs).
+	SnapshotVolume(context.Context, *SnapshotVolumeRequest) (*SnapshotVolumeResponse, error)
+	// DeleteVolume is refused with FAILED_PRECONDITION while a share uses the
+	// volume -- delete the share first. DeleteShare never deletes a volume.
+	DeleteVolume(context.Context, *DeleteVolumeRequest) (*DeleteVolumeResponse, error)
+	GetVolume(context.Context, *GetVolumeRequest) (*GetVolumeResponse, error)
+	ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -320,6 +427,27 @@ func (UnimplementedAdminServiceServer) ListUsers(context.Context, *ListUsersRequ
 }
 func (UnimplementedAdminServiceServer) ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListGroups not implemented")
+}
+func (UnimplementedAdminServiceServer) ListParents(context.Context, *ListParentsRequest) (*ListParentsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListParents not implemented")
+}
+func (UnimplementedAdminServiceServer) CreateVolume(context.Context, *CreateVolumeRequest) (*CreateVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) ResizeVolume(context.Context, *ResizeVolumeRequest) (*ResizeVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResizeVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) SnapshotVolume(context.Context, *SnapshotVolumeRequest) (*SnapshotVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SnapshotVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) DeleteVolume(context.Context, *DeleteVolumeRequest) (*DeleteVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) GetVolume(context.Context, *GetVolumeRequest) (*GetVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetVolume not implemented")
+}
+func (UnimplementedAdminServiceServer) ListVolumes(context.Context, *ListVolumesRequest) (*ListVolumesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListVolumes not implemented")
 }
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
 func (UnimplementedAdminServiceServer) testEmbeddedByValue()                      {}
@@ -576,6 +704,132 @@ func _AdminService_ListGroups_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListParents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListParentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListParents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListParents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListParents(ctx, req.(*ListParentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_CreateVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).CreateVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_CreateVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).CreateVolume(ctx, req.(*CreateVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ResizeVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResizeVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ResizeVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ResizeVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ResizeVolume(ctx, req.(*ResizeVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SnapshotVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SnapshotVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SnapshotVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_SnapshotVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SnapshotVolume(ctx, req.(*SnapshotVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_DeleteVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteVolume(ctx, req.(*DeleteVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetVolumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_GetVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetVolume(ctx, req.(*GetVolumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_ListVolumes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListVolumesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListVolumes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AdminService_ListVolumes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListVolumes(ctx, req.(*ListVolumesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -634,6 +888,34 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListGroups",
 			Handler:    _AdminService_ListGroups_Handler,
+		},
+		{
+			MethodName: "ListParents",
+			Handler:    _AdminService_ListParents_Handler,
+		},
+		{
+			MethodName: "CreateVolume",
+			Handler:    _AdminService_CreateVolume_Handler,
+		},
+		{
+			MethodName: "ResizeVolume",
+			Handler:    _AdminService_ResizeVolume_Handler,
+		},
+		{
+			MethodName: "SnapshotVolume",
+			Handler:    _AdminService_SnapshotVolume_Handler,
+		},
+		{
+			MethodName: "DeleteVolume",
+			Handler:    _AdminService_DeleteVolume_Handler,
+		},
+		{
+			MethodName: "GetVolume",
+			Handler:    _AdminService_GetVolume_Handler,
+		},
+		{
+			MethodName: "ListVolumes",
+			Handler:    _AdminService_ListVolumes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

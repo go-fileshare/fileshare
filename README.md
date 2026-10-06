@@ -885,6 +885,13 @@ it did — the generation now served and how many connections were closed.
   change is logged with who made it: the client certificate's CN, or the
   socket peer's uid. A refusal is logged too, and anything a caller sent that
   could break the line is quoted.
+- **`allowed_uids`, on a unix socket**, are the only uids whose calls are
+  answered — read from the kernel (`SO_PEERCRED`, `LOCAL_PEERCRED`) at the
+  connection; any other is `PERMISSION_DENIED` before its request is decoded,
+  the health service included, and the refusal is audited. ⛔ **The socket's
+  0600 mode stays the floor**: only its owner and root can connect at all, so
+  the list narrows that (`allowed_uids = [990]` refuses a process running as
+  root) and can never widen it. Linux and macOS only.
 - **It manages the shares it created.** A share written in the configuration is
   listed and cannot be changed through the API: a share defined in two places
   is a question nobody wants to answer. The API's shares live in `state_file`,
@@ -946,8 +953,8 @@ owned and tracked. Creating storage needs `CAP_SYS_ADMIN`; `fileshare serve`
 parses five network protocols for strangers and holds no privilege, so the
 part that does is a separate process with a small, closed protocol,
 [`fileshare.provision.v1.ProvisionService`](proto/fileshare/provision/v1/provision.proto).
-Linux only. (Serving those volumes through the admin API is the next step;
-see the design, `docs/volumes.md`.)
+Linux only. The admin API creates volumes through it and serves shares from
+them: see [Volumes](#volumes), and the design, `docs/volumes.md`.
 
 ```hcl
 provisioner {
@@ -1024,6 +1031,122 @@ The socket lives in its **own** directory (`/run/fileshare-provisioner`), not
 in fileshare's: fileshare must be able to write its own admin socket in
 `/run/fileshare`, and the provisioner refuses a socket directory anybody but
 itself may write into.
+
+## Volumes
+
+With a [provisioner](#the-provisioner-storage-fileshare-creates) running, the
+admin API creates storage and serves shares from it:
+
+| call | does |
+|---|---|
+| `ListParents` | where volumes may be created, their kind, free and total space |
+| `CreateVolume` / `ResizeVolume` | a quota'd volume, idempotent by name |
+| `SnapshotVolume` | a read-only snapshot (ZFS, btrfs) |
+| `GetVolume` / `ListVolumes` | each volume, with **the shares that use it** |
+| `DeleteVolume` | refused while a share uses it; `DeleteShare` never deletes a volume |
+| `CreateShare` with `volume { parent, name }` | a share served from it, as a directory |
+
+The provisioner's status codes come back as it gave them — `ALREADY_EXISTS`,
+`RESOURCE_EXHAUSTED`, `OUT_OF_RANGE`, `NOT_FOUND`, `FAILED_PRECONDITION`,
+`UNIMPLEMENTED`. Without a `provisioner` every one of these is
+`FAILED_PRECONDITION`; a provisioner that refuses this server's uid is
+`FAILED_PRECONDITION` too (its `client_uid` is wrong), one that does not answer
+`UNAVAILABLE`.
+
+**Before a volume is served**, fileshare asks the provisioner where it is and
+checks, itself: that the path is clean, absolute and — resolved — under
+`source_roots`; that it is a directory; that `statfs` reports the kind's
+filesystem (`ZFS_SUPER_MAGIC`, `BTRFS_SUPER_MAGIC`, `XFS_SUPER_MAGIC`,
+`EXT4_SUPER_MAGIC`); for ZFS that it is a mount point (its device is not its
+parent's — an unmounted dataset's directory would take writes under no
+quota); for btrfs that it is a subvolume's root; for XFS and ext4 that it
+carries a project id its new files inherit. The state file keeps the volume's
+**name**, and every start asks and checks again: a volume that is gone or
+fails a check leaves its share defined and **not served** — said at the
+start, by `check`, and in the share's `unavailable` field — while the rest of
+the server starts. `EnableShare` tries it again.
+
+⛔ **`fileshare serve` refuses to serve volumes while it runs as root or holds
+`CAP_SYS_RESOURCE`** (read from `/proc/self/status`): ext4 lets either write
+past a project quota — root wrote 16 MiB into an 8 MiB project in
+go-fsctl/projquota's CI. `fileshare check` says which it is.
+
+**A full share is one answer on every protocol.** XFS says a full project
+with `ENOSPC`, ext4, btrfs and ZFS with `EDQUOT`; both are reported the same:
+
+| protocol | a full share |
+|---|---|
+| WebDAV | `507 Insufficient Storage` |
+| NFS | `NFS3ERR_NOSPC` |
+| SFTP | `SSH_FX_FAILURE`, "no space left on device (the share is full)" — version 3 has no code for it |
+| SMB | ⛔ `STATUS_ACCESS_DENIED`: go-filesystems/smb never sends `STATUS_DISK_FULL` yet |
+| S3 | served read-only |
+
+Both processes, configured:
+
+```hcl
+# /etc/fileshare/fileshare.hcl -- `fileshare serve`, as user fileshare (uid 990)
+admin {
+  listen          = "unix:///run/fileshare/admin.sock"
+  state_file      = "/var/lib/fileshare/shares.json"
+  source_roots    = ["/srv/fileshare/volumes"]
+  provisioner     = "unix:///run/fileshare-provisioner/provisioner.sock"
+  provisioner_uid = 0          # who must answer on that socket; 0 is the default
+  allowed_uids    = [990]      # who may call this API
+}
+```
+
+```hcl
+# /etc/fileshare-provisioner.hcl -- `fileshare provisioner`, as root
+provisioner {
+  listen     = "unix:///run/fileshare-provisioner/provisioner.sock"
+  client_uid = 990
+  group      = "fileshare"
+  max_volume = "10T"
+  state_file = "/var/lib/fileshare-provisioner/volumes.json"
+
+  parent "tank" {
+    zfs  = "tank/fileshare"
+    root = "/srv/fileshare/volumes/tank"
+  }
+  parent "fast" { btrfs = "/srv/fileshare/volumes/fast" }
+  parent "plain" {
+    xfs         = "/srv/fileshare/volumes/plain"
+    project_ids = "100000-199999"
+  }
+}
+```
+
+and the pair of units — the provisioner's is
+[above](#the-provisioner-storage-fileshare-creates):
+
+```ini
+# fileshare.service
+[Unit]
+Requires=fileshare-provisioner.service
+After=fileshare-provisioner.service
+
+[Service]
+User=fileshare
+Group=fileshare
+ExecStart=/usr/local/bin/fileshare serve -c /etc/fileshare/fileshare.hcl
+RuntimeDirectory=fileshare
+StateDirectory=fileshare
+# No capability at all: CAP_SYS_RESOURCE would let it past an ext4 quota,
+# and fileshare refuses to serve volumes with it.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/srv/fileshare/volumes /var/lib/fileshare
+```
+
+`fileshare` must be in the provisioner's `group`: a volume root is
+`root:fileshare` 2770, and fileshare writes through the group, never as the
+owner. `ProtectSystem=` is fine **here**: it is the provisioner that mounts,
+and `ReadWritePaths=` keeps a ZFS volume mounted after the server started
+visible — mounts propagate into the server's namespace, not out of it. (Not
+exercised in CI: the end-to-end job runs both processes under sudo.)
 
 ## Health and metrics
 

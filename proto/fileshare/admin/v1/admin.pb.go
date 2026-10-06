@@ -140,6 +140,61 @@ func (Access) EnumDescriptor() ([]byte, []int) {
 	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{1}
 }
 
+type VolumeKind int32
+
+const (
+	VolumeKind_VOLUME_KIND_UNSPECIFIED VolumeKind = 0
+	VolumeKind_VOLUME_KIND_ZFS         VolumeKind = 1
+	VolumeKind_VOLUME_KIND_BTRFS       VolumeKind = 2
+	VolumeKind_VOLUME_KIND_XFS         VolumeKind = 3
+	VolumeKind_VOLUME_KIND_EXT4        VolumeKind = 4
+)
+
+// Enum value maps for VolumeKind.
+var (
+	VolumeKind_name = map[int32]string{
+		0: "VOLUME_KIND_UNSPECIFIED",
+		1: "VOLUME_KIND_ZFS",
+		2: "VOLUME_KIND_BTRFS",
+		3: "VOLUME_KIND_XFS",
+		4: "VOLUME_KIND_EXT4",
+	}
+	VolumeKind_value = map[string]int32{
+		"VOLUME_KIND_UNSPECIFIED": 0,
+		"VOLUME_KIND_ZFS":         1,
+		"VOLUME_KIND_BTRFS":       2,
+		"VOLUME_KIND_XFS":         3,
+		"VOLUME_KIND_EXT4":        4,
+	}
+)
+
+func (x VolumeKind) Enum() *VolumeKind {
+	p := new(VolumeKind)
+	*p = x
+	return p
+}
+
+func (x VolumeKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (VolumeKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_fileshare_admin_v1_admin_proto_enumTypes[2].Descriptor()
+}
+
+func (VolumeKind) Type() protoreflect.EnumType {
+	return &file_fileshare_admin_v1_admin_proto_enumTypes[2]
+}
+
+func (x VolumeKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use VolumeKind.Descriptor instead.
+func (VolumeKind) EnumDescriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{2}
+}
+
 // Applied is what serving a change did.
 type Applied struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -753,6 +808,7 @@ type Share struct {
 	//
 	//	*Share_Image
 	//	*Share_Directory
+	//	*Share_Volume
 	Source isShare_Source `protobuf_oneof:"source"`
 	Origin Origin         `protobuf:"varint,4,opt,name=origin,proto3,enum=fileshare.admin.v1.Origin" json:"origin,omitempty"`
 	// What was asked.
@@ -773,7 +829,11 @@ type Share struct {
 	SizeBytes  uint64     `protobuf:"varint,12,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	// False when DisableShare took it offline. A disabled share is listed with
 	// what it would serve, and serves nothing.
-	Enabled       bool `protobuf:"varint,13,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	Enabled bool `protobuf:"varint,13,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Why a share that is not disabled is not served at all: its volume is
+	// gone, or failed a check before serving. Empty when it is served.
+	// EnableShare tries it again.
+	Unavailable   string `protobuf:"bytes,15,opt,name=unavailable,proto3" json:"unavailable,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -838,6 +898,15 @@ func (x *Share) GetDirectory() string {
 		}
 	}
 	return ""
+}
+
+func (x *Share) GetVolume() *VolumeRef {
+	if x != nil {
+		if x, ok := x.Source.(*Share_Volume); ok {
+			return x.Volume
+		}
+	}
+	return nil
 }
 
 func (x *Share) GetOrigin() Origin {
@@ -910,6 +979,13 @@ func (x *Share) GetEnabled() bool {
 	return false
 }
 
+func (x *Share) GetUnavailable() string {
+	if x != nil {
+		return x.Unavailable
+	}
+	return ""
+}
+
 type isShare_Source interface {
 	isShare_Source()
 }
@@ -924,9 +1000,16 @@ type Share_Directory struct {
 	Directory string `protobuf:"bytes,3,opt,name=directory,proto3,oneof"`
 }
 
+type Share_Volume struct {
+	// A volume the provisioner made; served as a directory.
+	Volume *VolumeRef `protobuf:"bytes,14,opt,name=volume,proto3,oneof"`
+}
+
 func (*Share_Image) isShare_Source() {}
 
 func (*Share_Directory) isShare_Source() {}
+
+func (*Share_Volume) isShare_Source() {}
 
 type Refusal struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -983,12 +1066,14 @@ func (x *Refusal) GetReason() string {
 type CreateShareRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Either one must lie under one of the admin block's source_roots.
+	// Each must lie under one of the admin block's source_roots: an image or a
+	// directory as given, a volume at the path the provisioner answers with.
 	//
 	// Types that are valid to be assigned to Source:
 	//
 	//	*CreateShareRequest_Image
 	//	*CreateShareRequest_Directory
+	//	*CreateShareRequest_Volume
 	Source   isCreateShareRequest_Source `protobuf_oneof:"source"`
 	ReadOnly bool                        `protobuf:"varint,4,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	// For an image only: the same fields as a share block.
@@ -1066,6 +1151,15 @@ func (x *CreateShareRequest) GetDirectory() string {
 	return ""
 }
 
+func (x *CreateShareRequest) GetVolume() *VolumeRef {
+	if x != nil {
+		if x, ok := x.Source.(*CreateShareRequest_Volume); ok {
+			return x.Volume
+		}
+	}
+	return nil
+}
+
 func (x *CreateShareRequest) GetReadOnly() bool {
 	if x != nil {
 		return x.ReadOnly
@@ -1134,9 +1228,21 @@ type CreateShareRequest_Directory struct {
 	Directory string `protobuf:"bytes,3,opt,name=directory,proto3,oneof"`
 }
 
+type CreateShareRequest_Volume struct {
+	// A volume, served as a directory once these hold: its path is absolute,
+	// under source_roots, a directory, on the filesystem its kind says
+	// (statfs), and -- ZFS -- a mount point; btrfs, a subvolume's root;
+	// XFS and ext4, under a project id that its new files inherit. Refused
+	// while this server runs as root or holds CAP_SYS_RESOURCE, which ext4
+	// lets write past a project quota.
+	Volume *VolumeRef `protobuf:"bytes,12,opt,name=volume,proto3,oneof"`
+}
+
 func (*CreateShareRequest_Image) isCreateShareRequest_Source() {}
 
 func (*CreateShareRequest_Directory) isCreateShareRequest_Source() {}
+
+func (*CreateShareRequest_Volume) isCreateShareRequest_Source() {}
 
 type CreateShareResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2235,6 +2341,973 @@ func (x *Group) GetMembers() []string {
 	return nil
 }
 
+// A VolumeRef names a volume the way the provisioner does: a parent from its
+// configuration, and a name.
+type VolumeRef struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Parent        string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VolumeRef) Reset() {
+	*x = VolumeRef{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VolumeRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VolumeRef) ProtoMessage() {}
+
+func (x *VolumeRef) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VolumeRef.ProtoReflect.Descriptor instead.
+func (*VolumeRef) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *VolumeRef) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *VolumeRef) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type Parent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Kind  VolumeKind             `protobuf:"varint,2,opt,name=kind,proto3,enum=fileshare.admin.v1.VolumeKind" json:"kind,omitempty"`
+	// Where its volumes are: <root>/<name>.
+	Root string `protobuf:"bytes,3,opt,name=root,proto3" json:"root,omitempty"`
+	// Free and total space of what the volumes come from; 0 when unknown.
+	FreeBytes  uint64 `protobuf:"varint,4,opt,name=free_bytes,json=freeBytes,proto3" json:"free_bytes,omitempty"`
+	TotalBytes uint64 `protobuf:"varint,5,opt,name=total_bytes,json=totalBytes,proto3" json:"total_bytes,omitempty"`
+	// Whether SnapshotVolume works on its volumes.
+	Snapshots     bool `protobuf:"varint,6,opt,name=snapshots,proto3" json:"snapshots,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Parent) Reset() {
+	*x = Parent{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Parent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Parent) ProtoMessage() {}
+
+func (x *Parent) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Parent.ProtoReflect.Descriptor instead.
+func (*Parent) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *Parent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Parent) GetKind() VolumeKind {
+	if x != nil {
+		return x.Kind
+	}
+	return VolumeKind_VOLUME_KIND_UNSPECIFIED
+}
+
+func (x *Parent) GetRoot() string {
+	if x != nil {
+		return x.Root
+	}
+	return ""
+}
+
+func (x *Parent) GetFreeBytes() uint64 {
+	if x != nil {
+		return x.FreeBytes
+	}
+	return 0
+}
+
+func (x *Parent) GetTotalBytes() uint64 {
+	if x != nil {
+		return x.TotalBytes
+	}
+	return 0
+}
+
+func (x *Parent) GetSnapshots() bool {
+	if x != nil {
+		return x.Snapshots
+	}
+	return false
+}
+
+type Volume struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Parent string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind   VolumeKind             `protobuf:"varint,3,opt,name=kind,proto3,enum=fileshare.admin.v1.VolumeKind" json:"kind,omitempty"`
+	// <parent root>/<name>.
+	Path       string `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`
+	QuotaBytes uint64 `protobuf:"varint,5,opt,name=quota_bytes,json=quotaBytes,proto3" json:"quota_bytes,omitempty"`
+	// What the filesystem charges to it, as the provisioner read it; 0 when it
+	// could not.
+	UsedBytes uint64                 `protobuf:"varint,6,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
+	Created   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created,proto3" json:"created,omitempty"`
+	Snapshots []string               `protobuf:"bytes,8,rep,name=snapshots,proto3" json:"snapshots,omitempty"`
+	// The shares that use it: made from it, or with a directory inside it.
+	Shares        []string `protobuf:"bytes,9,rep,name=shares,proto3" json:"shares,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Volume) Reset() {
+	*x = Volume{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Volume) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Volume) ProtoMessage() {}
+
+func (x *Volume) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Volume.ProtoReflect.Descriptor instead.
+func (*Volume) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *Volume) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *Volume) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Volume) GetKind() VolumeKind {
+	if x != nil {
+		return x.Kind
+	}
+	return VolumeKind_VOLUME_KIND_UNSPECIFIED
+}
+
+func (x *Volume) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *Volume) GetQuotaBytes() uint64 {
+	if x != nil {
+		return x.QuotaBytes
+	}
+	return 0
+}
+
+func (x *Volume) GetUsedBytes() uint64 {
+	if x != nil {
+		return x.UsedBytes
+	}
+	return 0
+}
+
+func (x *Volume) GetCreated() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Created
+	}
+	return nil
+}
+
+func (x *Volume) GetSnapshots() []string {
+	if x != nil {
+		return x.Snapshots
+	}
+	return nil
+}
+
+func (x *Volume) GetShares() []string {
+	if x != nil {
+		return x.Shares
+	}
+	return nil
+}
+
+type ListParentsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListParentsRequest) Reset() {
+	*x = ListParentsRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListParentsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListParentsRequest) ProtoMessage() {}
+
+func (x *ListParentsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListParentsRequest.ProtoReflect.Descriptor instead.
+func (*ListParentsRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{39}
+}
+
+type ListParentsResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Parents []*Parent              `protobuf:"bytes,1,rep,name=parents,proto3" json:"parents,omitempty"`
+	// The largest quota one volume may have.
+	MaxVolumeBytes uint64 `protobuf:"varint,2,opt,name=max_volume_bytes,json=maxVolumeBytes,proto3" json:"max_volume_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ListParentsResponse) Reset() {
+	*x = ListParentsResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListParentsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListParentsResponse) ProtoMessage() {}
+
+func (x *ListParentsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListParentsResponse.ProtoReflect.Descriptor instead.
+func (*ListParentsResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *ListParentsResponse) GetParents() []*Parent {
+	if x != nil {
+		return x.Parents
+	}
+	return nil
+}
+
+func (x *ListParentsResponse) GetMaxVolumeBytes() uint64 {
+	if x != nil {
+		return x.MaxVolumeBytes
+	}
+	return 0
+}
+
+type CreateVolumeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Parent string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	// ^[a-z0-9][a-z0-9_-]{0,62}$
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// 0 is refused: an unbounded volume is a configuration mistake.
+	QuotaBytes    uint64 `protobuf:"varint,3,opt,name=quota_bytes,json=quotaBytes,proto3" json:"quota_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateVolumeRequest) Reset() {
+	*x = CreateVolumeRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateVolumeRequest) ProtoMessage() {}
+
+func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateVolumeRequest.ProtoReflect.Descriptor instead.
+func (*CreateVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *CreateVolumeRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *CreateVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateVolumeRequest) GetQuotaBytes() uint64 {
+	if x != nil {
+		return x.QuotaBytes
+	}
+	return 0
+}
+
+type CreateVolumeResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Volume *Volume                `protobuf:"bytes,1,opt,name=volume,proto3" json:"volume,omitempty"`
+	// False when it already existed with this quota.
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateVolumeResponse) Reset() {
+	*x = CreateVolumeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateVolumeResponse) ProtoMessage() {}
+
+func (x *CreateVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateVolumeResponse.ProtoReflect.Descriptor instead.
+func (*CreateVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *CreateVolumeResponse) GetVolume() *Volume {
+	if x != nil {
+		return x.Volume
+	}
+	return nil
+}
+
+func (x *CreateVolumeResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type ResizeVolumeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Parent        string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	QuotaBytes    uint64                 `protobuf:"varint,3,opt,name=quota_bytes,json=quotaBytes,proto3" json:"quota_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeVolumeRequest) Reset() {
+	*x = ResizeVolumeRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeVolumeRequest) ProtoMessage() {}
+
+func (x *ResizeVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeVolumeRequest.ProtoReflect.Descriptor instead.
+func (*ResizeVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ResizeVolumeRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *ResizeVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ResizeVolumeRequest) GetQuotaBytes() uint64 {
+	if x != nil {
+		return x.QuotaBytes
+	}
+	return 0
+}
+
+type ResizeVolumeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Volume        *Volume                `protobuf:"bytes,1,opt,name=volume,proto3" json:"volume,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResizeVolumeResponse) Reset() {
+	*x = ResizeVolumeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResizeVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResizeVolumeResponse) ProtoMessage() {}
+
+func (x *ResizeVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResizeVolumeResponse.ProtoReflect.Descriptor instead.
+func (*ResizeVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ResizeVolumeResponse) GetVolume() *Volume {
+	if x != nil {
+		return x.Volume
+	}
+	return nil
+}
+
+type SnapshotVolumeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Parent string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// In the same grammar as a volume's name.
+	Snapshot      string `protobuf:"bytes,3,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotVolumeRequest) Reset() {
+	*x = SnapshotVolumeRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotVolumeRequest) ProtoMessage() {}
+
+func (x *SnapshotVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotVolumeRequest.ProtoReflect.Descriptor instead.
+func (*SnapshotVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *SnapshotVolumeRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *SnapshotVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SnapshotVolumeRequest) GetSnapshot() string {
+	if x != nil {
+		return x.Snapshot
+	}
+	return ""
+}
+
+type SnapshotVolumeResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Volume *Volume                `protobuf:"bytes,1,opt,name=volume,proto3" json:"volume,omitempty"`
+	// False when the snapshot already existed.
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SnapshotVolumeResponse) Reset() {
+	*x = SnapshotVolumeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SnapshotVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SnapshotVolumeResponse) ProtoMessage() {}
+
+func (x *SnapshotVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SnapshotVolumeResponse.ProtoReflect.Descriptor instead.
+func (*SnapshotVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *SnapshotVolumeResponse) GetVolume() *Volume {
+	if x != nil {
+		return x.Volume
+	}
+	return nil
+}
+
+func (x *SnapshotVolumeResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+type DeleteVolumeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Parent string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Destroy its data and its snapshots too; without it a volume holding
+	// either is FAILED_PRECONDITION.
+	DestroyData   bool `protobuf:"varint,3,opt,name=destroy_data,json=destroyData,proto3" json:"destroy_data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteVolumeRequest) Reset() {
+	*x = DeleteVolumeRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteVolumeRequest) ProtoMessage() {}
+
+func (x *DeleteVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteVolumeRequest.ProtoReflect.Descriptor instead.
+func (*DeleteVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *DeleteVolumeRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *DeleteVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DeleteVolumeRequest) GetDestroyData() bool {
+	if x != nil {
+		return x.DestroyData
+	}
+	return false
+}
+
+type DeleteVolumeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False when there was nothing to delete.
+	Deleted       bool `protobuf:"varint,1,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteVolumeResponse) Reset() {
+	*x = DeleteVolumeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteVolumeResponse) ProtoMessage() {}
+
+func (x *DeleteVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteVolumeResponse.ProtoReflect.Descriptor instead.
+func (*DeleteVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *DeleteVolumeResponse) GetDeleted() bool {
+	if x != nil {
+		return x.Deleted
+	}
+	return false
+}
+
+type GetVolumeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Parent        string                 `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetVolumeRequest) Reset() {
+	*x = GetVolumeRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetVolumeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetVolumeRequest) ProtoMessage() {}
+
+func (x *GetVolumeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetVolumeRequest.ProtoReflect.Descriptor instead.
+func (*GetVolumeRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *GetVolumeRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *GetVolumeRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetVolumeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Volume        *Volume                `protobuf:"bytes,1,opt,name=volume,proto3" json:"volume,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetVolumeResponse) Reset() {
+	*x = GetVolumeResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetVolumeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetVolumeResponse) ProtoMessage() {}
+
+func (x *GetVolumeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetVolumeResponse.ProtoReflect.Descriptor instead.
+func (*GetVolumeResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *GetVolumeResponse) GetVolume() *Volume {
+	if x != nil {
+		return x.Volume
+	}
+	return nil
+}
+
+type ListVolumesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Only this parent's; empty for every parent.
+	Parent        string `protobuf:"bytes,1,opt,name=parent,proto3" json:"parent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListVolumesRequest) Reset() {
+	*x = ListVolumesRequest{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListVolumesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListVolumesRequest) ProtoMessage() {}
+
+func (x *ListVolumesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListVolumesRequest.ProtoReflect.Descriptor instead.
+func (*ListVolumesRequest) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ListVolumesRequest) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+type ListVolumesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Volumes       []*Volume              `protobuf:"bytes,1,rep,name=volumes,proto3" json:"volumes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListVolumesResponse) Reset() {
+	*x = ListVolumesResponse{}
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListVolumesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListVolumesResponse) ProtoMessage() {}
+
+func (x *ListVolumesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_fileshare_admin_v1_admin_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListVolumesResponse.ProtoReflect.Descriptor instead.
+func (*ListVolumesResponse) Descriptor() ([]byte, []int) {
+	return file_fileshare_admin_v1_admin_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ListVolumesResponse) GetVolumes() []*Volume {
+	if x != nil {
+		return x.Volumes
+	}
+	return nil
+}
+
 var File_fileshare_admin_v1_admin_proto protoreflect.FileDescriptor
 
 const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
@@ -2276,11 +3349,12 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x04kind\"r\n" +
 	"\x05Grant\x125\n" +
 	"\asubject\x18\x01 \x01(\v2\x1b.fileshare.admin.v1.SubjectR\asubject\x122\n" +
-	"\x06access\x18\x02 \x01(\x0e2\x1a.fileshare.admin.v1.AccessR\x06access\"\xe2\x03\n" +
+	"\x06access\x18\x02 \x01(\x0e2\x1a.fileshare.admin.v1.AccessR\x06access\"\xbd\x04\n" +
 	"\x05Share\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x05image\x18\x02 \x01(\tH\x00R\x05image\x12\x1e\n" +
-	"\tdirectory\x18\x03 \x01(\tH\x00R\tdirectory\x122\n" +
+	"\tdirectory\x18\x03 \x01(\tH\x00R\tdirectory\x127\n" +
+	"\x06volume\x18\x0e \x01(\v2\x1d.fileshare.admin.v1.VolumeRefH\x00R\x06volume\x122\n" +
 	"\x06origin\x18\x04 \x01(\x0e2\x1a.fileshare.admin.v1.OriginR\x06origin\x12\x1b\n" +
 	"\tread_only\x18\x05 \x01(\bR\breadOnly\x12.\n" +
 	"\x13effective_read_only\x18\x06 \x01(\bR\x11effectiveReadOnly\x12\x1e\n" +
@@ -2295,15 +3369,17 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\brefusals\x18\v \x03(\v2\x1b.fileshare.admin.v1.RefusalR\brefusals\x12\x1d\n" +
 	"\n" +
 	"size_bytes\x18\f \x01(\x04R\tsizeBytes\x12\x18\n" +
-	"\aenabled\x18\r \x01(\bR\aenabledB\b\n" +
+	"\aenabled\x18\r \x01(\bR\aenabled\x12 \n" +
+	"\vunavailable\x18\x0f \x01(\tR\vunavailableB\b\n" +
 	"\x06source\"=\n" +
 	"\aRefusal\x12\x1a\n" +
 	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x95\x03\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"\xce\x03\n" +
 	"\x12CreateShareRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x05image\x18\x02 \x01(\tH\x00R\x05image\x12\x1e\n" +
-	"\tdirectory\x18\x03 \x01(\tH\x00R\tdirectory\x12\x1b\n" +
+	"\tdirectory\x18\x03 \x01(\tH\x00R\tdirectory\x127\n" +
+	"\x06volume\x18\f \x01(\v2\x1d.fileshare.admin.v1.VolumeRefH\x00R\x06volume\x12\x1b\n" +
 	"\tread_only\x18\x04 \x01(\bR\breadOnly\x12\x1e\n" +
 	"\n" +
 	"filesystem\x18\x05 \x01(\tR\n" +
@@ -2378,7 +3454,72 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x06groups\x18\x01 \x03(\v2\x19.fileshare.admin.v1.GroupR\x06groups\"5\n" +
 	"\x05Group\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\amembers\x18\x02 \x03(\tR\amembers*C\n" +
+	"\amembers\x18\x02 \x03(\tR\amembers\"7\n" +
+	"\tVolumeRef\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xbe\x01\n" +
+	"\x06Parent\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x122\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x1e.fileshare.admin.v1.VolumeKindR\x04kind\x12\x12\n" +
+	"\x04root\x18\x03 \x01(\tR\x04root\x12\x1d\n" +
+	"\n" +
+	"free_bytes\x18\x04 \x01(\x04R\tfreeBytes\x12\x1f\n" +
+	"\vtotal_bytes\x18\x05 \x01(\x04R\n" +
+	"totalBytes\x12\x1c\n" +
+	"\tsnapshots\x18\x06 \x01(\bR\tsnapshots\"\xa8\x02\n" +
+	"\x06Volume\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x122\n" +
+	"\x04kind\x18\x03 \x01(\x0e2\x1e.fileshare.admin.v1.VolumeKindR\x04kind\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x1f\n" +
+	"\vquota_bytes\x18\x05 \x01(\x04R\n" +
+	"quotaBytes\x12\x1d\n" +
+	"\n" +
+	"used_bytes\x18\x06 \x01(\x04R\tusedBytes\x124\n" +
+	"\acreated\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\acreated\x12\x1c\n" +
+	"\tsnapshots\x18\b \x03(\tR\tsnapshots\x12\x16\n" +
+	"\x06shares\x18\t \x03(\tR\x06shares\"\x14\n" +
+	"\x12ListParentsRequest\"u\n" +
+	"\x13ListParentsResponse\x124\n" +
+	"\aparents\x18\x01 \x03(\v2\x1a.fileshare.admin.v1.ParentR\aparents\x12(\n" +
+	"\x10max_volume_bytes\x18\x02 \x01(\x04R\x0emaxVolumeBytes\"b\n" +
+	"\x13CreateVolumeRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vquota_bytes\x18\x03 \x01(\x04R\n" +
+	"quotaBytes\"d\n" +
+	"\x14CreateVolumeResponse\x122\n" +
+	"\x06volume\x18\x01 \x01(\v2\x1a.fileshare.admin.v1.VolumeR\x06volume\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"b\n" +
+	"\x13ResizeVolumeRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vquota_bytes\x18\x03 \x01(\x04R\n" +
+	"quotaBytes\"J\n" +
+	"\x14ResizeVolumeResponse\x122\n" +
+	"\x06volume\x18\x01 \x01(\v2\x1a.fileshare.admin.v1.VolumeR\x06volume\"_\n" +
+	"\x15SnapshotVolumeRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1a\n" +
+	"\bsnapshot\x18\x03 \x01(\tR\bsnapshot\"f\n" +
+	"\x16SnapshotVolumeResponse\x122\n" +
+	"\x06volume\x18\x01 \x01(\v2\x1a.fileshare.admin.v1.VolumeR\x06volume\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"d\n" +
+	"\x13DeleteVolumeRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
+	"\fdestroy_data\x18\x03 \x01(\bR\vdestroyData\"0\n" +
+	"\x14DeleteVolumeResponse\x12\x18\n" +
+	"\adeleted\x18\x01 \x01(\bR\adeleted\">\n" +
+	"\x10GetVolumeRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"G\n" +
+	"\x11GetVolumeResponse\x122\n" +
+	"\x06volume\x18\x01 \x01(\v2\x1a.fileshare.admin.v1.VolumeR\x06volume\",\n" +
+	"\x12ListVolumesRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\"K\n" +
+	"\x13ListVolumesResponse\x124\n" +
+	"\avolumes\x18\x01 \x03(\v2\x1a.fileshare.admin.v1.VolumeR\avolumes*C\n" +
 	"\x06Origin\x12\x16\n" +
 	"\x12ORIGIN_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rORIGIN_CONFIG\x10\x01\x12\x0e\n" +
@@ -2387,7 +3528,14 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x06Access\x12\x16\n" +
 	"\x12ACCESS_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vACCESS_READ\x10\x01\x12\x10\n" +
-	"\fACCESS_WRITE\x10\x022\xcd\t\n" +
+	"\fACCESS_WRITE\x10\x02*\x80\x01\n" +
+	"\n" +
+	"VolumeKind\x12\x1b\n" +
+	"\x17VOLUME_KIND_UNSPECIFIED\x10\x00\x12\x13\n" +
+	"\x0fVOLUME_KIND_ZFS\x10\x01\x12\x15\n" +
+	"\x11VOLUME_KIND_BTRFS\x10\x02\x12\x13\n" +
+	"\x0fVOLUME_KIND_XFS\x10\x03\x12\x14\n" +
+	"\x10VOLUME_KIND_EXT4\x10\x042\xf9\x0e\n" +
 	"\fAdminService\x12d\n" +
 	"\rGetServerInfo\x12(.fileshare.admin.v1.GetServerInfoRequest\x1a).fileshare.admin.v1.GetServerInfoResponse\x12[\n" +
 	"\n" +
@@ -2403,7 +3551,14 @@ const file_fileshare_admin_v1_admin_proto_rawDesc = "" +
 	"\x0fReloadDirectory\x12*.fileshare.admin.v1.ReloadDirectoryRequest\x1a+.fileshare.admin.v1.ReloadDirectoryResponse\x12X\n" +
 	"\tListUsers\x12$.fileshare.admin.v1.ListUsersRequest\x1a%.fileshare.admin.v1.ListUsersResponse\x12[\n" +
 	"\n" +
-	"ListGroups\x12%.fileshare.admin.v1.ListGroupsRequest\x1a&.fileshare.admin.v1.ListGroupsResponseBDZBgithub.com/go-fileshare/fileshare/proto/fileshare/admin/v1;adminv1b\x06proto3"
+	"ListGroups\x12%.fileshare.admin.v1.ListGroupsRequest\x1a&.fileshare.admin.v1.ListGroupsResponse\x12^\n" +
+	"\vListParents\x12&.fileshare.admin.v1.ListParentsRequest\x1a'.fileshare.admin.v1.ListParentsResponse\x12a\n" +
+	"\fCreateVolume\x12'.fileshare.admin.v1.CreateVolumeRequest\x1a(.fileshare.admin.v1.CreateVolumeResponse\x12a\n" +
+	"\fResizeVolume\x12'.fileshare.admin.v1.ResizeVolumeRequest\x1a(.fileshare.admin.v1.ResizeVolumeResponse\x12g\n" +
+	"\x0eSnapshotVolume\x12).fileshare.admin.v1.SnapshotVolumeRequest\x1a*.fileshare.admin.v1.SnapshotVolumeResponse\x12a\n" +
+	"\fDeleteVolume\x12'.fileshare.admin.v1.DeleteVolumeRequest\x1a(.fileshare.admin.v1.DeleteVolumeResponse\x12X\n" +
+	"\tGetVolume\x12$.fileshare.admin.v1.GetVolumeRequest\x1a%.fileshare.admin.v1.GetVolumeResponse\x12^\n" +
+	"\vListVolumes\x12&.fileshare.admin.v1.ListVolumesRequest\x1a'.fileshare.admin.v1.ListVolumesResponseBDZBgithub.com/go-fileshare/fileshare/proto/fileshare/admin/v1;adminv1b\x06proto3"
 
 var (
 	file_fileshare_admin_v1_admin_proto_rawDescOnce sync.Once
@@ -2417,111 +3572,154 @@ func file_fileshare_admin_v1_admin_proto_rawDescGZIP() []byte {
 	return file_fileshare_admin_v1_admin_proto_rawDescData
 }
 
-var file_fileshare_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_fileshare_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_fileshare_admin_v1_admin_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_fileshare_admin_v1_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_fileshare_admin_v1_admin_proto_goTypes = []any{
 	(Origin)(0),                     // 0: fileshare.admin.v1.Origin
 	(Access)(0),                     // 1: fileshare.admin.v1.Access
-	(*Applied)(nil),                 // 2: fileshare.admin.v1.Applied
-	(*GetServerInfoRequest)(nil),    // 3: fileshare.admin.v1.GetServerInfoRequest
-	(*GetServerInfoResponse)(nil),   // 4: fileshare.admin.v1.GetServerInfoResponse
-	(*ServerInfo)(nil),              // 5: fileshare.admin.v1.ServerInfo
-	(*Listener)(nil),                // 6: fileshare.admin.v1.Listener
-	(*ListSharesRequest)(nil),       // 7: fileshare.admin.v1.ListSharesRequest
-	(*ListSharesResponse)(nil),      // 8: fileshare.admin.v1.ListSharesResponse
-	(*GetShareRequest)(nil),         // 9: fileshare.admin.v1.GetShareRequest
-	(*GetShareResponse)(nil),        // 10: fileshare.admin.v1.GetShareResponse
-	(*Subject)(nil),                 // 11: fileshare.admin.v1.Subject
-	(*Grant)(nil),                   // 12: fileshare.admin.v1.Grant
-	(*Share)(nil),                   // 13: fileshare.admin.v1.Share
-	(*Refusal)(nil),                 // 14: fileshare.admin.v1.Refusal
-	(*CreateShareRequest)(nil),      // 15: fileshare.admin.v1.CreateShareRequest
-	(*CreateShareResponse)(nil),     // 16: fileshare.admin.v1.CreateShareResponse
-	(*UpdateShareRequest)(nil),      // 17: fileshare.admin.v1.UpdateShareRequest
-	(*UpdateShareResponse)(nil),     // 18: fileshare.admin.v1.UpdateShareResponse
-	(*ProtocolList)(nil),            // 19: fileshare.admin.v1.ProtocolList
-	(*DeleteShareRequest)(nil),      // 20: fileshare.admin.v1.DeleteShareRequest
-	(*DeleteShareResponse)(nil),     // 21: fileshare.admin.v1.DeleteShareResponse
-	(*DisableShareRequest)(nil),     // 22: fileshare.admin.v1.DisableShareRequest
-	(*DisableShareResponse)(nil),    // 23: fileshare.admin.v1.DisableShareResponse
-	(*EnableShareRequest)(nil),      // 24: fileshare.admin.v1.EnableShareRequest
-	(*EnableShareResponse)(nil),     // 25: fileshare.admin.v1.EnableShareResponse
-	(*GrantRequest)(nil),            // 26: fileshare.admin.v1.GrantRequest
-	(*GrantResponse)(nil),           // 27: fileshare.admin.v1.GrantResponse
-	(*RevokeRequest)(nil),           // 28: fileshare.admin.v1.RevokeRequest
-	(*RevokeResponse)(nil),          // 29: fileshare.admin.v1.RevokeResponse
-	(*ReloadDirectoryRequest)(nil),  // 30: fileshare.admin.v1.ReloadDirectoryRequest
-	(*ReloadDirectoryResponse)(nil), // 31: fileshare.admin.v1.ReloadDirectoryResponse
-	(*ListUsersRequest)(nil),        // 32: fileshare.admin.v1.ListUsersRequest
-	(*ListUsersResponse)(nil),       // 33: fileshare.admin.v1.ListUsersResponse
-	(*User)(nil),                    // 34: fileshare.admin.v1.User
-	(*ListGroupsRequest)(nil),       // 35: fileshare.admin.v1.ListGroupsRequest
-	(*ListGroupsResponse)(nil),      // 36: fileshare.admin.v1.ListGroupsResponse
-	(*Group)(nil),                   // 37: fileshare.admin.v1.Group
-	(*timestamppb.Timestamp)(nil),   // 38: google.protobuf.Timestamp
+	(VolumeKind)(0),                 // 2: fileshare.admin.v1.VolumeKind
+	(*Applied)(nil),                 // 3: fileshare.admin.v1.Applied
+	(*GetServerInfoRequest)(nil),    // 4: fileshare.admin.v1.GetServerInfoRequest
+	(*GetServerInfoResponse)(nil),   // 5: fileshare.admin.v1.GetServerInfoResponse
+	(*ServerInfo)(nil),              // 6: fileshare.admin.v1.ServerInfo
+	(*Listener)(nil),                // 7: fileshare.admin.v1.Listener
+	(*ListSharesRequest)(nil),       // 8: fileshare.admin.v1.ListSharesRequest
+	(*ListSharesResponse)(nil),      // 9: fileshare.admin.v1.ListSharesResponse
+	(*GetShareRequest)(nil),         // 10: fileshare.admin.v1.GetShareRequest
+	(*GetShareResponse)(nil),        // 11: fileshare.admin.v1.GetShareResponse
+	(*Subject)(nil),                 // 12: fileshare.admin.v1.Subject
+	(*Grant)(nil),                   // 13: fileshare.admin.v1.Grant
+	(*Share)(nil),                   // 14: fileshare.admin.v1.Share
+	(*Refusal)(nil),                 // 15: fileshare.admin.v1.Refusal
+	(*CreateShareRequest)(nil),      // 16: fileshare.admin.v1.CreateShareRequest
+	(*CreateShareResponse)(nil),     // 17: fileshare.admin.v1.CreateShareResponse
+	(*UpdateShareRequest)(nil),      // 18: fileshare.admin.v1.UpdateShareRequest
+	(*UpdateShareResponse)(nil),     // 19: fileshare.admin.v1.UpdateShareResponse
+	(*ProtocolList)(nil),            // 20: fileshare.admin.v1.ProtocolList
+	(*DeleteShareRequest)(nil),      // 21: fileshare.admin.v1.DeleteShareRequest
+	(*DeleteShareResponse)(nil),     // 22: fileshare.admin.v1.DeleteShareResponse
+	(*DisableShareRequest)(nil),     // 23: fileshare.admin.v1.DisableShareRequest
+	(*DisableShareResponse)(nil),    // 24: fileshare.admin.v1.DisableShareResponse
+	(*EnableShareRequest)(nil),      // 25: fileshare.admin.v1.EnableShareRequest
+	(*EnableShareResponse)(nil),     // 26: fileshare.admin.v1.EnableShareResponse
+	(*GrantRequest)(nil),            // 27: fileshare.admin.v1.GrantRequest
+	(*GrantResponse)(nil),           // 28: fileshare.admin.v1.GrantResponse
+	(*RevokeRequest)(nil),           // 29: fileshare.admin.v1.RevokeRequest
+	(*RevokeResponse)(nil),          // 30: fileshare.admin.v1.RevokeResponse
+	(*ReloadDirectoryRequest)(nil),  // 31: fileshare.admin.v1.ReloadDirectoryRequest
+	(*ReloadDirectoryResponse)(nil), // 32: fileshare.admin.v1.ReloadDirectoryResponse
+	(*ListUsersRequest)(nil),        // 33: fileshare.admin.v1.ListUsersRequest
+	(*ListUsersResponse)(nil),       // 34: fileshare.admin.v1.ListUsersResponse
+	(*User)(nil),                    // 35: fileshare.admin.v1.User
+	(*ListGroupsRequest)(nil),       // 36: fileshare.admin.v1.ListGroupsRequest
+	(*ListGroupsResponse)(nil),      // 37: fileshare.admin.v1.ListGroupsResponse
+	(*Group)(nil),                   // 38: fileshare.admin.v1.Group
+	(*VolumeRef)(nil),               // 39: fileshare.admin.v1.VolumeRef
+	(*Parent)(nil),                  // 40: fileshare.admin.v1.Parent
+	(*Volume)(nil),                  // 41: fileshare.admin.v1.Volume
+	(*ListParentsRequest)(nil),      // 42: fileshare.admin.v1.ListParentsRequest
+	(*ListParentsResponse)(nil),     // 43: fileshare.admin.v1.ListParentsResponse
+	(*CreateVolumeRequest)(nil),     // 44: fileshare.admin.v1.CreateVolumeRequest
+	(*CreateVolumeResponse)(nil),    // 45: fileshare.admin.v1.CreateVolumeResponse
+	(*ResizeVolumeRequest)(nil),     // 46: fileshare.admin.v1.ResizeVolumeRequest
+	(*ResizeVolumeResponse)(nil),    // 47: fileshare.admin.v1.ResizeVolumeResponse
+	(*SnapshotVolumeRequest)(nil),   // 48: fileshare.admin.v1.SnapshotVolumeRequest
+	(*SnapshotVolumeResponse)(nil),  // 49: fileshare.admin.v1.SnapshotVolumeResponse
+	(*DeleteVolumeRequest)(nil),     // 50: fileshare.admin.v1.DeleteVolumeRequest
+	(*DeleteVolumeResponse)(nil),    // 51: fileshare.admin.v1.DeleteVolumeResponse
+	(*GetVolumeRequest)(nil),        // 52: fileshare.admin.v1.GetVolumeRequest
+	(*GetVolumeResponse)(nil),       // 53: fileshare.admin.v1.GetVolumeResponse
+	(*ListVolumesRequest)(nil),      // 54: fileshare.admin.v1.ListVolumesRequest
+	(*ListVolumesResponse)(nil),     // 55: fileshare.admin.v1.ListVolumesResponse
+	(*timestamppb.Timestamp)(nil),   // 56: google.protobuf.Timestamp
 }
 var file_fileshare_admin_v1_admin_proto_depIdxs = []int32{
-	5,  // 0: fileshare.admin.v1.GetServerInfoResponse.info:type_name -> fileshare.admin.v1.ServerInfo
-	38, // 1: fileshare.admin.v1.ServerInfo.started:type_name -> google.protobuf.Timestamp
-	6,  // 2: fileshare.admin.v1.ServerInfo.listeners:type_name -> fileshare.admin.v1.Listener
-	13, // 3: fileshare.admin.v1.ListSharesResponse.shares:type_name -> fileshare.admin.v1.Share
-	13, // 4: fileshare.admin.v1.GetShareResponse.share:type_name -> fileshare.admin.v1.Share
-	11, // 5: fileshare.admin.v1.Grant.subject:type_name -> fileshare.admin.v1.Subject
+	6,  // 0: fileshare.admin.v1.GetServerInfoResponse.info:type_name -> fileshare.admin.v1.ServerInfo
+	56, // 1: fileshare.admin.v1.ServerInfo.started:type_name -> google.protobuf.Timestamp
+	7,  // 2: fileshare.admin.v1.ServerInfo.listeners:type_name -> fileshare.admin.v1.Listener
+	14, // 3: fileshare.admin.v1.ListSharesResponse.shares:type_name -> fileshare.admin.v1.Share
+	14, // 4: fileshare.admin.v1.GetShareResponse.share:type_name -> fileshare.admin.v1.Share
+	12, // 5: fileshare.admin.v1.Grant.subject:type_name -> fileshare.admin.v1.Subject
 	1,  // 6: fileshare.admin.v1.Grant.access:type_name -> fileshare.admin.v1.Access
-	0,  // 7: fileshare.admin.v1.Share.origin:type_name -> fileshare.admin.v1.Origin
-	12, // 8: fileshare.admin.v1.Share.grants:type_name -> fileshare.admin.v1.Grant
-	14, // 9: fileshare.admin.v1.Share.refusals:type_name -> fileshare.admin.v1.Refusal
-	12, // 10: fileshare.admin.v1.CreateShareRequest.grants:type_name -> fileshare.admin.v1.Grant
-	13, // 11: fileshare.admin.v1.CreateShareResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 12: fileshare.admin.v1.CreateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
-	19, // 13: fileshare.admin.v1.UpdateShareRequest.protocols:type_name -> fileshare.admin.v1.ProtocolList
-	13, // 14: fileshare.admin.v1.UpdateShareResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 15: fileshare.admin.v1.UpdateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
-	2,  // 16: fileshare.admin.v1.DeleteShareResponse.applied:type_name -> fileshare.admin.v1.Applied
-	13, // 17: fileshare.admin.v1.DisableShareResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 18: fileshare.admin.v1.DisableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
-	13, // 19: fileshare.admin.v1.EnableShareResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 20: fileshare.admin.v1.EnableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
-	12, // 21: fileshare.admin.v1.GrantRequest.grant:type_name -> fileshare.admin.v1.Grant
-	13, // 22: fileshare.admin.v1.GrantResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 23: fileshare.admin.v1.GrantResponse.applied:type_name -> fileshare.admin.v1.Applied
-	11, // 24: fileshare.admin.v1.RevokeRequest.subject:type_name -> fileshare.admin.v1.Subject
-	13, // 25: fileshare.admin.v1.RevokeResponse.share:type_name -> fileshare.admin.v1.Share
-	2,  // 26: fileshare.admin.v1.RevokeResponse.applied:type_name -> fileshare.admin.v1.Applied
-	2,  // 27: fileshare.admin.v1.ReloadDirectoryResponse.applied:type_name -> fileshare.admin.v1.Applied
-	34, // 28: fileshare.admin.v1.ListUsersResponse.users:type_name -> fileshare.admin.v1.User
-	37, // 29: fileshare.admin.v1.ListGroupsResponse.groups:type_name -> fileshare.admin.v1.Group
-	3,  // 30: fileshare.admin.v1.AdminService.GetServerInfo:input_type -> fileshare.admin.v1.GetServerInfoRequest
-	7,  // 31: fileshare.admin.v1.AdminService.ListShares:input_type -> fileshare.admin.v1.ListSharesRequest
-	9,  // 32: fileshare.admin.v1.AdminService.GetShare:input_type -> fileshare.admin.v1.GetShareRequest
-	15, // 33: fileshare.admin.v1.AdminService.CreateShare:input_type -> fileshare.admin.v1.CreateShareRequest
-	17, // 34: fileshare.admin.v1.AdminService.UpdateShare:input_type -> fileshare.admin.v1.UpdateShareRequest
-	20, // 35: fileshare.admin.v1.AdminService.DeleteShare:input_type -> fileshare.admin.v1.DeleteShareRequest
-	22, // 36: fileshare.admin.v1.AdminService.DisableShare:input_type -> fileshare.admin.v1.DisableShareRequest
-	24, // 37: fileshare.admin.v1.AdminService.EnableShare:input_type -> fileshare.admin.v1.EnableShareRequest
-	26, // 38: fileshare.admin.v1.AdminService.Grant:input_type -> fileshare.admin.v1.GrantRequest
-	28, // 39: fileshare.admin.v1.AdminService.Revoke:input_type -> fileshare.admin.v1.RevokeRequest
-	30, // 40: fileshare.admin.v1.AdminService.ReloadDirectory:input_type -> fileshare.admin.v1.ReloadDirectoryRequest
-	32, // 41: fileshare.admin.v1.AdminService.ListUsers:input_type -> fileshare.admin.v1.ListUsersRequest
-	35, // 42: fileshare.admin.v1.AdminService.ListGroups:input_type -> fileshare.admin.v1.ListGroupsRequest
-	4,  // 43: fileshare.admin.v1.AdminService.GetServerInfo:output_type -> fileshare.admin.v1.GetServerInfoResponse
-	8,  // 44: fileshare.admin.v1.AdminService.ListShares:output_type -> fileshare.admin.v1.ListSharesResponse
-	10, // 45: fileshare.admin.v1.AdminService.GetShare:output_type -> fileshare.admin.v1.GetShareResponse
-	16, // 46: fileshare.admin.v1.AdminService.CreateShare:output_type -> fileshare.admin.v1.CreateShareResponse
-	18, // 47: fileshare.admin.v1.AdminService.UpdateShare:output_type -> fileshare.admin.v1.UpdateShareResponse
-	21, // 48: fileshare.admin.v1.AdminService.DeleteShare:output_type -> fileshare.admin.v1.DeleteShareResponse
-	23, // 49: fileshare.admin.v1.AdminService.DisableShare:output_type -> fileshare.admin.v1.DisableShareResponse
-	25, // 50: fileshare.admin.v1.AdminService.EnableShare:output_type -> fileshare.admin.v1.EnableShareResponse
-	27, // 51: fileshare.admin.v1.AdminService.Grant:output_type -> fileshare.admin.v1.GrantResponse
-	29, // 52: fileshare.admin.v1.AdminService.Revoke:output_type -> fileshare.admin.v1.RevokeResponse
-	31, // 53: fileshare.admin.v1.AdminService.ReloadDirectory:output_type -> fileshare.admin.v1.ReloadDirectoryResponse
-	33, // 54: fileshare.admin.v1.AdminService.ListUsers:output_type -> fileshare.admin.v1.ListUsersResponse
-	36, // 55: fileshare.admin.v1.AdminService.ListGroups:output_type -> fileshare.admin.v1.ListGroupsResponse
-	43, // [43:56] is the sub-list for method output_type
-	30, // [30:43] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	39, // 7: fileshare.admin.v1.Share.volume:type_name -> fileshare.admin.v1.VolumeRef
+	0,  // 8: fileshare.admin.v1.Share.origin:type_name -> fileshare.admin.v1.Origin
+	13, // 9: fileshare.admin.v1.Share.grants:type_name -> fileshare.admin.v1.Grant
+	15, // 10: fileshare.admin.v1.Share.refusals:type_name -> fileshare.admin.v1.Refusal
+	39, // 11: fileshare.admin.v1.CreateShareRequest.volume:type_name -> fileshare.admin.v1.VolumeRef
+	13, // 12: fileshare.admin.v1.CreateShareRequest.grants:type_name -> fileshare.admin.v1.Grant
+	14, // 13: fileshare.admin.v1.CreateShareResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 14: fileshare.admin.v1.CreateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	20, // 15: fileshare.admin.v1.UpdateShareRequest.protocols:type_name -> fileshare.admin.v1.ProtocolList
+	14, // 16: fileshare.admin.v1.UpdateShareResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 17: fileshare.admin.v1.UpdateShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	3,  // 18: fileshare.admin.v1.DeleteShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	14, // 19: fileshare.admin.v1.DisableShareResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 20: fileshare.admin.v1.DisableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	14, // 21: fileshare.admin.v1.EnableShareResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 22: fileshare.admin.v1.EnableShareResponse.applied:type_name -> fileshare.admin.v1.Applied
+	13, // 23: fileshare.admin.v1.GrantRequest.grant:type_name -> fileshare.admin.v1.Grant
+	14, // 24: fileshare.admin.v1.GrantResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 25: fileshare.admin.v1.GrantResponse.applied:type_name -> fileshare.admin.v1.Applied
+	12, // 26: fileshare.admin.v1.RevokeRequest.subject:type_name -> fileshare.admin.v1.Subject
+	14, // 27: fileshare.admin.v1.RevokeResponse.share:type_name -> fileshare.admin.v1.Share
+	3,  // 28: fileshare.admin.v1.RevokeResponse.applied:type_name -> fileshare.admin.v1.Applied
+	3,  // 29: fileshare.admin.v1.ReloadDirectoryResponse.applied:type_name -> fileshare.admin.v1.Applied
+	35, // 30: fileshare.admin.v1.ListUsersResponse.users:type_name -> fileshare.admin.v1.User
+	38, // 31: fileshare.admin.v1.ListGroupsResponse.groups:type_name -> fileshare.admin.v1.Group
+	2,  // 32: fileshare.admin.v1.Parent.kind:type_name -> fileshare.admin.v1.VolumeKind
+	2,  // 33: fileshare.admin.v1.Volume.kind:type_name -> fileshare.admin.v1.VolumeKind
+	56, // 34: fileshare.admin.v1.Volume.created:type_name -> google.protobuf.Timestamp
+	40, // 35: fileshare.admin.v1.ListParentsResponse.parents:type_name -> fileshare.admin.v1.Parent
+	41, // 36: fileshare.admin.v1.CreateVolumeResponse.volume:type_name -> fileshare.admin.v1.Volume
+	41, // 37: fileshare.admin.v1.ResizeVolumeResponse.volume:type_name -> fileshare.admin.v1.Volume
+	41, // 38: fileshare.admin.v1.SnapshotVolumeResponse.volume:type_name -> fileshare.admin.v1.Volume
+	41, // 39: fileshare.admin.v1.GetVolumeResponse.volume:type_name -> fileshare.admin.v1.Volume
+	41, // 40: fileshare.admin.v1.ListVolumesResponse.volumes:type_name -> fileshare.admin.v1.Volume
+	4,  // 41: fileshare.admin.v1.AdminService.GetServerInfo:input_type -> fileshare.admin.v1.GetServerInfoRequest
+	8,  // 42: fileshare.admin.v1.AdminService.ListShares:input_type -> fileshare.admin.v1.ListSharesRequest
+	10, // 43: fileshare.admin.v1.AdminService.GetShare:input_type -> fileshare.admin.v1.GetShareRequest
+	16, // 44: fileshare.admin.v1.AdminService.CreateShare:input_type -> fileshare.admin.v1.CreateShareRequest
+	18, // 45: fileshare.admin.v1.AdminService.UpdateShare:input_type -> fileshare.admin.v1.UpdateShareRequest
+	21, // 46: fileshare.admin.v1.AdminService.DeleteShare:input_type -> fileshare.admin.v1.DeleteShareRequest
+	23, // 47: fileshare.admin.v1.AdminService.DisableShare:input_type -> fileshare.admin.v1.DisableShareRequest
+	25, // 48: fileshare.admin.v1.AdminService.EnableShare:input_type -> fileshare.admin.v1.EnableShareRequest
+	27, // 49: fileshare.admin.v1.AdminService.Grant:input_type -> fileshare.admin.v1.GrantRequest
+	29, // 50: fileshare.admin.v1.AdminService.Revoke:input_type -> fileshare.admin.v1.RevokeRequest
+	31, // 51: fileshare.admin.v1.AdminService.ReloadDirectory:input_type -> fileshare.admin.v1.ReloadDirectoryRequest
+	33, // 52: fileshare.admin.v1.AdminService.ListUsers:input_type -> fileshare.admin.v1.ListUsersRequest
+	36, // 53: fileshare.admin.v1.AdminService.ListGroups:input_type -> fileshare.admin.v1.ListGroupsRequest
+	42, // 54: fileshare.admin.v1.AdminService.ListParents:input_type -> fileshare.admin.v1.ListParentsRequest
+	44, // 55: fileshare.admin.v1.AdminService.CreateVolume:input_type -> fileshare.admin.v1.CreateVolumeRequest
+	46, // 56: fileshare.admin.v1.AdminService.ResizeVolume:input_type -> fileshare.admin.v1.ResizeVolumeRequest
+	48, // 57: fileshare.admin.v1.AdminService.SnapshotVolume:input_type -> fileshare.admin.v1.SnapshotVolumeRequest
+	50, // 58: fileshare.admin.v1.AdminService.DeleteVolume:input_type -> fileshare.admin.v1.DeleteVolumeRequest
+	52, // 59: fileshare.admin.v1.AdminService.GetVolume:input_type -> fileshare.admin.v1.GetVolumeRequest
+	54, // 60: fileshare.admin.v1.AdminService.ListVolumes:input_type -> fileshare.admin.v1.ListVolumesRequest
+	5,  // 61: fileshare.admin.v1.AdminService.GetServerInfo:output_type -> fileshare.admin.v1.GetServerInfoResponse
+	9,  // 62: fileshare.admin.v1.AdminService.ListShares:output_type -> fileshare.admin.v1.ListSharesResponse
+	11, // 63: fileshare.admin.v1.AdminService.GetShare:output_type -> fileshare.admin.v1.GetShareResponse
+	17, // 64: fileshare.admin.v1.AdminService.CreateShare:output_type -> fileshare.admin.v1.CreateShareResponse
+	19, // 65: fileshare.admin.v1.AdminService.UpdateShare:output_type -> fileshare.admin.v1.UpdateShareResponse
+	22, // 66: fileshare.admin.v1.AdminService.DeleteShare:output_type -> fileshare.admin.v1.DeleteShareResponse
+	24, // 67: fileshare.admin.v1.AdminService.DisableShare:output_type -> fileshare.admin.v1.DisableShareResponse
+	26, // 68: fileshare.admin.v1.AdminService.EnableShare:output_type -> fileshare.admin.v1.EnableShareResponse
+	28, // 69: fileshare.admin.v1.AdminService.Grant:output_type -> fileshare.admin.v1.GrantResponse
+	30, // 70: fileshare.admin.v1.AdminService.Revoke:output_type -> fileshare.admin.v1.RevokeResponse
+	32, // 71: fileshare.admin.v1.AdminService.ReloadDirectory:output_type -> fileshare.admin.v1.ReloadDirectoryResponse
+	34, // 72: fileshare.admin.v1.AdminService.ListUsers:output_type -> fileshare.admin.v1.ListUsersResponse
+	37, // 73: fileshare.admin.v1.AdminService.ListGroups:output_type -> fileshare.admin.v1.ListGroupsResponse
+	43, // 74: fileshare.admin.v1.AdminService.ListParents:output_type -> fileshare.admin.v1.ListParentsResponse
+	45, // 75: fileshare.admin.v1.AdminService.CreateVolume:output_type -> fileshare.admin.v1.CreateVolumeResponse
+	47, // 76: fileshare.admin.v1.AdminService.ResizeVolume:output_type -> fileshare.admin.v1.ResizeVolumeResponse
+	49, // 77: fileshare.admin.v1.AdminService.SnapshotVolume:output_type -> fileshare.admin.v1.SnapshotVolumeResponse
+	51, // 78: fileshare.admin.v1.AdminService.DeleteVolume:output_type -> fileshare.admin.v1.DeleteVolumeResponse
+	53, // 79: fileshare.admin.v1.AdminService.GetVolume:output_type -> fileshare.admin.v1.GetVolumeResponse
+	55, // 80: fileshare.admin.v1.AdminService.ListVolumes:output_type -> fileshare.admin.v1.ListVolumesResponse
+	61, // [61:81] is the sub-list for method output_type
+	41, // [41:61] is the sub-list for method input_type
+	41, // [41:41] is the sub-list for extension type_name
+	41, // [41:41] is the sub-list for extension extendee
+	0,  // [0:41] is the sub-list for field type_name
 }
 
 func init() { file_fileshare_admin_v1_admin_proto_init() }
@@ -2538,10 +3736,12 @@ func file_fileshare_admin_v1_admin_proto_init() {
 	file_fileshare_admin_v1_admin_proto_msgTypes[11].OneofWrappers = []any{
 		(*Share_Image)(nil),
 		(*Share_Directory)(nil),
+		(*Share_Volume)(nil),
 	}
 	file_fileshare_admin_v1_admin_proto_msgTypes[13].OneofWrappers = []any{
 		(*CreateShareRequest_Image)(nil),
 		(*CreateShareRequest_Directory)(nil),
+		(*CreateShareRequest_Volume)(nil),
 	}
 	file_fileshare_admin_v1_admin_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
@@ -2549,8 +3749,8 @@ func file_fileshare_admin_v1_admin_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fileshare_admin_v1_admin_proto_rawDesc), len(file_fileshare_admin_v1_admin_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   36,
+			NumEnums:      3,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

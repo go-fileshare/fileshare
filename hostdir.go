@@ -42,7 +42,7 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	if err != nil {
 		return fmt.Errorf("share %q: %w", b.Name, err)
 	}
-	sh.fsys = fsys
+	sh.fsys = &fullAware{hostTreeOf(fsys)}
 	sh.kind = "directory"
 	sh.openedReadOnly = b.ReadOnly
 	sh.askedWrite = !b.ReadOnly
@@ -55,6 +55,10 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	sh.closers = []io.Closer{fsys}
 	return nil
 }
+
+// hostTreeOf is the tree a directory share serves: osfs, and in a test
+// something that fails the way a full filesystem does.
+var hostTreeOf = func(fsys *osfs.FS) hostTree { return fsys }
 
 // openConfinedDirectory opens a share the API created from the source root
 // it lies under, one os.Root inside the other. A component of the path

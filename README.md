@@ -928,7 +928,7 @@ The Go code under `proto/` is generated and committed, so `go install` needs no
 ```sh
 protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
   --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
-  proto/fileshare/admin/v1/admin.proto
+  proto/fileshare/admin/v1/admin.proto proto/fileshare/provision/v1/provision.proto
 ```
 
 `--isolate` does not go with an `admin` block yet: there is no one process a

@@ -158,9 +158,14 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
           protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
             --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
-            proto/fileshare/admin/v1/admin.proto
-          git diff --exit-code -- proto || {
-            echo "::error::proto/ is not what protoc generates from admin.proto: regenerate it (see the README)"; exit 1; }
+            proto/fileshare/admin/v1/admin.proto proto/fileshare/provision/v1/provision.proto
+          # ⛔ --exit-code alone ignores a file nobody committed: a NEW .proto
+          # whose generated code was left out would pass. Untracked files
+          # under proto/ fail the lane too.
+          untracked=$(git ls-files --others --exclude-standard -- proto)
+          git diff --exit-code -- proto && [ -z "$untracked" ] || {
+            echo "::error::proto/ is not what protoc generates from the .proto files: regenerate it (see the README)"
+            echo "$untracked"; exit 1; }
       # buf's STANDARD rules; see proto/buf.yaml for why its response naming
       # is the one kept over AIP-131's.
       - run: cd proto && go run github.com/bufbuild/buf/cmd/buf@v1.73.0 lint

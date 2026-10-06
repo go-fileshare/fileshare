@@ -688,6 +688,9 @@ everything):
 | `-tags nogrpc` | 34.4 MB |
 | `-tags nosql,noldap,nogrpc` | 22.5 MB |
 
+`-tags noprovisioner` leaves out the provisioner role and go-fsctl's zfs,
+btrfs and projquota with it; `nogrpc` leaves it out too.
+
 gRPC costs **11.7 MB** — the measurement below, taken again, now that it is
 here for a reason of its own. A configuration with an `admin` block, in a
 `nogrpc` build, is refused rather than served without one.
@@ -933,6 +936,95 @@ protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
 
 `--isolate` does not go with an `admin` block yet: there is no one process a
 change could be applied to.
+
+## The provisioner: storage fileshare creates
+
+`fileshare provisioner` is the binary's second role: the privileged half that
+creates the storage a volume share will be served from — a **ZFS dataset**, a
+**btrfs subvolume**, an **XFS or ext4 directory under a project quota** — sized,
+owned and tracked. Creating storage needs `CAP_SYS_ADMIN`; `fileshare serve`
+parses five network protocols for strangers and holds no privilege, so the
+part that does is a separate process with a small, closed protocol,
+[`fileshare.provision.v1.ProvisionService`](proto/fileshare/provision/v1/provision.proto).
+Linux only. (Serving those volumes through the admin API is the next step;
+see the design, `docs/volumes.md`.)
+
+```hcl
+provisioner {
+  listen     = "unix:///run/fileshare-provisioner/provisioner.sock"
+  client_uid = 990                       # fileshare's, and never 0
+  group      = "fileshare"               # every volume root is root:fileshare 2770
+  max_volume = "10T"
+  state_file = "/var/lib/fileshare-provisioner/volumes.json"
+
+  parent "tank" {
+    zfs  = "tank/fileshare"
+    root = "/srv/fileshare/volumes/tank"
+  }
+  parent "fast" { btrfs = "/srv/fileshare/volumes/fast" }
+  parent "plain" {
+    xfs         = "/srv/fileshare/volumes/plain"
+    project_ids = "100000-199999"
+  }
+}
+```
+
+- **One uid, read from the kernel.** The socket's peer is identified with
+  `SO_PEERCRED` at the handshake (grpc-go's `credentials/local` does not
+  report it), and anybody but `client_uid` — root included — is
+  `PERMISSION_DENIED` before a byte of the request is decoded. The socket is
+  0660 `root:<group>`, in a directory the provisioner owns and nobody else may
+  write.
+- **A closed set of verbs.** A method outside the service, or a message that
+  does not decode or carries a field this version does not define, gets no
+  answer: the connection is closed.
+- **A request never carries a path.** It names a `parent` from this file and a
+  name matching `^[a-z0-9][a-z0-9_-]{0,62}$`; the volume is
+  `<parent root>/<name>`. A quota of 0 is refused, one above `max_volume` is
+  `OUT_OF_RANGE`, one the parent cannot hold `RESOURCE_EXHAUSTED`.
+- **Idempotent by name, as CSI is.** The same create twice is OK; the same
+  name with another quota is `ALREADY_EXISTS`; deleting what is not there is OK.
+- **It never touches what it did not create.** ZFS: the dataset's own
+  `fileshare:volume` property — set locally, since user properties are
+  inherited and an inherited mark is not ours. btrfs: the subvolume id and
+  uuid recorded in `state_file`. XFS/ext4: a project id inside the parent's
+  range *and* recorded. Checked before every resize, snapshot and delete.
+- **Delete refuses data and snapshots** unless `destroy_data` is set, and is
+  logged before it happens.
+- ⛔ **`fileshare serve` must not run as root nor with `CAP_SYS_RESOURCE`**: ext4
+  lets either write past a project quota. So `client_uid = 0` is refused, and
+  fileshare writes into a volume through its group, never as its owner — the
+  owner of a directory may clear its project id without privilege.
+
+A systemd unit for it:
+
+```ini
+[Service]
+ExecStart=/usr/local/bin/fileshare provisioner -c /etc/fileshare-provisioner.hcl
+RuntimeDirectory=fileshare-provisioner
+RuntimeDirectoryMode=0755
+StateDirectory=fileshare-provisioner
+StateDirectoryMode=0700
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER
+# Run as root, or as a dedicated user with:
+# AmbientCapabilities=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER
+NoNewPrivileges=yes
+# ioctl is in @system-service, mount(2) in @mount; quotactl_fd(2) is in
+# neither group and is named. (An example: CI runs the provisioner as root
+# under sudo, not under this unit.)
+SystemCallFilter=@system-service @mount quotactl quotactl_fd
+SystemCallArchitectures=native
+LockPersonality=yes
+RestrictRealtime=yes
+# NOT ProtectSystem= nor ReadWritePaths=: they give the service its own
+# mount namespace, and the ZFS volumes it mounts would be seen by nobody
+# else. And no Landlock: a Landlock-restricted thread cannot mount(2).
+```
+
+The socket lives in its **own** directory (`/run/fileshare-provisioner`), not
+in fileshare's: fileshare must be able to write its own admin socket in
+`/run/fileshare`, and the provisioner refuses a socket directory anybody but
+itself may write into.
 
 ## Health and metrics
 

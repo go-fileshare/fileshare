@@ -74,6 +74,13 @@ type managedShare struct {
 	PartitionUUID  string   `json:"partition_uuid,omitempty"`
 	Protocols      []string `json:"protocols,omitempty"`
 	Grants         []grant  `json:"grants"`
+	// Volume is the volume a share was made from. Directory is then where
+	// the provisioner said it was when the share was created, for a person
+	// reading the file: what is served is where it says it is NOW, asked
+	// again at every start and checked again before it is served.
+	Volume *volumeRef `json:"volume,omitempty"`
+	// resolved is what asking for the volume found, in memory only.
+	resolved *volumeResolution
 }
 
 // A grant is one subject, spelled the way the configuration spells it --
@@ -92,6 +99,12 @@ func (m managedShare) block() shareBlock {
 	b := shareBlock{Name: m.Name, Image: m.Image, Directory: m.Directory, ReadOnly: m.ReadOnly,
 		Filesystem: m.Filesystem, Partition: m.Partition, PartitionLabel: m.PartitionLabel,
 		PartitionUUID: m.PartitionUUID, Protocols: m.Protocols}
+	if m.Volume != nil {
+		b.volume = m.Volume.String()
+		if m.resolved != nil && m.resolved.path != "" {
+			b.Directory = m.resolved.path
+		}
+	}
 	for _, g := range m.Grants {
 		b.Allow = append(b.Allow, g.Subject)
 		if g.Write {
@@ -105,6 +118,10 @@ func (m managedShare) block() shareBlock {
 func (m managedShare) clone() managedShare {
 	m.Protocols = slices.Clone(m.Protocols)
 	m.Grants = slices.Clone(m.Grants)
+	if m.Volume != nil {
+		v := *m.Volume
+		m.Volume = &v
+	}
 	if m.Partition != nil {
 		p := *m.Partition
 		m.Partition = &p
@@ -196,11 +213,28 @@ func withState(cfg *config) error {
 		fromFiles[strings.ToUpper(b.Name)] = b.Name
 	}
 	cfg.managed = map[string]bool{}
+	// Every volume share's volume is asked for, and checked, before
+	// anything is opened; see volume.go.
+	cfg.volumes = resolveVolumes(cfg.Admin, st.Shares)
 	all := slices.Clone(cfg.Shares)
+	unavailable := map[string]string{}
 	for _, m := range st.Shares {
 		if other, taken := fromFiles[strings.ToUpper(m.Name)]; taken {
 			return fmt.Errorf("share %q is in the admin state file %s and share %q is in the configuration: "+
 				"one name, two definitions. Remove one of them", m.Name, cfg.Admin.StateFile, other)
+		}
+		if m.Volume != nil {
+			// Its path was checked against the roots as it was resolved,
+			// or it is not served and its old path does not matter.
+			m.resolved = cfg.volumes[strings.ToUpper(m.Name)]
+			if why := m.unavailable(); why != "" {
+				unavailable[strings.ToUpper(m.Name)] = why
+			}
+			b := m.block()
+			b.confine = cfg.Admin.SourceRoots
+			all = append(all, b)
+			cfg.managed[strings.ToUpper(m.Name)] = true
+			continue
 		}
 		// ⛔ Checked again at every start: the roots may have been narrowed,
 		// or the file edited, since the share was created -- and a state
@@ -229,7 +263,16 @@ func withState(cfg *config) error {
 	if err := cfg.check(); err != nil {
 		return err
 	}
-	cfg.Shares, cfg.offline = st.split(all)
+	var serve []shareBlock
+	serve, cfg.offline = st.split(all)
+	cfg.Shares = nil
+	for _, b := range serve {
+		if why, out := unavailable[strings.ToUpper(b.Name)]; out {
+			cfg.unavailable = append(cfg.unavailable, unavailableShare{block: b, why: why})
+			continue
+		}
+		cfg.Shares = append(cfg.Shares, b)
+	}
 	return nil
 }
 
@@ -247,6 +290,9 @@ type manager struct {
 	path  string
 	roots []string
 	audit io.Writer
+	// vols is the provisioner, when the admin block names one; see
+	// volume_grpc.go.
+	vols volumeService
 	// servedAPI and offline count the API's shares being served and the
 	// shares taken offline, readable without waiting for a change in
 	// progress -- a scrape must not stall behind a swap.
@@ -256,7 +302,7 @@ type manager struct {
 
 // recount sets the counts a scrape reads, from a state.
 func (m *manager) recount(st *stateFile) {
-	all, serve := m.blocks(st)
+	_, serve := m.blocks(st)
 	var api int64
 	for _, b := range serve {
 		if indexOf(st, b.Name) >= 0 {
@@ -264,7 +310,18 @@ func (m *manager) recount(st *stateFile) {
 		}
 	}
 	m.servedAPI.Store(api)
-	m.offline.Store(int64(len(all) - len(serve)))
+	var offline int64
+	for _, b := range m.files.Shares {
+		if st.isDisabled(b.Name) {
+			offline++
+		}
+	}
+	for _, s := range st.Shares {
+		if st.isDisabled(s.Name) {
+			offline++
+		}
+	}
+	m.offline.Store(offline)
 }
 
 func newManager(srv *server, cfg *config) (*manager, error) {
@@ -274,6 +331,12 @@ func newManager(srv *server, cfg *config) (*manager, error) {
 	}
 	files := *cfg
 	files.Shares = slices.Clone(cfg.fromFiles)
+	// What withState found for each volume share is what is served now.
+	for i := range st.Shares {
+		if st.Shares[i].Volume != nil {
+			st.Shares[i].resolved = cfg.volumes[strings.ToUpper(st.Shares[i].Name)]
+		}
+	}
 	m := &manager{srv: srv, files: &files, state: st, path: cfg.Admin.StateFile,
 		roots: cfg.Admin.SourceRoots, audit: srv.out}
 	m.recount(st)
@@ -294,6 +357,8 @@ const (
 	refusedNotFound
 	refusedExists
 	refusedPrecondition
+	// refusedUnavailable is a provisioner that did not answer.
+	refusedUnavailable
 )
 
 func (r *refusal) Error() string { return r.msg }
@@ -366,16 +431,22 @@ func (m *manager) change(who, what string, edit func(st *stateFile) error) (appl
 	return a, nil
 }
 
-// blocks is every share a state defines together with the files: the ones
-// to serve, and the ones taken offline.
+// blocks is every share a state defines together with the files, and the
+// ones to serve: not taken offline, and -- a volume share -- with its volume
+// found and checked.
 func (m *manager) blocks(st *stateFile) (all, serve []shareBlock) {
 	all = slices.Clone(m.files.Shares)
+	out := map[string]bool{}
 	for _, s := range st.Shares {
 		b := s.block()
 		b.confine = m.roots
 		all = append(all, b)
+		if s.unavailable() != "" {
+			out[strings.ToUpper(s.Name)] = true
+		}
 	}
 	serve, _ = st.split(all)
+	serve = slices.DeleteFunc(serve, func(b shareBlock) bool { return out[strings.ToUpper(b.Name)] })
 	return all, serve
 }
 

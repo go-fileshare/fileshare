@@ -62,6 +62,12 @@ func socketDir(t *testing.T) string {
 // caller's to see.
 func managedConfig(t *testing.T, dir, extra string) (cfg *config, sock, state, roots string) {
 	t.Helper()
+	return managedConfigAdmin(t, dir, extra, "")
+}
+
+// managedConfigAdmin is managedConfig with more lines in the admin block.
+func managedConfigAdmin(t *testing.T, dir, extra, admin string) (cfg *config, sock, state, roots string) {
+	t.Helper()
 	sock = socketDir(t)
 	roots = filepath.Join(dir, "roots")
 	if err := os.MkdirAll(roots, 0o755); err != nil {
@@ -76,9 +82,9 @@ admin {
   listen       = "unix://%s/admin.sock"
   state_file   = %q
   source_roots = [%q]
-}
+%s}
 metrics { listen = "unix://%s/metrics.sock" }
-`, people(t, dir)+"group \"staff\" { members = [\"bob\"] }\n", extra, sock, hclPath(state), hclPath(roots), sock)
+`, people(t, dir)+"group \"staff\" { members = [\"bob\"] }\n", extra, sock, hclPath(state), hclPath(roots), admin, sock)
 	path := write(t, dir, "test.hcl", body)
 	cfg, err := loadConfig([]string{path})
 	if err != nil {
@@ -89,13 +95,19 @@ metrics { listen = "unix://%s/metrics.sock" }
 
 func startManaged(t *testing.T, dir, extra string) *managed {
 	t.Helper()
+	return startManagedAdmin(t, dir, extra, "")
+}
+
+// startManagedAdmin is startManaged with more lines in the admin block.
+func startManagedAdmin(t *testing.T, dir, extra, admin string) *managed {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		// The admin API is on a unix socket here, named by a unix path. Its
 		// other listener, TCP with mutual TLS, is tested on Windows where it
 		// lives: grpc-transports/control.
 		t.Skip("the admin tests use unix socket paths")
 	}
-	cfg, sock, state, roots := managedConfig(t, dir, extra)
+	cfg, sock, state, roots := managedConfigAdmin(t, dir, extra, admin)
 	if err := withState(cfg); err != nil {
 		t.Fatalf("state: %v", err)
 	}

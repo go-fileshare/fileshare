@@ -8,10 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -23,8 +25,10 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/tap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/go-fileshare/fileshare/internal/peercred"
 	adminv1 "github.com/go-fileshare/fileshare/proto/fileshare/admin/v1"
 )
 
@@ -48,13 +52,31 @@ func startAdmin(ctx context.Context, s *server, cfg *config) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.Admin.Provisioner != "" {
+		c, err := dialProvisioner(cfg.Admin)
+		if err != nil {
+			return nil, fmt.Errorf("admin: provisioner: %w", err)
+		}
+		mgr.vols = c
+	}
 	ln, opts, err := control.Listen(controlConfig(cfg.Admin))
 	if err != nil {
+		if mgr.vols != nil {
+			mgr.vols.Close()
+		}
 		return nil, err
 	}
 	calls := &rpcCounts{n: map[[2]string]uint64{}}
 	s.stats.rpcs = calls.collect
-	gs := grpc.NewServer(append(opts, grpc.ChainUnaryInterceptor(calls.intercept))...)
+	opts = append(opts, grpc.ChainUnaryInterceptor(calls.intercept))
+	if len(cfg.Admin.AllowedUIDs) > 0 {
+		// The peer's uid from internal/peercred, which these credentials
+		// replace control's with: grpc-go keeps the last Creds given.
+		g := &uidGate{allowed: cfg.Admin.AllowedUIDs, audit: mgr.audit, refused: &s.stats.refused}
+		opts = append(opts, grpc.Creds(peercred.New()), grpc.InTapHandle(g.tap),
+			grpc.ChainUnaryInterceptor(g.unary), grpc.ChainStreamInterceptor(g.stream))
+	}
+	gs := grpc.NewServer(opts...)
 	adminv1.RegisterAdminServiceServer(gs, &adminService{m: mgr})
 	hs := health.NewServer()
 	hs.SetServingStatus(adminv1.AdminService_ServiceDesc.ServiceName, healthpb.HealthCheckResponse_SERVING)
@@ -74,7 +96,69 @@ func startAdmin(ctx context.Context, s *server, cfg *config) (func(), error) {
 		case <-time.After(2 * time.Second):
 			gs.Stop()
 		}
+		if mgr.vols != nil {
+			mgr.vols.Close()
+		}
 	}, nil
+}
+
+// callerOf says who made a call, for the audit line: "uid=N" from the
+// kernel on a unix socket, "cn=..." for mutual TLS.
+func callerOf(ctx context.Context) string {
+	if a, ok := peercred.FromContext(ctx); ok {
+		return fmt.Sprintf("uid=%d", a.UID)
+	}
+	return control.Caller(ctx)
+}
+
+// A uidGate answers only the admin block's allowed_uids.
+//
+// ⛔ It narrows what the socket's 0600 mode already allows -- its owner and
+// root -- and cannot widen it: the kernel refuses everybody else's connect
+// before any of this runs. The tap handle refuses before a byte of the
+// request is decoded, the interceptors again per call and per stream (the
+// health and reflection services included), in case grpc-go ever stops
+// calling the first.
+type uidGate struct {
+	allowed []uint32
+	audit   io.Writer
+	refused *atomic.Uint64
+}
+
+func (g *uidGate) check(ctx context.Context, method string) error {
+	a, ok := peercred.FromContext(ctx)
+	if !ok {
+		fmt.Fprintf(g.audit, "admin (%s): refused %s: the caller's uid is unknown\n", logSafe(callerOf(ctx)), logSafe(method))
+		g.refused.Add(1)
+		return status.Error(codes.PermissionDenied, "the caller's uid is unknown")
+	}
+	if !slices.Contains(g.allowed, a.UID) {
+		fmt.Fprintf(g.audit, "admin (uid=%d pid=%d): refused %s: not in the admin block's allowed_uids\n", a.UID, a.PID, logSafe(method))
+		g.refused.Add(1)
+		return status.Errorf(codes.PermissionDenied, "uid %d may not call the admin API", a.UID)
+	}
+	return nil
+}
+
+func (g *uidGate) tap(ctx context.Context, info *tap.Info) (context.Context, error) {
+	if err := g.check(ctx, info.FullMethodName); err != nil {
+		return nil, err
+	}
+	return ctx, nil
+}
+
+func (g *uidGate) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (any, error) {
+	if err := g.check(ctx, info.FullMethod); err != nil {
+		return nil, err
+	}
+	return h(ctx, req)
+}
+
+func (g *uidGate) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, h grpc.StreamHandler) error {
+	if err := g.check(ss.Context(), info.FullMethod); err != nil {
+		return err
+	}
+	return h(srv, ss)
 }
 
 // rpcCounts is fileshare_admin_requests_total.
@@ -124,6 +208,8 @@ func grpcError(err error) error {
 		return status.Error(codes.AlreadyExists, r.msg)
 	case refusedPrecondition:
 		return status.Error(codes.FailedPrecondition, r.msg)
+	case refusedUnavailable:
+		return status.Error(codes.Unavailable, r.msg)
 	}
 	return status.Error(codes.InvalidArgument, r.msg)
 }
@@ -199,8 +285,14 @@ func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShare
 			return nil, grpcError(err)
 		}
 		ms.Directory, from = p, p
+	case *adminv1.CreateShareRequest_Volume:
+		if err := checkVolumeRef(src.Volume.GetParent(), src.Volume.GetName()); err != nil {
+			return nil, err
+		}
+		ms.Volume = &volumeRef{Parent: src.Volume.GetParent(), Name: src.Volume.GetName()}
+		from = "volume " + ms.Volume.String()
 	default:
-		return nil, status.Error(codes.InvalidArgument, "a share needs an image or a directory")
+		return nil, status.Error(codes.InvalidArgument, "a share needs an image, a directory or a volume")
 	}
 	grants, err := grantsOf(req.GetGrants())
 	if err != nil {
@@ -218,13 +310,22 @@ func (a *adminService) CreateShare(ctx context.Context, req *adminv1.CreateShare
 	if req.GetDisabled() {
 		what += ", disabled"
 	}
-	ap, err := m.change(control.Caller(ctx), what,
+	ap, err := m.change(callerOf(ctx), what,
 		func(st *stateFile) error {
 			if m.fromFiles(name) {
 				return refuse(refusedExists, "share %q is defined in the configuration files", name)
 			}
 			if indexOf(st, name) >= 0 {
 				return refuse(refusedExists, "there is already a share %q", name)
+			}
+			if ms.Volume != nil {
+				// Asked here, under the manager's lock, so DeleteVolume
+				// cannot delete it between the answer and the share.
+				res, err := m.resolveFor(ctx, *ms.Volume)
+				if err != nil {
+					return err
+				}
+				ms.Directory, ms.resolved = res.path, res
 			}
 			st.Shares = append(st.Shares, ms)
 			// A name left disabled by a share deleted earlier must not
@@ -273,7 +374,7 @@ func (a *adminService) UpdateShare(ctx context.Context, req *adminv1.UpdateShare
 
 func (a *adminService) DeleteShare(ctx context.Context, req *adminv1.DeleteShareRequest) (*adminv1.DeleteShareResponse, error) {
 	name := req.GetName()
-	ap, err := a.m.change(control.Caller(ctx), "deleted share "+name, func(st *stateFile) error {
+	ap, err := a.m.change(callerOf(ctx), "deleted share "+name, func(st *stateFile) error {
 		i, err := a.m.managed(st, name)
 		if err != nil {
 			return err
@@ -313,9 +414,22 @@ func (a *adminService) setDisabled(ctx context.Context, name string, off bool) (
 	if !off {
 		what = "enabled share " + name
 	}
-	return a.m.change(control.Caller(ctx), what, func(st *stateFile) error {
+	return a.m.change(callerOf(ctx), what, func(st *stateFile) error {
 		if !a.m.exists(st, name) {
 			return refuse(refusedNotFound, "there is no share %q", name)
+		}
+		// A volume share is looked up again when it is brought back -- and
+		// when it is enabled and waiting unserved, which is how one whose
+		// volume came back is served again.
+		if i := indexOf(st, name); !off && i >= 0 && st.Shares[i].Volume != nil &&
+			(st.isDisabled(name) || st.Shares[i].unavailable() != "") {
+			res, err := a.m.resolveFor(ctx, *st.Shares[i].Volume)
+			if err != nil {
+				return err
+			}
+			st.Shares[i].Directory, st.Shares[i].resolved = res.path, res
+			st.Disabled = slices.DeleteFunc(st.Disabled, func(d string) bool { return strings.EqualFold(d, name) })
+			return nil
 		}
 		if st.isDisabled(name) == off {
 			if off {
@@ -385,7 +499,7 @@ func (a *adminService) Revoke(ctx context.Context, req *adminv1.RevokeRequest) (
 
 // edit changes one share the API manages.
 func (a *adminService) edit(ctx context.Context, name, what string, fn func(*managedShare) error) (applied, error) {
-	return a.m.change(control.Caller(ctx), what, func(st *stateFile) error {
+	return a.m.change(callerOf(ctx), what, func(st *stateFile) error {
 		i, err := a.m.managed(st, name)
 		if err != nil {
 			return err
@@ -411,11 +525,11 @@ func (a *adminService) ReloadDirectory(ctx context.Context, _ *adminv1.ReloadDir
 	srv := a.m.srv
 	r, err := srv.reload()
 	if err != nil && !errors.Is(err, errUnchanged) {
-		fmt.Fprintf(a.m.audit, "admin (%s): reloading the directory failed: %s\n", logSafe(control.Caller(ctx)), logSafe(err.Error()))
+		fmt.Fprintf(a.m.audit, "admin (%s): reloading the directory failed: %s\n", logSafe(callerOf(ctx)), logSafe(err.Error()))
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	srv.sayReload(r, err)
-	fmt.Fprintf(a.m.audit, "admin (%s): reloaded the directory\n", logSafe(control.Caller(ctx)))
+	fmt.Fprintf(a.m.audit, "admin (%s): reloaded the directory\n", logSafe(callerOf(ctx)))
 	return &adminv1.ReloadDirectoryResponse{Added: r.added, Removed: r.removed, Changed: r.changed,
 		NewGeneration: r.swapped, Notes: r.notes,
 		Applied: &adminv1.Applied{Generation: srv.generationNumber(), ConnectionsClosed: r.closed}}, nil
@@ -458,8 +572,15 @@ func (a *adminService) ListGroups(ctx context.Context, _ *adminv1.ListGroupsRequ
 func (m *manager) view(name string) *adminv1.Share {
 	var b shareBlock
 	v := &adminv1.Share{}
+	var volume *adminv1.VolumeRef
 	if i := indexOf(m.state, name); i >= 0 {
 		ms := m.state.Shares[i]
+		if ms.Volume != nil {
+			volume = &adminv1.VolumeRef{Parent: ms.Volume.Parent, Name: ms.Volume.Name}
+			if !m.state.isDisabled(name) {
+				v.Unavailable = ms.unavailable()
+			}
+		}
 		v.Origin = adminv1.Origin_ORIGIN_API
 		v.ReadOnly = ms.ReadOnly
 		b = ms.block()
@@ -480,7 +601,9 @@ func (m *manager) view(name string) *adminv1.Share {
 	}
 	v.Name = b.Name
 	v.Protocols = slices.Clone(b.Protocols)
-	if b.Directory != "" {
+	if volume != nil {
+		v.Source = &adminv1.Share_Volume{Volume: volume}
+	} else if b.Directory != "" {
 		v.Source = &adminv1.Share_Directory{Directory: b.Directory}
 	} else {
 		v.Source = &adminv1.Share_Image{Image: b.Image}
@@ -492,9 +615,11 @@ func (m *manager) view(name string) *adminv1.Share {
 		}
 	}
 	if sh == nil {
-		// Taken offline: nothing is open, so there is nothing found to say,
-		// and nothing is served over anything.
+		// Taken offline, or waiting for its volume: nothing is open, so
+		// there is nothing found to say, and nothing is served over
+		// anything.
 		v.EffectiveReadOnly = true
+		v.Enabled = !m.state.isDisabled(name)
 		return v
 	}
 	v.Enabled = true

@@ -105,6 +105,12 @@ github.com/go-filesystems/xfs v0.1.0 h1:Yu4AvZfCbQS9gJJ48t5+p45jZqcDLd+WpCOa3BkO
 github.com/go-filesystems/xfs v0.1.0/go.mod h1:EZxrQpldx5VV6ul2Ia5LbKczQleYPHijbHBpvQh0iBU=
 github.com/go-filesystems/zfs v0.1.0 h1:o5ukV23KKdcqq/S1Iv4cgHFbt0REi9onYQLuYOED5Yk=
 github.com/go-filesystems/zfs v0.1.0/go.mod h1:Qi2YiNXnAfJuuJvuIzw3/90V/qjlpldcBws1hWcUT6o=
+github.com/go-fsctl/btrfs v0.1.0 h1:amiMpG843wTl3J0uToO/wN5lHlc4aXCVMm4PQQskw3U=
+github.com/go-fsctl/btrfs v0.1.0/go.mod h1:hVrQIg03V/EojEboquU3+2dbn+KlyJ6CEtOTUXbVIvE=
+github.com/go-fsctl/projquota v0.1.0 h1:NSWA55JESIBAoJaME1c2q9wwF2X/aZsuSEsxEuipMeA=
+github.com/go-fsctl/projquota v0.1.0/go.mod h1:x07Bg8yNDXK19NvKLT0Ow1sdDNN/sSHQRbwdnoh1zZM=
+github.com/go-fsctl/zfs v0.1.0 h1:zWAr0ygDwwRsRSmipiFfKkmNSQN9aesuhg6vy4vSaBI=
+github.com/go-fsctl/zfs v0.1.0/go.mod h1:s4GQwY2JUSKljp/m76JJwZ0H0PyYHPlDbaaZBfhADRE=
 github.com/go-jose/go-jose/v4 v4.1.5 h1:RjgjO2LOtWOJKUC5wpwY9LR3B3vwVAz6JS2YHfYU6eA=
 github.com/go-jose/go-jose/v4 v4.1.5/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/go-ldap/ldap/v3 v3.4.14 h1:D6PYdEgsaVzsXyr6w/yDC06Ria4uUhWm+Rb+er8lfAs=

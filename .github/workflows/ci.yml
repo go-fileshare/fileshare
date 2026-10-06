@@ -116,7 +116,12 @@ jobs:
                # the largest thing in the binary (+11.5 MB measured when they
                # came in), and a site that manages its shares in files should
                # not carry them.
-               nogrpc, "nogrpc,nowebdav", "nogrpc,nosql,noldap,nonfs,nowebdav,nosftp,nos3"]
+               nogrpc, "nogrpc,nowebdav", "nogrpc,nosql,noldap,nonfs,nowebdav,nosftp,nos3",
+               # Not a protocol either: the provisioner, the privileged
+               # second role, and go-fsctl's zfs, btrfs and projquota with
+               # it. A server that serves images and directories, and never
+               # volumes, need not carry the code that creates them.
+               noprovisioner, "noprovisioner,nosql,noldap"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -158,9 +163,14 @@ jobs:
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
           protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
             --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
-            proto/fileshare/admin/v1/admin.proto
-          git diff --exit-code -- proto || {
-            echo "::error::proto/ is not what protoc generates from admin.proto: regenerate it (see the README)"; exit 1; }
+            proto/fileshare/admin/v1/admin.proto proto/fileshare/provision/v1/provision.proto
+          # ⛔ --exit-code alone ignores a file nobody committed: a NEW .proto
+          # whose generated code was left out would pass. Untracked files
+          # under proto/ fail the lane too.
+          untracked=$(git ls-files --others --exclude-standard -- proto)
+          git diff --exit-code -- proto && [ -z "$untracked" ] || {
+            echo "::error::proto/ is not what protoc generates from the .proto files: regenerate it (see the README)"
+            echo "$untracked"; exit 1; }
       # buf's STANDARD rules; see proto/buf.yaml for why its response naming
       # is the one kept over AIP-131's.
       - run: cd proto && go run github.com/bufbuild/buf/cmd/buf@v1.73.0 lint
@@ -202,6 +212,97 @@ jobs:
           awk -v c="$cov" -v f="$FLOOR" 'BEGIN{exit !(c+0 < f+0)}' && {
             echo "::error::coverage ${cov}% fell below the recorded floor ${FLOOR}%"; exit 1; }
           awk -v c="$cov" 'BEGIN{if (c+0 < 100) printf "::warning::%.1f points short of the 100%% standard\n", 100-c}'
+
+  # ⛔ THE PROVISIONER AS ROOT, ON THE FOUR FILESYSTEMS IT CREATES VOLUMES ON.
+  # Everything else tests it against fakes of the kernel; this is the lane
+  # where the kernel answers. `fileshare provisioner` runs as root, and the
+  # tests call it as uid nobody over its socket -- the uid check is part of
+  # what is under test -- and write into each volume as nobody until the
+  # filesystem says it is full: ext4 lets root (CAP_SYS_RESOURCE) write past
+  # a project quota, so a fill run as root would prove nothing there.
+  #
+  # The filesystems are built the way go-fsctl's own kernel lanes build them:
+  # a file-backed pool, and loop mounts of btrfs (quotas left OFF, so the
+  # provisioner's enable_quota is what turns them on), XFS with prjquota, and
+  # ext4 made with -O quota,project, which needs the quota_v2 module from
+  # linux-modules-extra or the mount fails with ESRCH.
+  provisioner:
+    name: the provisioner as root (zfs, btrfs, xfs, ext4)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.1'
+          check-latest: true
+          cache: true
+
+      - name: OpenZFS, btrfs-progs, xfsprogs, and the modules
+        run: |
+          set -x
+          uname -r
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zfsutils-linux btrfs-progs xfsprogs e2fsprogs "linux-modules-extra-$(uname -r)" ||
+            sudo apt-get install -y -qq zfsutils-linux btrfs-progs xfsprogs e2fsprogs
+          sudo modprobe zfs
+          sudo modprobe btrfs
+          sudo modprobe xfs
+          sudo modprobe quota_v2
+          test -e /dev/zfs || { echo "::error::/dev/zfs absent"; exit 1; }
+
+      - name: the four filesystems
+        run: |
+          set -euxo pipefail
+          sudo mkdir -p /srv/it/zfs /srv/it/btrfs /srv/it/xfs /srv/it/ext4
+          truncate -s 2G "$RUNNER_TEMP/pool.img"
+          sudo zpool create -f itpool "$RUNNER_TEMP/pool.img"
+          sudo zfs create -o mountpoint=none itpool/fileshare
+          truncate -s 1G "$RUNNER_TEMP/btrfs.img"
+          mkfs.btrfs -q "$RUNNER_TEMP/btrfs.img"
+          sudo mount -o loop "$RUNNER_TEMP/btrfs.img" /srv/it/btrfs
+          # 512 MiB: recent xfsprogs refuses filesystems under 300 MB.
+          truncate -s 512M "$RUNNER_TEMP/xfs.img"
+          mkfs.xfs -q -f "$RUNNER_TEMP/xfs.img"
+          sudo mount -o loop,prjquota "$RUNNER_TEMP/xfs.img" /srv/it/xfs
+          truncate -s 256M "$RUNNER_TEMP/ext4.img"
+          mkfs.ext4 -q -F -O quota,project -I 256 "$RUNNER_TEMP/ext4.img"
+          sudo mount -o loop,prjquota "$RUNNER_TEMP/ext4.img" /srv/it/ext4
+          sudo chmod 0755 /srv/it /srv/it/*
+          # A mount command that returned 0 is not that filesystem at that
+          # path: ask the kernel.
+          for k in btrfs xfs ext4; do
+            t=$(findmnt -no FSTYPE "/srv/it/$k"); test "$t" = "$k" || { echo "::error::/srv/it/$k is $t"; exit 1; }
+          done
+          sudo zfs list -o name,mountpoint itpool/fileshare
+
+      # Built as the runner, run as root: sudo's PATH has no go.
+      - name: the provisioner's integration tests, as root
+        run: |
+          set -o pipefail
+          go build -o "$RUNNER_TEMP/fileshare" .
+          go test -c -o "$RUNNER_TEMP/provision.test" ./internal/provision
+          status=0
+          sudo env FILESHARE_IT=1 FILESHARE_BIN="$RUNNER_TEMP/fileshare" \
+            FILESHARE_IT_ZFS_DATASET=itpool/fileshare FILESHARE_IT_ZFS_ROOT=/srv/it/zfs \
+            FILESHARE_IT_BTRFS=/srv/it/btrfs FILESHARE_IT_XFS=/srv/it/xfs FILESHARE_IT_EXT4=/srv/it/ext4 \
+            "$RUNNER_TEMP/provision.test" -test.count=1 -test.v -test.run '^TestIntegration' 2>&1 | tee it-output.txt || status=$?
+          [ $status -eq 0 ] || sudo dmesg | tail -40
+          exit $status
+
+      # A skip is a failure here: the filesystems exist, so a test that
+      # skipped judged nothing -- and a lane that is green because nothing
+      # ran is the one this step is for.
+      - name: the kernel judges must have judged
+        run: |
+          if grep -E -- "--- SKIP|integration: " it-output.txt; then
+            echo "::error::an integration test skipped; the filesystems were not used"
+            exit 1
+          fi
+          for t in TestIntegrationProvisioner/peer TestIntegrationProvisioner/zfs TestIntegrationProvisioner/btrfs \
+                   TestIntegrationProvisioner/xfs TestIntegrationProvisioner/ext4 TestIntegrationProvisioner; do
+            grep -q -- "--- PASS: $t " it-output.txt || { echo "::error::$t did not pass"; exit 1; }
+          done
+          echo "integration tests passed: $(grep -c -- '--- PASS: TestIntegrationProvisioner' it-output.txt)"
 
   arches:
     name: arch ${{ matrix.goarch }}

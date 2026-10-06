@@ -1,0 +1,183 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+// The provisioner's protocol: what `fileshare serve` may ask the privileged
+// `fileshare provisioner` to do, and nothing else. See docs/volumes.md.
+//
+// It is spoken on a unix socket only, and the provisioner answers one uid --
+// its configured client_uid, read from the socket with SO_PEERCRED -- with
+// PERMISSION_DENIED for anybody else. The verbs are CLOSED: a method this file
+// does not name, or a message that does not decode as the one it names, closes
+// the connection rather than being answered (OpenSSH privsep's "unpermitted
+// request"). A request carrying a field this file does not define is such a
+// message: a newer client's extra field may be one the caller expects to be
+// honoured, and silently ignoring it is the wrong half of that disagreement.
+//
+// A request never carries a path. A volume is named by a `parent` -- an id
+// from the provisioner's OWN configuration -- and a `name` matched by
+// ^[a-z0-9][a-z0-9_-]{0,62}$, and it lives at <parent root>/<name>. Everything
+// the provisioner creates carries an ownership mark, checked before it resizes,
+// snapshots or deletes anything: it never touches what it did not create.
+//
+// Create and Delete are idempotent by name, as CSI's are: the same name with
+// the same parameters is OK and answers with the volume that exists; the same
+// name with different parameters is ALREADY_EXISTS; deleting what is not there
+// is OK.
+//
+// The status codes, CSI's vocabulary:
+//
+//	INVALID_ARGUMENT     a name outside the grammar, an unknown parent, a quota of 0
+//	OUT_OF_RANGE         a quota above the configured max_volume
+//	RESOURCE_EXHAUSTED   the parent has no room, or no project id is left
+//	ALREADY_EXISTS       the name is taken with other parameters, or by something
+//	                     the provisioner did not create
+//	NOT_FOUND            resizing or snapshotting a volume that does not exist
+//	FAILED_PRECONDITION  deleting a volume with snapshots or data without
+//	                     destroy_data; shrinking below what is used; touching
+//	                     something that carries no ownership mark
+//	UNIMPLEMENTED        a snapshot of an XFS or ext4 volume
+//	PERMISSION_DENIED    a peer whose uid is not client_uid
+syntax = "proto3";
+
+package fileshare.provision.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/go-fileshare/fileshare/proto/fileshare/provision/v1;provisionv1";
+
+service ProvisionService {
+  // GetCapabilities lists the parents, what kind each is, and the limits.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+
+  // CreateVolume creates <parent root>/<name>, limited to quota_bytes, owned
+  // root:<group> mode 2770 -- fileshare writes through the group and never
+  // owns it, because the OWNER of a directory may clear its XFS/ext4 project
+  // id without privilege.
+  rpc CreateVolume(CreateVolumeRequest) returns (CreateVolumeResponse);
+  // ResizeVolume changes the quota, either way; never below what is used.
+  rpc ResizeVolume(ResizeVolumeRequest) returns (ResizeVolumeResponse);
+  // SnapshotVolume takes a read-only snapshot (ZFS, btrfs). Idempotent by
+  // name as CreateVolume is. UNIMPLEMENTED on XFS and ext4.
+  rpc SnapshotVolume(SnapshotVolumeRequest) returns (SnapshotVolumeResponse);
+  // DeleteVolume refuses a volume with snapshots, or one that is not empty,
+  // unless destroy_data is set; every delete is logged before it happens.
+  rpc DeleteVolume(DeleteVolumeRequest) returns (DeleteVolumeResponse);
+
+  rpc GetVolume(GetVolumeRequest) returns (GetVolumeResponse);
+  rpc ListVolumes(ListVolumesRequest) returns (ListVolumesResponse);
+}
+
+enum Kind {
+  KIND_UNSPECIFIED = 0;
+  // A dataset <parent dataset>/<name>, refquota'd, mountpoint=legacy, mounted
+  // by the provisioner at <root>/<name>.
+  KIND_ZFS = 1;
+  // A subvolume <root>/<name>, limited by its level-0 qgroup.
+  KIND_BTRFS = 2;
+  // A directory <root>/<name> under a project quota.
+  KIND_XFS = 3;
+  KIND_EXT4 = 4;
+}
+
+message GetCapabilitiesRequest {}
+
+message GetCapabilitiesResponse {
+  repeated Parent parents = 1;
+  // The largest quota one volume may have.
+  uint64 max_volume_bytes = 2;
+}
+
+message Parent {
+  string id = 1;
+  Kind kind = 2;
+  // Where its volumes are: <root>/<name>.
+  string root = 3;
+  // Free and total space of the filesystem (or, for ZFS, the dataset) the
+  // volumes come from; 0 when it could not be read.
+  uint64 free_bytes = 4;
+  uint64 total_bytes = 5;
+  // Whether SnapshotVolume works on its volumes.
+  bool snapshots = 6;
+}
+
+message Volume {
+  string parent = 1;
+  string name = 2;
+  Kind kind = 3;
+  // <parent root>/<name>, for fileshare to serve.
+  string path = 4;
+  uint64 quota_bytes = 5;
+  // What the filesystem charges to it; 0 when it could not be read.
+  uint64 used_bytes = 6;
+  google.protobuf.Timestamp created = 7;
+  // The names of its snapshots.
+  repeated string snapshots = 8;
+}
+
+message CreateVolumeRequest {
+  // An id from the provisioner's own configuration, never a path.
+  string parent = 1;
+  // ^[a-z0-9][a-z0-9_-]{0,62}$
+  string name = 2;
+  // 0 is refused: an unbounded volume is a configuration mistake.
+  uint64 quota_bytes = 3;
+}
+
+message CreateVolumeResponse {
+  Volume volume = 1;
+  // False when the volume already existed with these parameters.
+  bool created = 2;
+}
+
+message ResizeVolumeRequest {
+  string parent = 1;
+  string name = 2;
+  uint64 quota_bytes = 3;
+}
+
+message ResizeVolumeResponse {
+  Volume volume = 1;
+}
+
+message SnapshotVolumeRequest {
+  string parent = 1;
+  string name = 2;
+  // The snapshot's own name, in the same grammar as a volume's.
+  string snapshot = 3;
+}
+
+message SnapshotVolumeResponse {
+  Volume volume = 1;
+  // False when the snapshot already existed.
+  bool created = 2;
+}
+
+message DeleteVolumeRequest {
+  string parent = 1;
+  string name = 2;
+  // Destroy the volume's data and its snapshots too. Without it a volume
+  // that holds either is refused with FAILED_PRECONDITION.
+  bool destroy_data = 3;
+}
+
+message DeleteVolumeResponse {
+  // False when there was nothing to delete.
+  bool deleted = 1;
+}
+
+message GetVolumeRequest {
+  string parent = 1;
+  string name = 2;
+}
+
+message GetVolumeResponse {
+  Volume volume = 1;
+}
+
+message ListVolumesRequest {
+  // Only the volumes of this parent; empty for every parent.
+  string parent = 1;
+}
+
+message ListVolumesResponse {
+  repeated Volume volumes = 1;
+}

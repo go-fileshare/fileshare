@@ -106,9 +106,22 @@ One rule for all kinds: **a volume is `<parent root>/<name>`**.
   limited by its level-0 qgroup (`max_rfer`). Caveat from btrfs's own docs:
   qgroups slow commits as snapshots multiply.
 - **XFS / ext4**: directory `<root>/<name>` with a project id (with
-  inheritance) from the configured range and a hard block limit. The mount
-  needs `prjquota` (and ext4 the `project,quota` features). `df` inside it then
-  shows the quota as the size.
+  inheritance) from the configured range and a hard block limit
+  (go-fsctl/projquota). The mount needs `prjquota` (and ext4 the
+  `project,quota` features and the `quota_v2` module). `df` inside it then
+  shows the quota as the size (the soft limit if one is set). Measured in
+  go-fsctl/projquota's CI on real XFS and ext4 mounts:
+  - ⛔ **On ext4, anything with `CAP_SYS_RESOURCE` is not limited at all**
+    (fs/quota/dquot.c `ignore_hardlimit`): root wrote 16 MiB into an 8 MiB
+    quota. XFS has no such exemption. So `fileshare serve` must hold neither
+    root nor `CAP_SYS_RESOURCE`, and refuses to start serving volumes if it
+    does.
+  - A full project is `ENOSPC` on XFS and `EDQUOT` on ext4: fileshare reports
+    both as "the share is full".
+  - Reading a project's usage needs `CAP_SYS_ADMIN` too, so used space comes
+    from the provisioner, never from fileshare.
+  - XFS ignores a hard limit below the soft one and makes project 0's limits
+    every project's default; the library refuses both.
 
 The volume root is owned by `root:<fileshare's group>`, mode `2770`. fileshare
 writes into it through the group and never owns it — because the OWNER of a

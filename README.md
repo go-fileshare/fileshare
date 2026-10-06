@@ -1009,9 +1009,8 @@ CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER
 # Run as root, or as a dedicated user with:
 # AmbientCapabilities=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER
 NoNewPrivileges=yes
-# ioctl is in @system-service, mount(2) in @mount; quotactl_fd(2) is in
-# neither group and is named. (An example: CI runs the provisioner as root
-# under sudo, not under this unit.)
+# The quota calls are named rather than trusted to a group. (An example:
+# CI runs the provisioner as root under sudo, not under this unit.)
 SystemCallFilter=@system-service @mount quotactl quotactl_fd
 SystemCallArchitectures=native
 LockPersonality=yes

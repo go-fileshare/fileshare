@@ -7,6 +7,7 @@ package provision
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -346,9 +347,14 @@ func fill(path string, max uint64) (uint64, error) {
 		return 0, err
 	}
 	defer f.Close()
+	// ⛔ RANDOM bytes. The first run of this lane wrote a repeating byte
+	// pattern -- "not zeros", it said -- and ZFS's default lz4 compressed it
+	// to nothing: 64 MiB went into a 32 MiB refquota without an error, and
+	// the quota was never reached. Random data does not compress, on any of
+	// the four.
 	buf := make([]byte, itMiB)
-	for i := range buf {
-		buf[i] = byte(i) // not zeros: no filesystem may compress it away
+	if _, err := rand.Read(buf); err != nil {
+		return 0, err
 	}
 	var n uint64
 	for n < max {
@@ -422,6 +428,14 @@ func TestIntegrationProvisioner(t *testing.T) {
 				t.Fatalf("create: %+v", a)
 			}
 			path := a.Path
+			if k.kind == "zfs" {
+				// The volume is the dataset, mounted there -- not the bare
+				// directory under it, which no quota would hold.
+				data, _ := os.ReadFile("/proc/self/mountinfo")
+				if src, fs, ok := parseMountinfo(string(data), path); !ok || fs != "zfs" || !strings.HasSuffix(src, "/"+n) {
+					t.Fatalf("%s is not the dataset's mount: %q %q %v", path, src, fs, ok)
+				}
+			}
 			st, err := os.Stat(path)
 			if err != nil {
 				t.Fatal(err)

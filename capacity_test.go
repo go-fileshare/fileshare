@@ -210,6 +210,15 @@ func TestVolumeSpaceNeverWaitsForTheProvisioner(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("capacity waited for the provisioner")
 	}
+	// The question is asked from a goroutine capacity starts: it may not have
+	// reached the provisioner yet when the queries return. Wait for it, then
+	// check that it is the only one.
+	for deadline := time.Now().Add(10 * time.Second); a.calls.Load() == 0; {
+		if time.Now().After(deadline) {
+			t.Fatal("no question was ever asked")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if n := a.calls.Load(); n != 1 {
 		t.Fatalf("%d questions in flight at once, want 1", n)
 	}

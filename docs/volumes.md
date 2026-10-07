@@ -272,13 +272,29 @@ repeating pattern that lz4 compressed away — the test now writes random bytes)
   list" cannot let anybody else in. It is refused over TCP (the client
   certificate is the check) and where internal/peercred cannot read a peer
   (not Linux or macOS).
-- **The share's size** is what statfs says inside the volume: the quota for
-  ZFS (refquota), XFS and ext4 (project statfs); the whole filesystem for
-  btrfs, whose statfs ignores qgroups.
+- **The share's size** -- what NFS FSSTAT, WebDAV's RFC 4331 quota
+  properties and SMB's FileFs(Full)SizeInformation report -- is asked at
+  every query, not taken once at the start (capacity.go; the libraries'
+  `WithCapacityFunc`). For ZFS (refquota), XFS and ext4 (project quota) it is
+  statfs inside the volume, which the kernel answers with the quota. For
+  **btrfs**, whose statfs ignores qgroups and reports the whole filesystem,
+  it is the provisioner's numbers: the quota as the size, and the quota less
+  the level-0 qgroup's referenced bytes (`used_bytes`) as free -- or the
+  filesystem's own free space when that is less. The qgroup tree is
+  readable with CAP_SYS_ADMIN only, so the server asks the provisioner
+  (GetVolume), in the background, at most once every 5 s while clients ask,
+  and serves the last answer meanwhile; a provisioner that does not answer
+  leaves the last numbers in place. btrfs updates a qgroup's count at a
+  transaction commit (30 s by default), so the free space shown can trail
+  writes by that long. Every other directory share reports statfs the same
+  live way (reused for 1 s); before, NFS said the share was entirely free
+  and WebDAV that it was entirely used, whatever it held.
 
 Measured in the end-to-end CI job (the provisioner job's last steps):
 `fileshare serve` as nobody, filling a 32 MiB volume of each kind over WebDAV
-and over SFTP.
+and over SFTP; and the size every protocol's client is told for a 32 MiB
+volume of each kind, before and after 8 MiB are written into it, beside
+statfs inside it.
 
 ## Phases
 

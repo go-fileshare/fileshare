@@ -93,6 +93,10 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 			// refuse writes it could have done.
 			nfs.WithCapacity(sh.size, sh.size),
 		}
+		if sh.capacity != nil {
+			// A directory: what it is now, not what it was at the start.
+			opts = append(opts, nfs.WithCapacityFunc(sh.capacity))
+		}
 		switch {
 		case sh.anyoneWrites():
 			opts = append(opts, nfs.ReadWrite())

@@ -361,6 +361,10 @@ type shareBlock struct {
 	// whatever this says.
 	Protocols []string `hcl:"protocols,optional"`
 
+	// vol is what the provisioner said of the volume an admin API share is
+	// made from, when it is served: see capacity.go.
+	vol *volumeResolution
+
 	// noWriters is an admin API share that nobody was granted write on: it
 	// is SERVED read-only, and still opened for writing unless ReadOnly
 	// says otherwise, so that a later grant of write does not need the

@@ -334,6 +334,11 @@ jobs:
           n=$(grep -c "bytes into a" e2e-output.txt)
           [ "$n" -eq 8 ] || { echo "::error::$n fills measured, want 8"; exit 1; }
           grep "bytes into a" e2e-output.txt
+          # What every protocol's client is told a 32 MiB volume's size is,
+          # beside statfs inside it (the whole filesystem, for btrfs).
+          n=$(grep -c "size: " e2e-output.txt)
+          [ "$n" -eq 16 ] || { echo "::error::$n sizes measured, want 16"; exit 1; }
+          grep "size: " e2e-output.txt
 
   arches:
     name: arch ${{ matrix.goarch }}

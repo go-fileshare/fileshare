@@ -55,6 +55,11 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 				opts = append(opts, smb.WriteUsers(sh.writers...))
 			}
 		}
+		if sh.capacity != nil {
+			opts = append(opts, smb.WithCapacityFunc(sh.capacity))
+		} else if sh.size > 0 {
+			opts = append(opts, smb.WithCapacity(sh.size, sh.size))
+		}
 		if err := srv.Share(sh.name, sh.fsys, opts...); err != nil {
 			return err
 		}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
-//go:build linux && !nogrpc && !nowebdav && !nosftp
+//go:build linux && !nogrpc && !nowebdav && !nosftp && !nonfs && !nosmb
 
 package main
 
@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudsoda/go-smb2"
 	"github.com/grpc-transports/control"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
@@ -33,6 +34,13 @@ import (
 //
 //   - `fileshare provisioner` runs as root, answering uid nobody;
 //   - `fileshare check` runs as root and must say it would serve no volume;
+//   - before the fills, a volume of each kind is shared with nobody named
+//     (read-only for anyone, so NFS serves it too), and what every protocol's
+//     client is told its size and free space are is measured -- and measured
+//     again after 8 MiB are written into it: E2E-SIZE lines. statfs inside
+//     the volume is measured beside them: for btrfs it is the WHOLE
+//     filesystem (its statfs ignores qgroups), which every protocol reported
+//     before capacity.go;
 //   - `fileshare serve` runs as nobody -- a copy of this test binary, the
 //     helper below -- with the admin API's allowed_uids naming nobody, and
 //     drives it as nobody: CreateVolume on every parent, CreateShare from
@@ -61,6 +69,20 @@ type e2eResult struct {
 	// Size is the share's size as served: what statfs says inside it.
 	Size uint64 `json:"size"`
 }
+
+// An e2eSize is what one client was told of a 32 MiB volume's size, before
+// and after 8 MiB were written into it.
+type e2eSize struct {
+	Kind     string `json:"kind"`
+	Protocol string `json:"protocol"` // "statfs" is the kernel, inside the volume
+	Total    uint64 `json:"total"`
+	Avail    uint64 `json:"avail"`
+	// After is what was available once the 8 MiB were written.
+	After uint64 `json:"after"`
+}
+
+// e2eSizeWrite is what the size probe writes into its volume.
+const e2eSizeWrite = 8 << 20
 
 func TestVolumesEndToEnd(t *testing.T) {
 	if os.Getenv("FILESHARE_VOLUME_E2E") == "" {
@@ -197,6 +219,35 @@ admin {
 	if len(results) != 8 {
 		t.Fatalf("%d results, want 8 (4 kinds x WebDAV and SFTP)", len(results))
 	}
+	var sizes []e2eSize
+	for _, line := range strings.Split(string(hout), "\n") {
+		if j, ok := strings.CutPrefix(strings.TrimSpace(line), "E2E-SIZE "); ok {
+			var r e2eSize
+			if err := json.Unmarshal([]byte(j), &r); err != nil {
+				t.Fatalf("%q: %v", line, err)
+			}
+			sizes = append(sizes, r)
+		}
+	}
+	if len(sizes) != 16 {
+		t.Fatalf("%d sizes, want 16 (4 kinds x statfs, NFS, WebDAV, SMB)", len(sizes))
+	}
+	const mib = 1 << 20
+	for _, r := range sizes {
+		t.Logf("size: %-5s %-6s total %6.1f MiB, available %6.1f MiB, after writing 8 MiB %6.1f MiB",
+			r.Kind, r.Protocol, float64(r.Total)/mib, float64(r.Avail)/mib, float64(r.After)/mib)
+		if r.Protocol == "statfs" {
+			continue // the kernel's, for comparison: btrfs's is the whole filesystem
+		}
+		// Every protocol, every kind: the quota, give or take what a
+		// filesystem keeps for itself, and 8 MiB less after 8 MiB.
+		if r.Total < e2eQuota-2*mib || r.Total > e2eQuota+2*mib {
+			t.Errorf("%s over %s: a %d-byte volume reported as %d bytes", r.Kind, r.Protocol, e2eQuota, r.Total)
+		}
+		if r.Avail > r.Total || r.After > r.Avail-e2eSizeWrite+mib || r.After+e2eSizeWrite+2*mib < r.Avail {
+			t.Errorf("%s over %s: available %d, then %d after writing %d", r.Kind, r.Protocol, r.Avail, r.After, e2eSizeWrite)
+		}
+	}
 	for _, r := range results {
 		t.Logf("%-5s %-6s %9d bytes into a %d-byte volume, then %s (the share's size: %d)", r.Kind, r.Protocol, r.Written, e2eQuota, r.Answer, r.Size)
 	}
@@ -224,6 +275,8 @@ user "alice" {
 }
 serve "webdav" { addr = "127.0.0.1:0" }
 serve "sftp"   { addr = "127.0.0.1:0" }
+serve "nfs"    { addr = "127.0.0.1:0" }
+serve "smb"    { addr = "127.0.0.1:0" }
 admin {
   listen          = "unix://%s/admin.sock"
   state_file      = "%s/shares.json"
@@ -279,6 +332,10 @@ admin {
 	}
 	for _, p := range parents.GetParents() {
 		kind := strings.ToLower(strings.TrimPrefix(p.GetKind().String(), "VOLUME_KIND_"))
+		for _, r := range probeSize(t, ctx, api, addrs, p.GetId(), kind) {
+			j, _ := json.Marshal(r)
+			fmt.Printf("E2E-SIZE %s\n", j)
+		}
 		for _, proto := range []string{"webdav", "sftp"} {
 			name := "e2e-" + proto
 			share := p.GetId() + "-" + proto
@@ -379,4 +436,109 @@ func fillSFTP(t *testing.T, addr, share string, key ssh.Signer) e2eResult {
 	f.Close()
 	t.Errorf("%s: %d bytes written and never full", share, r.Written)
 	return r
+}
+
+// probeSize shares a new 32 MiB volume with nobody named -- read-only for
+// anyone, which NFS serves -- and asks every protocol's client, and statfs
+// inside it, what its size and free space are; then writes 8 MiB into it
+// directly (this process is the server's uid), syncs so that btrfs commits
+// the qgroup's new count, and waits for each to report the space gone.
+func probeSize(t *testing.T, ctx context.Context, api adminv1.AdminServiceClient, addrs map[string]string, parent, kind string) []e2eSize {
+	t.Helper()
+	name, share := "e2e-size", parent+"-size"
+	v, err := api.CreateVolume(ctx, &adminv1.CreateVolumeRequest{Parent: parent, Name: name, QuotaBytes: e2eQuota})
+	if err != nil {
+		t.Fatalf("%s: CreateVolume: %v", kind, err)
+	}
+	if _, err := api.CreateShare(ctx, &adminv1.CreateShareRequest{Name: share, Source: volumeSource(parent, name)}); err != nil {
+		t.Fatalf("%s: CreateShare: %v", kind, err)
+	}
+	path := v.GetVolume().GetPath()
+	probes := []struct {
+		proto string
+		read  func() (total, avail uint64)
+	}{
+		{"statfs", func() (uint64, uint64) {
+			var st syscall.Statfs_t
+			if err := syscall.Statfs(path, &st); err != nil {
+				t.Fatalf("statfs %s: %v", path, err)
+			}
+			return st.Blocks * uint64(st.Frsize), st.Bavail * uint64(st.Frsize)
+		}},
+		{"nfs", func() (uint64, uint64) {
+			return nfsFsstat(t, addrs["nfs"], nfsMount(t, addrs["nfs"], "/"+share))
+		}},
+		{"webdav", func() (uint64, uint64) {
+			avail, used := webdavQuota(t, addrs["webdav"], "/"+share+"/")
+			return avail + used, avail
+		}},
+		{"smb", func() (uint64, uint64) {
+			fi, err := smbAt(t, addrs["smb"], share).Statfs(".")
+			if err != nil {
+				t.Fatalf("%s: SMB statfs: %v", kind, err)
+			}
+			return fi.TotalBlockCount() * fi.BlockSize(), fi.AvailableBlockCount() * fi.BlockSize()
+		}},
+	}
+	out := make([]e2eSize, len(probes))
+	for i, p := range probes {
+		out[i].Kind, out[i].Protocol = kind, p.proto
+		out[i].Total, out[i].Avail = p.read()
+	}
+
+	data := make([]byte, e2eSizeWrite)
+	rand.Read(data) // random: ZFS compresses a repeated pattern away
+	f, err := os.Create(filepath.Join(path, "size.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	// btrfs counts a qgroup's bytes at a transaction commit; a sync makes
+	// one rather than waiting out the 30 s commit interval.
+	syscall.Sync()
+	for i, p := range probes {
+		for deadline := time.Now().Add(90 * time.Second); ; {
+			_, avail := p.read()
+			out[i].After = avail
+			if avail+e2eSizeWrite-1<<20 <= out[i].Avail || time.Now().After(deadline) {
+				break
+			}
+			syscall.Sync()
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	if _, err := api.DeleteShare(ctx, &adminv1.DeleteShareRequest{Name: share}); err != nil {
+		t.Fatalf("%s: DeleteShare: %v", kind, err)
+	}
+	if _, err := api.DeleteVolume(ctx, &adminv1.DeleteVolumeRequest{Parent: parent, Name: name, DestroyData: true}); err != nil {
+		t.Fatalf("%s: DeleteVolume: %v", kind, err)
+	}
+	return out
+}
+
+// smbAt mounts share as alice, for a size query.
+func smbAt(t *testing.T, addr, share string) *smb2.Share {
+	t.Helper()
+	cctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	d := &smb2.Dialer{Initiator: &smb2.NTLMInitiator{User: "alice", Password: "hunter2"}}
+	s, err := d.Dial(cctx, addr)
+	if err != nil {
+		cancel()
+		t.Fatalf("dialing smb: %v", err)
+	}
+	fs, err := s.Mount(share)
+	if err != nil {
+		s.Logoff()
+		cancel()
+		t.Fatalf("mounting %s: %v", share, err)
+	}
+	t.Cleanup(func() { fs.Umount(); s.Logoff(); cancel() })
+	return fs
 }

@@ -83,11 +83,14 @@ func (o *testOP) VerifyIDToken(context.Context, []byte, *clientinstance.Claims) 
 
 // opksshCert is what `opkssh login` writes: a certificate signed by the
 // user's own key, carrying the PK Token -- made here by ssh-keygen.
-func opksshCert(t *testing.T, keygen, dir, name string, op *testOP) (string, ssh.Signer) {
+func opksshCert(t *testing.T, keygen, dir, name string, op *testOP, opts ...string) (string, ssh.Signer) {
 	t.Helper()
 	key, signer, priv := keyFiles(t, dir, name)
-	if out, err := exec.Command(keygen, "-q", "-s", key, "-I", op.user, "-V", "-5m:+1h",
-		"-O", "extension:openpubkey-pkt="+pktFor(t, priv, op), key+".pub").CombinedOutput(); err != nil {
+	args := []string{"-q", "-s", key, "-I", op.user, "-V", "-5m:+1h", "-O", "extension:openpubkey-pkt=" + pktFor(t, priv, op)}
+	for _, o := range opts {
+		args = append(args, "-O", o)
+	}
+	if out, err := exec.Command(keygen, append(args, key+".pub")...).CombinedOutput(); err != nil {
 		t.Fatalf("ssh-keygen: %v\n%s", err, out)
 	}
 	return key, certSigner(t, key+"-cert.pub", signer)

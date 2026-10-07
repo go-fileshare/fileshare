@@ -383,21 +383,23 @@ name = "TESTFS"
 trusted_user_ca_file = %q
 ssh_domains = ["files.example.org"]
 
-user "alice" {}
+user "u1234@myaccessid.org" {}
 
 share "photos" {
   image = %q
-  allow = ["alice"]
+  allow = ["u1234@myaccessid.org"]
 }
 
 serve "sftp" { addr = "127.0.0.1:0" }
 `, hclPath(ca+".pub"), hclPath(img)))
+	efp := "u1234@myaccessid.org"
 
-	// issue has ssh-keygen sign alice's certificate, with the grant if any.
+	// issue has ssh-keygen sign a certificate shaped as EFP's: one principal,
+	// the MyAccessID identifier, which is the user name it logs in as, with the grant if any.
 	issue := func(name string, grant string) (key string, signer ssh.Signer) {
 		t.Helper()
 		key, s, _ := keyFiles(t, dir, name)
-		args := []string{"-q", "-s", ca, "-I", name, "-n", "alice", "-V", "-5m:+1h"}
+		args := []string{"-q", "-s", ca, "-I", name, "-n", efp, "-V", "-5m:+1h"}
 		if grant != noGrant {
 			args = append(args, "-O", "extension:"+sshcert.DomainGrantExtension+"="+grant)
 		}
@@ -415,7 +417,7 @@ serve "sftp" { addr = "127.0.0.1:0" }
 		cmd := exec.CommandContext(ctx, sftpBin, "-b", "-", "-P", port, "-o", "ConnectTimeout=10",
 			"-i", key, "-o", "CertificateFile="+key+"-cert.pub", "-o", "IdentitiesOnly=yes",
 			"-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-			"-o", "BatchMode=yes", "alice@"+host)
+			"-o", "BatchMode=yes", efp+"@"+host)
 		cmd.Stdin = strings.NewReader("ls /photos\n")
 		out, err := cmd.CombinedOutput()
 		return string(out), err
@@ -440,7 +442,7 @@ serve "sftp" { addr = "127.0.0.1:0" }
 	}
 	// x/crypto's client, for the malformed one: the refusal is the server's.
 	_, bad := issue("malformed", `[files.example.org]`)
-	if err := logsIn(t, r.addrs["sftp"], "alice", bad); err == nil {
+	if err := logsIn(t, r.addrs["sftp"], efp, bad); err == nil {
 		t.Error("a malformed grant ssh-keygen wrote was accepted")
 	}
 	logs := r.out.String()

@@ -16,6 +16,7 @@ require (
 	github.com/go-authn/oidc v0.2.4
 	github.com/go-authn/revocation v0.3.0
 	github.com/go-authn/servercert v0.3.0
+	github.com/go-authn/sshcert v0.1.0
 	github.com/go-filesystems/apfs v0.1.0
 	github.com/go-filesystems/btrfs v0.1.0
 	github.com/go-filesystems/detect v0.1.0
@@ -23,13 +24,13 @@ require (
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
 	github.com/go-filesystems/fat32 v0.4.0
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
-	github.com/go-filesystems/interface v0.3.0
+	github.com/go-filesystems/interface v0.4.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.6.1
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.2.0
 	github.com/go-filesystems/s3 v0.3.0
-	github.com/go-filesystems/sftp v0.4.0
+	github.com/go-filesystems/sftp v0.5.1-0.20261007113508-1f726389d750
 	github.com/go-filesystems/smb v0.4.1
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/ufs v0.2.0
@@ -81,7 +82,6 @@ require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
-	github.com/go-authn/sshcert v0.1.0 // indirect
 	github.com/go-compressions/lzfse v0.3.0 // indirect
 	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect

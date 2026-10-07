@@ -47,8 +47,6 @@ github.com/go-authn/directory v0.11.0 h1:7FHRQv9AQUF841DU498wVrVnUDQwzX221fQlaRo
 github.com/go-authn/directory v0.11.0/go.mod h1:IxyO/dvr5zsKIWYbjpiTa2JUz20XCBxtPCST6+QamlU=
 github.com/go-authn/krb5 v0.2.1 h1:bLJ6fEl26aeWg6GUZDzwQI/ohtyElMW8kDOfibTxPeE=
 github.com/go-authn/krb5 v0.2.1/go.mod h1:OKwOP1tWIqY6GhTEDYXHvtQUKDmGuvxTIN7TOjv7Xjs=
-github.com/go-authn/krl v0.5.0 h1:cFZRAaevXY8z5Z2+WO/pg0li/0yq3DFJPy3+zfvc6dk=
-github.com/go-authn/krl v0.5.0/go.mod h1:PW5Vt8KOJRNEboQuoSoYgXC6MS5jH/YgGXX19RhmT5c=
 github.com/go-authn/krl v0.6.0 h1:FgDNWur+4OuL97W5OIKoEb8y2Lu0owlCuUl0Y1ReWPo=
 github.com/go-authn/krl v0.6.0/go.mod h1:ovqI+9oaZxw/KTiZSyi2Lqdhmscbocc29oV2DoIh3l8=
 github.com/go-authn/oidc v0.2.4 h1:Xe6xkfgOr5rACOUeHR4h0X7anUorY7Z+TH0RQxrzacg=
@@ -83,8 +81,8 @@ github.com/go-filesystems/fat32 v0.4.0 h1:wX4LGoTxdUAq9OJrsCcAg1lKtxTcuLaW3/Tk7A
 github.com/go-filesystems/fat32 v0.4.0/go.mod h1:4x09jEjl85nLiRE1Ojm3eWjmefYV48JG1YjLStESl/k=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd h1:rOHq51t4ZpD5/2TauUfrcJCKpWyg8eDe5EmCIMZBjvU=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd/go.mod h1:DMXqQLSl8Nk3XhpV7pmlzCzwmBXTsrCLMH02CG6Q3mE=
-github.com/go-filesystems/interface v0.3.0 h1:cV4+2mvW1eCPyde+KIDRaGuIPAcr2sDgKrxGuGQr98k=
-github.com/go-filesystems/interface v0.3.0/go.mod h1:9MDfHNNKg9cW1qBa3hmURQj4jiWIdTo9Xpgdt8ZzvV8=
+github.com/go-filesystems/interface v0.4.0 h1:JAekS0P8ocsFy8knnIZvkKJiifgRw3RKACkL3MQmBd4=
+github.com/go-filesystems/interface v0.4.0/go.mod h1:u9v8mvapNV8djzObwCECdyd2g6JBU6HNTR4EAqxOn6U=
 github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26 h1:FwoyXEjiOzGiloqXbXN8av75RDujT/4BlPsG91CYELQ=
 github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26/go.mod h1:hUDicCpSA98j0jv1DDMJo0H3fYOOe+i5+FfxOKlphjg=
 github.com/go-filesystems/nfs v0.6.1 h1:DIPNP8UkGTHcwxKLz+Mkd4pW7quhJdsx6AueRPGBEqo=
@@ -95,8 +93,8 @@ github.com/go-filesystems/osfs v0.2.0 h1:4G2cBO9TauFLIBmreWQ4iHN/hwijiMobeGPumGQ
 github.com/go-filesystems/osfs v0.2.0/go.mod h1:/iYkhh2MPMchgX5t3YRY+1R4FYV8dVHIwSS74sDMvf0=
 github.com/go-filesystems/s3 v0.3.0 h1:9lNwCgmowYv8JqhE+OuO7MXsTnWTDBnH27tp0BLr21I=
 github.com/go-filesystems/s3 v0.3.0/go.mod h1:HzG6ZkIcGBS+oMQsUD8Aq1xDJU+BlDaTz/3Dc6/njS4=
-github.com/go-filesystems/sftp v0.4.0 h1:OnBYhoJI3tmXXuHuj9+HayPm6EiwczzzVsOuZnVeKdg=
-github.com/go-filesystems/sftp v0.4.0/go.mod h1:JaL1hgQfUb2y14prGslIvCOGT1amSsp7Wj+k/UsVnSo=
+github.com/go-filesystems/sftp v0.5.1-0.20261007113508-1f726389d750 h1:uk2igVCXGUQhrnl/0QfPoccwTHf87Of3Hdn6nMCf2OQ=
+github.com/go-filesystems/sftp v0.5.1-0.20261007113508-1f726389d750/go.mod h1:3HTEklCrjyk0/oXqljPfj2Fh0clzUaPIxJne4PUqVZc=
 github.com/go-filesystems/smb v0.4.1 h1:341m/t854r+9gGF/v1ID8oYXDT0U+P64IukDNK2G87I=
 github.com/go-filesystems/smb v0.4.1/go.mod h1:rMs8HfE+nmO82JdCUfeeHTG5/Hp/1irh2gZWhTVyTN4=
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b h1:GXfYwBRU7hYVy6Hst4gYbFLGIBJy2QPdBVz4wf6VEdk=

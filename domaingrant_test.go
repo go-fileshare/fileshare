@@ -176,17 +176,28 @@ func TestSFTPDomainGrant(t *testing.T) {
 		t.Error("a granted certificate from an authority nobody trusts was accepted")
 	}
 	// A certificate pinned to an address (the source-address critical
-	// option) is refused with ssh_domains, even from that address: sshd
-	// hands CertificateFor only certificates with no critical option
-	// (go-filesystems/sftp v0.4.0), and closed is the side to fail on.
-	// Without ssh_domains it is accepted from its address, as before; see
-	// TestSFTPWithoutSSHDomainsReadsNoGrant. When sshd lets it through,
-	// the first of these starts failing, and the second must still hold.
-	for _, from := range []string{"127.0.0.1/32", "192.0.2.1/32"} {
-		pinned := grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:source-address": from})
-		if err := logsIn(t, addr, "alice", pinned); err == nil {
-			t.Errorf("a granted certificate pinned to %s logged in from loopback", from)
+	// option) is accepted with ssh_domains from that address, and from no
+	// other: sshd enforces it on the CertificateFor path since
+	// go-filesystems/sftp#19, as it always did on its own. The grant is
+	// still read: pinned to this address but granted another host, it is
+	// refused.
+	for _, tc := range []struct {
+		from, grant string
+		admit       bool
+	}{
+		{"127.0.0.1/32", granted(t, "files.example.org"), true},
+		{"192.0.2.1/32", granted(t, "files.example.org"), false},
+		{"127.0.0.1/32", granted(t, "login.example.org"), false},
+	} {
+		pinned := grantCert(t, ca, "alice", tc.grant, map[string]string{"critical:source-address": tc.from})
+		if err := logsIn(t, addr, "alice", pinned); (err == nil) != tc.admit {
+			t.Errorf("pinned to %s, granted %s, from loopback: admitted = %v (%v), want %v", tc.from, tc.grant, err == nil, err, tc.admit)
 		}
+	}
+	// Any other critical option is still refused, even beside a grant
+	// for this host.
+	if err := logsIn(t, addr, "alice", grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:force-command": "/bin/true"})); err == nil {
+		t.Error("a granted certificate with force-command logged in")
 	}
 	// The refusal is logged before the client has proved anything, under
 	// the name it sent: one that would forge a log line is quoted.
@@ -319,6 +330,16 @@ serve "sftp" { addr = "127.0.0.1:0" }
 	} {
 		if err := logsIn(t, r.addrs["sftp"], trevor, grantCert(t, bridgeCA, trevor, grant, groups)); err == nil {
 			t.Errorf("a provider certificate with %s was let in", name)
+		}
+	}
+	// bridge's ssh_source_address pins a certificate to an address. The
+	// provider's path builds its permissions from the groups alone, and sshd
+	// enforces the certificate's source-address on them anyway.
+	for from, admit := range map[string]bool{"127.0.0.1/32": true, "192.0.2.1/32": false} {
+		pinned := grantCert(t, bridgeCA, trevor, granted(t, "*.example.org"),
+			map[string]string{bridgeGroups: photosGroup, "critical:source-address": from})
+		if err := logsIn(t, r.addrs["sftp"], trevor, pinned); (err == nil) != admit {
+			t.Errorf("a provider certificate pinned to %s, from loopback: admitted = %v (%v), want %v", from, err == nil, err, admit)
 		}
 	}
 }

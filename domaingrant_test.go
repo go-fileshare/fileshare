@@ -100,6 +100,12 @@ func logsIn(t *testing.T, addr, user string, signer ssh.Signer) error {
 // local authority, with extra configuration above the user block.
 func grantServer(t *testing.T, extra string) (*running, ssh.Signer, ssh.Signer) {
 	t.Helper()
+	return grantServerOn(t, "127.0.0.1:0", extra)
+}
+
+// grantServerOn is grantServer with its SFTP listener on listen.
+func grantServerOn(t *testing.T, listen, extra string) (*running, ssh.Signer, ssh.Signer) {
+	t.Helper()
 	dir := t.TempDir()
 	img := image(t, dir, "photos.img", map[string]string{"/greeting.txt": "hello"})
 	ca, caPub := keyPair(t)
@@ -117,8 +123,8 @@ share "photos" {
   allow = ["alice"]
 }
 
-serve "sftp" { addr = "127.0.0.1:0" }
-`, hclPath(caFile), extra, alicePub, hclPath(img)))
+serve "sftp" { addr = %q }
+`, hclPath(caFile), extra, alicePub, hclPath(img), listen))
 	return r, ca, aliceKey
 }
 

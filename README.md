@@ -307,9 +307,13 @@ authority, so prefer giving those clients a grant.
 bridge's `ssh_source_address` writes the `source-address` critical option, and
 it is enforced with `ssh_domains` as without it: a login from an address the
 certificate allows is let in (when its grant also names this host), one from
-any other address is refused. This holds for `trusted_user_ca_file` and for the
-oidc block's `ssh_ca_file` alike; go-filesystems/sftp's sshd enforces it on
-every certificate path (go-filesystems/sftp#19). Any other critical option
+any other address is refused. This holds for `trusted_user_ca_file`, for the
+oidc block's `ssh_ca_file`, and for an OpenPubkey certificate pinned with
+`ssh-keygen -O source-address=...`: since v0.22.1, built on
+go-filesystems/sftp v0.5.1, its sshd enforces it on every certificate path
+(go-filesystems/sftp#19). The tests log in from 127.0.0.1, `::1` and, on Linux,
+127.0.0.2, so an address is matched as an address, IPv6 included, and not as
+"loopback". Any other critical option
 (`force-command`, `verify-required`, ...) is refused, since this server does not
 act on it.
 

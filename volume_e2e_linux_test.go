@@ -445,11 +445,14 @@ func fillSFTP(t *testing.T, addr, share string, key ssh.Signer) e2eResult {
 	return r
 }
 
-// probeSize shares a new 32 MiB volume with nobody named -- read-only for
-// anyone, which NFS serves -- and asks every protocol's client, and statfs
-// inside it, what its size and free space are; then writes 8 MiB into it
-// directly (this process is the server's uid), syncs so that btrfs commits
-// the qgroup's new count, and waits for each to report the space gone.
+// probeSize shares a new 32 MiB volume with alice and asks each protocol's
+// client, and statfs inside it, what its size and free space are. Not NFS:
+// the admin API always names who may use a share, and NFS without kerberos
+// or client certificates serves only shares open to everyone -- its size
+// hook is the same function, pinned by capacity_protocols_test.go. Then it
+// writes 8 MiB into the volume directly (this process is the server's uid),
+// syncs so that btrfs commits the qgroup's new count, and waits for each to
+// report the space gone.
 func probeSize(t *testing.T, ctx context.Context, api adminv1.AdminServiceClient, addrs map[string]string, parent, kind string) []e2eSize {
 	t.Helper()
 	name, share := "e2e-size", parent+"-size"
@@ -457,7 +460,7 @@ func probeSize(t *testing.T, ctx context.Context, api adminv1.AdminServiceClient
 	if err != nil {
 		t.Fatalf("%s: CreateVolume: %v", kind, err)
 	}
-	if _, err := api.CreateShare(ctx, &adminv1.CreateShareRequest{Name: share, Source: volumeSource(parent, name)}); err != nil {
+	if _, err := api.CreateShare(ctx, &adminv1.CreateShareRequest{Name: share, Source: volumeSource(parent, name), Grants: aliceWrites()}); err != nil {
 		t.Fatalf("%s: CreateShare: %v", kind, err)
 	}
 	path := v.GetVolume().GetPath()
@@ -471,9 +474,6 @@ func probeSize(t *testing.T, ctx context.Context, api adminv1.AdminServiceClient
 				t.Fatalf("statfs %s: %v", path, err)
 			}
 			return st.Blocks * uint64(st.Frsize), st.Bavail * uint64(st.Frsize)
-		}},
-		{"nfs", func() (uint64, uint64) {
-			return nfsFsstat(t, addrs["nfs"], nfsMount(t, addrs["nfs"], "/"+share))
 		}},
 		{"webdav", func() (uint64, uint64) {
 			avail, used := webdavQuota(t, addrs["webdav"], "/"+share+"/")

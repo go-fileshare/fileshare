@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
-//go:build !nonfs
+//go:build !nonfs && !nogrpc
 
 package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -27,16 +28,14 @@ func TestAManagedServerWithNoSharesYetKeepsServing(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	p := filepath.Join(dir, "serve.hcl")
-	if err := os.WriteFile(p, []byte(`name = "empty"
-serve "webdav" { addr = "127.0.0.1:0" }
-serve "sftp"   { addr = "127.0.0.1:0" }
-serve "nfs"    { addr = "127.0.0.1:0" }
-serve "smb"    { addr = "127.0.0.1:0" }
+	conf := fmt.Sprintf(`name = "empty"
+serve "nfs" { addr = "127.0.0.1:0" }
 admin {
-  listen     = "unix://`+dir+`/admin.sock"
-  state_file = "`+dir+`/shares.json"
+  listen     = "unix://%s/admin.sock"
+  state_file = %q
 }
-`), 0o600); err != nil {
+`, hclPath(dir), hclPath(filepath.Join(dir, "shares.json")))
+	if err := os.WriteFile(p, []byte(conf), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadConfig([]string{p})

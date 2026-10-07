@@ -292,9 +292,12 @@ repeating pattern that lz4 compressed away — the test now writes random bytes)
 
 Measured in the end-to-end CI job (the provisioner job's last steps):
 `fileshare serve` as nobody, filling a 32 MiB volume of each kind over WebDAV
-and over SFTP; and the size every protocol's client is told for a 32 MiB
+and over SFTP; and the size WebDAV and SMB clients are told for a 32 MiB
 volume of each kind, before and after 8 MiB are written into it, beside
-statfs inside it.
+statfs inside it. Not NFS: a share made through the admin API always names
+who may use it, and NFS serves such a share only with kerberos or client
+certificates, which the job does not set up. NFS answers FSSTAT from the
+same function, which capacity_protocols_test.go pins.
 
 ## Phases
 

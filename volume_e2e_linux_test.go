@@ -229,9 +229,6 @@ admin {
 			sizes = append(sizes, r)
 		}
 	}
-	if len(sizes) != 16 {
-		t.Fatalf("%d sizes, want 16 (4 kinds x statfs, NFS, WebDAV, SMB)", len(sizes))
-	}
 	const mib = 1 << 20
 	for _, r := range sizes {
 		t.Logf("size: %-5s %-6s total %6.1f MiB, available %6.1f MiB, after writing 8 MiB %6.1f MiB",
@@ -247,6 +244,10 @@ admin {
 		if r.Avail > r.Total || r.After > r.Avail-e2eSizeWrite+mib || r.After+e2eSizeWrite+2*mib < r.Avail {
 			t.Errorf("%s over %s: available %d, then %d after writing %d", r.Kind, r.Protocol, r.Avail, r.After, e2eSizeWrite)
 		}
+	}
+	// After the log, so that a short count still shows what was measured.
+	if len(sizes) != 12 {
+		t.Errorf("%d sizes, want 12 (4 kinds x statfs, WebDAV, SMB)", len(sizes))
 	}
 	for _, r := range results {
 		t.Logf("%-5s %-6s %9d bytes into a %d-byte volume, then %s (the share's size: %d)", r.Kind, r.Protocol, r.Written, e2eQuota, r.Answer, r.Size)

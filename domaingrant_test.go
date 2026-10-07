@@ -417,12 +417,16 @@ serve "sftp" { addr = "127.0.0.1:0" }
 
 	// issue has ssh-keygen sign a certificate shaped as EFP's: one principal,
 	// the MyAccessID identifier, which is the user name it logs in as, with the grant if any.
-	issue := func(name string, grant string) (key string, signer ssh.Signer) {
+	// opts are further ssh-keygen -O options, such as a source-address.
+	issue := func(name string, grant string, opts ...string) (key string, signer ssh.Signer) {
 		t.Helper()
 		key, s, _ := keyFiles(t, dir, name)
 		args := []string{"-q", "-s", ca, "-I", name, "-n", efp, "-V", "-5m:+1h"}
 		if grant != noGrant {
 			args = append(args, "-O", "extension:"+sshcert.DomainGrantExtension+"="+grant)
+		}
+		for _, o := range opts {
+			args = append(args, "-O", o)
 		}
 		if out, err := exec.Command(keygen, append(args, key+".pub")...).CombinedOutput(); err != nil {
 			t.Fatalf("ssh-keygen: %v\n%s", err, out)
@@ -460,6 +464,19 @@ serve "sftp" { addr = "127.0.0.1:0" }
 	key, _ = issue("ungranted", noGrant)
 	if out, err := sftp(key); err == nil {
 		t.Errorf("OpenSSH sftp, with no grant, got in:\n%s", out)
+	}
+	// Pinned to an address with ssh-keygen's own -O source-address: let in
+	// from it, refused from anywhere else -- the test dials from loopback.
+	key, pinned := issue("pinned-here", `["*.example.org"]`, "source-address=127.0.0.1/32")
+	if got := pinned.PublicKey().(*ssh.Certificate).CriticalOptions["source-address"]; got != "127.0.0.1/32" {
+		t.Fatalf("ssh-keygen's certificate carries source-address %q", got)
+	}
+	if out, err := sftp(key); err != nil || !strings.Contains(out, "greeting.txt") {
+		t.Errorf("OpenSSH sftp, pinned to 127.0.0.1/32, from loopback: %v\n%s", err, out)
+	}
+	key, _ = issue("pinned-elsewhere", `["*.example.org"]`, "source-address=192.0.2.1/32")
+	if out, err := sftp(key); err == nil {
+		t.Errorf("OpenSSH sftp, pinned to 192.0.2.1/32, got in from loopback:\n%s", out)
 	}
 	// x/crypto's client, for the malformed one: the refusal is the server's.
 	_, bad := issue("malformed", `[files.example.org]`)

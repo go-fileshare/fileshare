@@ -195,8 +195,9 @@ func smbRead(t *testing.T, addr, share, name string) int64 {
 	return n
 }
 
-// nfsRead reads the file with NFSv3 READs of the server's preferred size,
-// one at a time on one connection, as a client with no read-ahead would.
+// nfsRead reads the file with NFSv3 READs one at a time on one connection,
+// as a client with no read-ahead would. Each asks for 1 MiB, the Linux
+// client's default rsize, and gets what the server's rtmax allows.
 func nfsRead(t *testing.T, addr, export, name string, size int64) int64 {
 	root := nfsMount(t, addr, export)
 	c, err := net.Dial("tcp", addr)
@@ -235,7 +236,7 @@ func nfsRead(t *testing.T, addr, export, name string, size int64) int64 {
 		return 0
 	}
 	fh := append([]byte(nil), res[8:8+getBE32(res[4:])]...)
-	const count = 1 << 17
+	const count = 1 << 20
 	var got int64
 	for off := int64(0); off < size; {
 		args := append(xdrOpaque(fh), xdrU32(uint32(off>>32), uint32(off), count)...)

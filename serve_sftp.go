@@ -47,6 +47,14 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 	if fed != nil {
 		certificateFor = fed.certificate
 	}
+	// With ssh_domains, every certificate is decided by certificateFor,
+	// where its domain grant is read (domaingrant.go); without, nothing
+	// changes: the local authorities are sshd's, as they always were.
+	trusted := cas
+	if len(s.cfg.SSHDomains) > 0 {
+		certificateFor = s.grantedCertificateFor(cas, fed)
+		trusted = nil
+	}
 	// One daemon per connection, so that what is decided at login reaches
 	// the connection it was decided on: the handshake deadline is lifted
 	// there, and nowhere else can tell which connection just logged in.
@@ -55,7 +63,7 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 		return sshd.Config{
 			CertificateFor: certificateFor,
 			HostKeys:       []ssh.Signer{hostKey},
-			TrustedUserCAs: cas,
+			TrustedUserCAs: trusted,
 			// A key proves who is asking without this server ever holding the
 			// secret, and a certificate says it with an expiry date on it. There
 			// is deliberately NO password here: an SSH client that prompts for one

@@ -37,6 +37,8 @@ type serverStats struct {
 	applied atomic.Uint64
 	refused atomic.Uint64
 	reloads reloadStats
+	// grants is what ssh_domains decided about certificates; see domaingrant.go.
+	grants grantStats
 	// rpcs counts admin calls by method and status code; filled in by the
 	// gRPC layer, when there is one.
 	rpcs func(w *endpoint.Writer)
@@ -98,6 +100,15 @@ func (s *server) collect(w *endpoint.Writer) {
 			endpoint.S(st.age()))
 		w.Gauge("fileshare_ssf_revoked_subjects", "People whose earlier credentials the provider has revoked, as kept now.",
 			endpoint.S(float64(st.count())))
+	}
+	if len(s.cfg.SSHDomains) > 0 {
+		g := &s.stats.grants
+		w.Counter("fileshare_sftp_domain_grant_total", "SFTP certificates whose domain grant ssh_domains was asked about, by decision.",
+			endpoint.S(float64(g.granted.Load()), endpoint.L("result", "granted")),
+			endpoint.S(float64(g.ungranted.Load()), endpoint.L("result", "accepted_ungranted")),
+			endpoint.S(float64(g.notGranted.Load()), endpoint.L("result", "refused_not_granted")),
+			endpoint.S(float64(g.absent.Load()), endpoint.L("result", "refused_absent")),
+			endpoint.S(float64(g.malformed.Load()), endpoint.L("result", "refused_malformed")))
 	}
 	w.Counter("fileshare_admin_changes_total", "Changes asked of the admin API, by outcome.",
 		endpoint.S(float64(s.stats.applied.Load()), endpoint.L("result", "applied")),
@@ -210,4 +221,9 @@ func (s *server) serveMetrics(m *metricsBlock) (func(), error) {
 		defer cancel()
 		hs.Shutdown(ctx)
 	}, nil
+}
+
+// grantStats counts the decisions on SSH certificates' domain grants.
+type grantStats struct {
+	granted, ungranted, notGranted, absent, malformed atomic.Uint64
 }

@@ -41,7 +41,12 @@ func grantCert(t *testing.T, ca ssh.Signer, principal, grant string, extra map[s
 		ValidBefore:     uint64(time.Now().Add(time.Hour).Unix()),
 		Permissions:     ssh.Permissions{Extensions: map[string]string{"permit-pty": ""}},
 	}
+	// extra are extensions, and critical options when prefixed "critical:".
 	for k, v := range extra {
+		if opt, ok := strings.CutPrefix(k, "critical:"); ok {
+			cert.CriticalOptions = map[string]string{opt: v}
+			continue
+		}
 		cert.Extensions[k] = v
 	}
 	if grant != noGrant {
@@ -170,6 +175,22 @@ func TestSFTPDomainGrant(t *testing.T) {
 	if err := logsIn(t, addr, "alice", grantCert(t, stranger, "alice", granted(t, "files.example.org"), nil)); err == nil {
 		t.Error("a granted certificate from an authority nobody trusts was accepted")
 	}
+	// The certificate's critical options still bind: source-address is
+	// enforced by x/crypto on what the callback returns, so dropping them
+	// there would let a certificate pinned to one network in from any.
+	pinned := grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:source-address": "192.0.2.1/32"})
+	if err := logsIn(t, addr, "alice", pinned); err == nil {
+		t.Error("a granted certificate pinned to 192.0.2.1 logged in from loopback")
+	}
+	// The refusal is logged before the client has proved anything, under
+	// the name it sent: one that would forge a log line is quoted.
+	forger := "mallory\nsftp: alice: accepted"
+	if err := logsIn(t, addr, forger, grantCert(t, ca, forger, noGrant, nil)); err == nil {
+		t.Error("an ungranted certificate was accepted")
+	}
+	if strings.Contains(r.out.String(), "\nsftp: alice: accepted") || !strings.Contains(r.out.String(), `sftp: "mallory\nsftp: alice: accepted": certificate`) {
+		t.Errorf("a user name forged a log line:\n%s", r.out)
+	}
 	// A key is not a certificate, and carries no grant to read.
 	if err := logsIn(t, addr, "alice", aliceKey); err != nil {
 		t.Errorf("alice's own key, with ssh_domains set: %v", err)
@@ -179,7 +200,7 @@ func TestSFTPDomainGrant(t *testing.T) {
 	for _, want := range []string{
 		`fileshare_sftp_domain_grant_total{result="granted"}`,
 		`fileshare_sftp_domain_grant_total{result="refused_not_granted"}`,
-		`fileshare_sftp_domain_grant_total{result="refused_absent"} 1`,
+		`fileshare_sftp_domain_grant_total{result="refused_absent"} 2`,
 		`fileshare_sftp_domain_grant_total{result="refused_malformed"} 4`,
 		`fileshare_sftp_domain_grant_total{result="accepted_ungranted"} 0`,
 	} {

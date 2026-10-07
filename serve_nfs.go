@@ -120,7 +120,28 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 			return err
 		}
 	}
+	if len(served) == 0 {
+		// Only a server whose shares come from the admin API gets here
+		// (config.go refuses a serve block that would carry nothing
+		// otherwise), and before its first share it has nothing to export.
+		// go-filesystems/nfs refuses to serve nothing, and that error would
+		// stop every protocol with it. The listener stays bound -- the
+		// next share starts a generation that exports it -- and a client
+		// that connects meanwhile is hung up on.
+		return refuseAll(ln)
+	}
 	return srv.Serve(ln)
+}
+
+// refuseAll accepts and closes every connection until the listener closes.
+func refuseAll(ln net.Listener) error {
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return err
+		}
+		c.Close()
+	}
 }
 
 // principalGate turns a share's list of names into the question NFS asks.

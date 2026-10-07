@@ -308,6 +308,13 @@ admin {
 		t.Logf("the server said:\n%s", out)
 	}()
 	for deadline := time.Now().Add(10 * time.Second); srv.mgr.Load() == nil || !srv.ready.Load(); {
+		select {
+		case err := <-done:
+			// Put back for the deferred receive, which would wait forever.
+			done <- err
+			t.Fatalf("the server stopped: %v\n%s", err, out)
+		default:
+		}
 		if time.Now().After(deadline) {
 			t.Fatalf("never ready:\n%s", out)
 		}

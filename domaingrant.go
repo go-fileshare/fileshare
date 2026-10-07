@@ -67,6 +67,14 @@ func (s *server) grantedCertificateFor(cas []ssh.PublicKey, fed *federatedSFTP) 
 			// What CertChecker.Authenticate returns for a trusted
 			// authority's certificate: its critical options -- of which
 			// x/crypto then enforces source-address -- and its extensions.
+			//
+			// ⛔ Today no critical option gets this far: sshd checks a
+			// certificate bound for CertificateFor with an empty CertChecker,
+			// which refuses every critical option, source-address included
+			// (go-filesystems/sftp v0.4.0). So with ssh_domains a certificate
+			// pinned to an address is refused even from that address -- closed,
+			// not open. Kept so that, the day sshd lets source-address through,
+			// x/crypto enforces it here as it does on sshd's own path.
 			return &ssh.Permissions{
 				CriticalOptions: maps.Clone(cert.CriticalOptions),
 				Extensions:      maps.Clone(cert.Extensions),

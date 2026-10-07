@@ -175,12 +175,18 @@ func TestSFTPDomainGrant(t *testing.T) {
 	if err := logsIn(t, addr, "alice", grantCert(t, stranger, "alice", granted(t, "files.example.org"), nil)); err == nil {
 		t.Error("a granted certificate from an authority nobody trusts was accepted")
 	}
-	// The certificate's critical options still bind: source-address is
-	// enforced by x/crypto on what the callback returns, so dropping them
-	// there would let a certificate pinned to one network in from any.
-	pinned := grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:source-address": "192.0.2.1/32"})
-	if err := logsIn(t, addr, "alice", pinned); err == nil {
-		t.Error("a granted certificate pinned to 192.0.2.1 logged in from loopback")
+	// A certificate pinned to an address (the source-address critical
+	// option) is refused with ssh_domains, even from that address: sshd
+	// hands CertificateFor only certificates with no critical option
+	// (go-filesystems/sftp v0.4.0), and closed is the side to fail on.
+	// Without ssh_domains it is accepted from its address, as before; see
+	// TestSFTPWithoutSSHDomainsReadsNoGrant. When sshd lets it through,
+	// the first of these starts failing, and the second must still hold.
+	for _, from := range []string{"127.0.0.1/32", "192.0.2.1/32"} {
+		pinned := grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:source-address": from})
+		if err := logsIn(t, addr, "alice", pinned); err == nil {
+			t.Errorf("a granted certificate pinned to %s logged in from loopback", from)
+		}
 	}
 	// The refusal is logged before the client has proved anything, under
 	// the name it sent: one that would forge a log line is quoted.
@@ -257,6 +263,13 @@ func TestSFTPWithoutSSHDomainsReadsNoGrant(t *testing.T) {
 	for _, grant := range []string{noGrant, granted(t, "login.example.org"), "null", "not json"} {
 		if err := logsIn(t, r.addrs["sftp"], "alice", grantCert(t, ca, "alice", grant, nil)); err != nil {
 			t.Errorf("grant %q, without ssh_domains: %v", grant, err)
+		}
+	}
+	// sshd's own path, as before: source-address is accepted, and enforced.
+	for from, admit := range map[string]bool{"127.0.0.1/32": true, "192.0.2.1/32": false} {
+		pinned := grantCert(t, ca, "alice", noGrant, map[string]string{"critical:source-address": from})
+		if err := logsIn(t, r.addrs["sftp"], "alice", pinned); (err == nil) != admit {
+			t.Errorf("pinned to %s, from loopback, without ssh_domains: admitted = %v (%v), want %v", from, err == nil, err, admit)
 		}
 	}
 	if strings.Contains(r.out.String(), "domain grant") {

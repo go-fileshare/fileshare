@@ -176,17 +176,28 @@ func TestSFTPDomainGrant(t *testing.T) {
 		t.Error("a granted certificate from an authority nobody trusts was accepted")
 	}
 	// A certificate pinned to an address (the source-address critical
-	// option) is refused with ssh_domains, even from that address: sshd
-	// hands CertificateFor only certificates with no critical option
-	// (go-filesystems/sftp v0.4.0), and closed is the side to fail on.
-	// Without ssh_domains it is accepted from its address, as before; see
-	// TestSFTPWithoutSSHDomainsReadsNoGrant. When sshd lets it through,
-	// the first of these starts failing, and the second must still hold.
-	for _, from := range []string{"127.0.0.1/32", "192.0.2.1/32"} {
-		pinned := grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:source-address": from})
-		if err := logsIn(t, addr, "alice", pinned); err == nil {
-			t.Errorf("a granted certificate pinned to %s logged in from loopback", from)
+	// option) is accepted with ssh_domains from that address, and from no
+	// other: sshd enforces it on the CertificateFor path since
+	// go-filesystems/sftp#19, as it always did on its own. The grant is
+	// still read: pinned to this address but granted another host, it is
+	// refused.
+	for _, tc := range []struct {
+		from, grant string
+		admit       bool
+	}{
+		{"127.0.0.1/32", granted(t, "files.example.org"), true},
+		{"192.0.2.1/32", granted(t, "files.example.org"), false},
+		{"127.0.0.1/32", granted(t, "login.example.org"), false},
+	} {
+		pinned := grantCert(t, ca, "alice", tc.grant, map[string]string{"critical:source-address": tc.from})
+		if err := logsIn(t, addr, "alice", pinned); (err == nil) != tc.admit {
+			t.Errorf("pinned to %s, granted %s, from loopback: admitted = %v (%v), want %v", tc.from, tc.grant, err == nil, err, tc.admit)
 		}
+	}
+	// Any other critical option is still refused, even beside a grant
+	// for this host.
+	if err := logsIn(t, addr, "alice", grantCert(t, ca, "alice", granted(t, "files.example.org"), map[string]string{"critical:force-command": "/bin/true"})); err == nil {
+		t.Error("a granted certificate with force-command logged in")
 	}
 	// The refusal is logged before the client has proved anything, under
 	// the name it sent: one that would forge a log line is quoted.
@@ -321,6 +332,16 @@ serve "sftp" { addr = "127.0.0.1:0" }
 			t.Errorf("a provider certificate with %s was let in", name)
 		}
 	}
+	// bridge's ssh_source_address pins a certificate to an address. The
+	// provider's path builds its permissions from the groups alone, and sshd
+	// enforces the certificate's source-address on them anyway.
+	for from, admit := range map[string]bool{"127.0.0.1/32": true, "192.0.2.1/32": false} {
+		pinned := grantCert(t, bridgeCA, trevor, granted(t, "*.example.org"),
+			map[string]string{bridgeGroups: photosGroup, "critical:source-address": from})
+		if err := logsIn(t, r.addrs["sftp"], trevor, pinned); (err == nil) != admit {
+			t.Errorf("a provider certificate pinned to %s, from loopback: admitted = %v (%v), want %v", from, err == nil, err, admit)
+		}
+	}
 }
 
 func TestSSHDomainsConfiguration(t *testing.T) {
@@ -396,12 +417,16 @@ serve "sftp" { addr = "127.0.0.1:0" }
 
 	// issue has ssh-keygen sign a certificate shaped as EFP's: one principal,
 	// the MyAccessID identifier, which is the user name it logs in as, with the grant if any.
-	issue := func(name string, grant string) (key string, signer ssh.Signer) {
+	// opts are further ssh-keygen -O options, such as a source-address.
+	issue := func(name string, grant string, opts ...string) (key string, signer ssh.Signer) {
 		t.Helper()
 		key, s, _ := keyFiles(t, dir, name)
 		args := []string{"-q", "-s", ca, "-I", name, "-n", efp, "-V", "-5m:+1h"}
 		if grant != noGrant {
 			args = append(args, "-O", "extension:"+sshcert.DomainGrantExtension+"="+grant)
+		}
+		for _, o := range opts {
+			args = append(args, "-O", o)
 		}
 		if out, err := exec.Command(keygen, append(args, key+".pub")...).CombinedOutput(); err != nil {
 			t.Fatalf("ssh-keygen: %v\n%s", err, out)
@@ -439,6 +464,19 @@ serve "sftp" { addr = "127.0.0.1:0" }
 	key, _ = issue("ungranted", noGrant)
 	if out, err := sftp(key); err == nil {
 		t.Errorf("OpenSSH sftp, with no grant, got in:\n%s", out)
+	}
+	// Pinned to an address with ssh-keygen's own -O source-address: let in
+	// from it, refused from anywhere else -- the test dials from loopback.
+	key, pinned := issue("pinned-here", `["*.example.org"]`, "source-address=127.0.0.1/32")
+	if got := pinned.PublicKey().(*ssh.Certificate).CriticalOptions["source-address"]; got != "127.0.0.1/32" {
+		t.Fatalf("ssh-keygen's certificate carries source-address %q", got)
+	}
+	if out, err := sftp(key); err != nil || !strings.Contains(out, "greeting.txt") {
+		t.Errorf("OpenSSH sftp, pinned to 127.0.0.1/32, from loopback: %v\n%s", err, out)
+	}
+	key, _ = issue("pinned-elsewhere", `["*.example.org"]`, "source-address=192.0.2.1/32")
+	if out, err := sftp(key); err == nil {
+		t.Errorf("OpenSSH sftp, pinned to 192.0.2.1/32, got in from loopback:\n%s", out)
 	}
 	// x/crypto's client, for the malformed one: the refusal is the server's.
 	_, bad := issue("malformed", `[files.example.org]`)

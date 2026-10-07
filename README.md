@@ -303,13 +303,15 @@ their certificates must keep working here, that is what `ssh_accept_ungranted`
 is for -- and it lets in **every** ungranted certificate of every trusted
 authority, so prefer giving those clients a grant.
 
-⛔ **A certificate with a critical option is refused with `ssh_domains`.**
-`source-address` included -- bridge's `ssh_source_address` writes one -- and
-even from an address it allows. go-filesystems/sftp's sshd passes a certificate
-to the code that reads the grant only when it carries no critical option
-(v0.4.0); refusing is the closed side. Without `ssh_domains`, such a certificate
-from `trusted_user_ca_file` is accepted and its `source-address` enforced, as
-before.
+**A certificate pinned to an address is accepted from that address only.**
+bridge's `ssh_source_address` writes the `source-address` critical option, and
+it is enforced with `ssh_domains` as without it: a login from an address the
+certificate allows is let in (when its grant also names this host), one from
+any other address is refused. This holds for `trusted_user_ca_file` and for the
+oidc block's `ssh_ca_file` alike; go-filesystems/sftp's sshd enforces it on
+every certificate path (go-filesystems/sftp#19). Any other critical option
+(`force-command`, `verify-required`, ...) is refused, since this server does not
+act on it.
 
 ### People the identity provider vouches for, over SFTP
 

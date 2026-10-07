@@ -50,8 +50,9 @@ import (
 // authorities are not given to it as such: every certificate comes here,
 // after sshd has checked what can be checked without trusting the signer
 // (a user certificate, its signature by the key it names, its validity
-// window, this user among its principals, no critical option nobody here
-// knows), and the signer is looked up here instead.
+// window, this user among its principals, no critical option but
+// source-address, which sshd enforces), and the signer is looked up here
+// instead.
 func (s *server) grantedCertificateFor(cas []ssh.PublicKey, fed *federatedSFTP) func(string, *ssh.Certificate) (*ssh.Permissions, error) {
 	local := make(map[string]bool, len(cas))
 	for _, ca := range cas {
@@ -68,13 +69,10 @@ func (s *server) grantedCertificateFor(cas []ssh.PublicKey, fed *federatedSFTP) 
 			// authority's certificate: its critical options -- of which
 			// x/crypto then enforces source-address -- and its extensions.
 			//
-			// ⛔ Today no critical option gets this far: sshd checks a
-			// certificate bound for CertificateFor with an empty CertChecker,
-			// which refuses every critical option, source-address included
-			// (go-filesystems/sftp v0.4.0). So with ssh_domains a certificate
-			// pinned to an address is refused even from that address -- closed,
-			// not open. Kept so that, the day sshd lets source-address through,
-			// x/crypto enforces it here as it does on sshd's own path.
+			// source-address is the only critical option sshd lets reach
+			// CertificateFor, and sshd itself puts the certificate's value
+			// into what this returns (go-filesystems/sftp#19), so it is
+			// enforced whatever is written here; this says the same thing.
 			return &ssh.Permissions{
 				CriticalOptions: maps.Clone(cert.CriticalOptions),
 				Extensions:      maps.Clone(cert.Extensions),

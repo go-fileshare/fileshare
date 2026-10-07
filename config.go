@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-authn/directory"
 	"github.com/go-authn/directory/hcldir"
+	"github.com/go-authn/sshcert"
 	"github.com/go-volumes/gpt"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -63,10 +64,26 @@ type config struct {
 	// TrustedUserCAKeys does. With one, a person's access is issued and
 	// expires elsewhere and no file here is edited when somebody joins or
 	// leaves.
-	TrustedUserCAFile string       `hcl:"trusted_user_ca_file,optional"`
-	Users             []userBlock  `hcl:"user,block"`
-	Groups            []groupBlock `hcl:"group,block"`
-	Directories       []usersBlock `hcl:"users,block"`
+	TrustedUserCAFile string `hcl:"trusted_user_ca_file,optional"`
+	// SSHDomains are this host's names, as an SSH certificate's domain grant
+	// must name them: the ssh-domain-grant@core.aai.geant.org extension of
+	// the EuroHPC Federation Platform's SSH CA profile, which go-authn/bridge
+	// also writes for the clients that ask for it. With one, a certificate
+	// signed by an authority -- trusted_user_ca_file, or the oidc block's
+	// ssh_ca_file -- is accepted over SFTP only if its grant names one of
+	// these; see domaingrant.go. Empty, the default, reads no grant at all.
+	SSHDomains []string `hcl:"ssh_domains,optional"`
+	// SSHAcceptUngranted lets in a certificate that carries NO domain grant,
+	// for a server that also trusts an authority that never writes one.
+	//
+	// ⛔ Off by default: a domain filter that lets through a certificate
+	// which does not say where it may be used filters nothing on a host
+	// that trusts a second authority. A grant that is present and does not
+	// parse is refused whatever this says.
+	SSHAcceptUngranted bool         `hcl:"ssh_accept_ungranted,optional"`
+	Users              []userBlock  `hcl:"user,block"`
+	Groups             []groupBlock `hcl:"group,block"`
+	Directories        []usersBlock `hcl:"users,block"`
 	// OIDC names an identity provider whose tokens this server accepts.
 	// ⛔ Only WebDAV can carry a token: SMB authenticates with NTLMv2, SFTP
 	// with a key, and NFS with nothing. `check` prints that per person.
@@ -598,6 +615,9 @@ func (c *config) check() error {
 		}
 	}
 
+	if err := c.checkSSHDomains(); err != nil {
+		return err
+	}
 	if err := c.checkControl(); err != nil {
 		return err
 	}
@@ -1198,6 +1218,42 @@ func checkNoShareHoldsShare(all, changed []shareBlock) error {
 					"whoever may use %q would read and write it without being allowed %q", b.Name, b.source(), o.Name, o.source(), b.Name, o.Name)
 			}
 		}
+	}
+	return nil
+}
+
+// checkSSHDomains refuses an ssh_domains that could not mean what it says.
+func (c *config) checkSSHDomains() error {
+	if len(c.SSHDomains) == 0 {
+		if c.SSHAcceptUngranted {
+			// Said rather than ignored: it reads as a policy, and without
+			// ssh_domains there is no policy for it to relax.
+			return errors.New("ssh_accept_ungranted means nothing without ssh_domains")
+		}
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, d := range c.SSHDomains {
+		// The host's own name, not a pattern: a grant is matched against
+		// it, and a '*' here would be read as a literal nobody grants.
+		if strings.Contains(d, "*") {
+			return fmt.Errorf("ssh_domains: %q is a pattern; name this host, the way a grant names it", d)
+		}
+		if err := sshcert.ValidatePattern(d); err != nil {
+			return fmt.Errorf("ssh_domains: %q is not a host name: %w", d, err)
+		}
+		k := strings.ToLower(d)
+		if seen[k] {
+			return fmt.Errorf("ssh_domains: %q is listed twice", d)
+		}
+		seen[k] = true
+	}
+	if c.TrustedUserCAFile == "" && (c.OIDC == nil || c.OIDC.SSHCAFile == "") {
+		// A grant is an authority's word. With no authority trusted there
+		// is no certificate to read one from, and the setting would read as
+		// a protection that protects nothing.
+		return errors.New("ssh_domains is set and no certificate authority is trusted: " +
+			"name trusted_user_ca_file, or the oidc block's ssh_ca_file")
 	}
 	return nil
 }

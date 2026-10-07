@@ -12,7 +12,7 @@ require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.11.0
 	github.com/go-authn/krb5 v0.2.1
-	github.com/go-authn/krl v0.5.0
+	github.com/go-authn/krl v0.6.0
 	github.com/go-authn/oidc v0.2.4
 	github.com/go-authn/revocation v0.3.0
 	github.com/go-authn/servercert v0.3.0
@@ -81,6 +81,7 @@ require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
+	github.com/go-authn/sshcert v0.1.0 // indirect
 	github.com/go-compressions/lzfse v0.3.0 // indirect
 	github.com/go-encryptions/ccm v0.0.0-20260620055113-74db323be0b2 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect

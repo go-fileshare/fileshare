@@ -127,6 +127,12 @@ func median(t *testing.T, runs int, size int64, n int, read func() int64) float6
 
 const tpChunk = 1 << 20
 
+// discard is io.Discard without its ReadFrom. io.CopyBuffer hands the copy
+// to a destination's ReadFrom when it has one, and io.Discard's reads in
+// 8 KiB whatever buffer was passed: every SMB READ was 8 KiB, and the host
+// read too, until this.
+var discard io.Writer = struct{ io.Writer }{io.Discard}
+
 func hostRead(t *testing.T, path string) int64 {
 	f, err := os.Open(path)
 	if err != nil {
@@ -134,7 +140,7 @@ func hostRead(t *testing.T, path string) int64 {
 		return 0
 	}
 	defer f.Close()
-	n, _ := io.CopyBuffer(io.Discard, struct{ io.Reader }{f}, make([]byte, tpChunk))
+	n, _ := io.CopyBuffer(discard, struct{ io.Reader }{f}, make([]byte, tpChunk))
 	return n
 }
 
@@ -147,7 +153,7 @@ func webdavRead(t *testing.T, addr, path string) int64 {
 		return 0
 	}
 	defer res.Body.Close()
-	n, _ := io.CopyBuffer(io.Discard, res.Body, make([]byte, tpChunk))
+	n, _ := io.CopyBuffer(discard, res.Body, make([]byte, tpChunk))
 	return n
 }
 
@@ -165,7 +171,7 @@ func sftpRead(t *testing.T, addr string, key ssh.Signer, path string) int64 {
 	}
 	defer f.Close()
 	// WriteTo: pkg/sftp's concurrent read-ahead, as `sftp get` does.
-	n, _ := f.WriteTo(io.Discard)
+	n, _ := f.WriteTo(discard)
 	return n
 }
 
@@ -191,7 +197,7 @@ func smbRead(t *testing.T, addr, share, name string) int64 {
 		return 0
 	}
 	defer f.Close()
-	n, _ := io.CopyBuffer(io.Discard, struct{ io.Reader }{f}, make([]byte, tpChunk))
+	n, _ := io.CopyBuffer(discard, struct{ io.Reader }{f}, make([]byte, tpChunk))
 	return n
 }
 

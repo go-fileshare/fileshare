@@ -80,6 +80,25 @@ jobs:
         env:
           FILESHARE_REQUIRE_JUDGE: "1"
 
+  throughput:
+    name: throughput against the host (measurement)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.1'
+          check-latest: true
+          cache: true
+      # A measurement, not a gate: the table goes to the job summary, so a
+      # change that claims to make a protocol faster has a number before and
+      # after it. throughput_test.go says what is measured.
+      - name: read one file through every protocol and on the host
+        run: |
+          set -o pipefail
+          FILESHARE_THROUGHPUT_MIB=256 go test -run TestThroughputAgainstTheHost -count=1 -v . | tee tp.log
+          { echo '```'; sed -n '/MiB file/,/^--- /p' tp.log | sed 's/^        //' | grep -v '^--- '; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
   install:
     name: go install @latest works
     runs-on: ubuntu-latest

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -158,6 +159,20 @@ type trackedConn struct {
 	net.Conn
 	l    *genListener
 	once sync.Once
+}
+
+// ReadFrom is the wrapped connection's, when it has one. It is what lets a
+// file of the host go out with sendfile(2): net/http hands a response body
+// to its connection's ReadFrom, and *net.TCPConn's sends a descriptor
+// without copying it through this process. Embedding net.Conn does not carry
+// the method over -- the interface has no ReadFrom -- so without this every
+// WebDAV and S3 body was copied.
+func (c *trackedConn) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := c.Conn.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+	// Not io.Copy(c, r): that would come back here.
+	return io.Copy(struct{ io.Writer }{c.Conn}, r)
 }
 
 func (c *trackedConn) Close() error {

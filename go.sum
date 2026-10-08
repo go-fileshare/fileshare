@@ -85,8 +85,8 @@ github.com/go-filesystems/interface v0.5.0 h1:AsbSXYG5cp497Ki0Ez88s8wwrVEmeRmFLd
 github.com/go-filesystems/interface v0.5.0/go.mod h1:u9v8mvapNV8djzObwCECdyd2g6JBU6HNTR4EAqxOn6U=
 github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26 h1:FwoyXEjiOzGiloqXbXN8av75RDujT/4BlPsG91CYELQ=
 github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26/go.mod h1:hUDicCpSA98j0jv1DDMJo0H3fYOOe+i5+FfxOKlphjg=
-github.com/go-filesystems/nfs v0.8.0 h1:XLuyjU05S0FkvAe6lyDBUxtG7Ks9YqZDX72d6fYBmQY=
-github.com/go-filesystems/nfs v0.8.0/go.mod h1:2oUky0JXSHD5BrQsP79YU1AbpRs7MJx5Ts977rhUwgc=
+github.com/go-filesystems/nfs v0.8.1 h1:MsijVbDylmoyIzv2jnibpbVjqNm6KWzEflMxyPCojJc=
+github.com/go-filesystems/nfs v0.8.1/go.mod h1:2oUky0JXSHD5BrQsP79YU1AbpRs7MJx5Ts977rhUwgc=
 github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177 h1:0aEO+w2idrwHs/X3Uo/GSKqvBysQuQ5cumJCGo28248=
 github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177/go.mod h1:PYr8TCa1lQI3KC5Q/ONPScmaQ55iCMWBhdBv9twz++0=
 github.com/go-filesystems/osfs v0.3.0 h1:WvAl3DFnyqrfjymwbzi47rEh4O/t90UO8/tiSIZWcuM=
@@ -95,8 +95,8 @@ github.com/go-filesystems/s3 v0.3.0 h1:9lNwCgmowYv8JqhE+OuO7MXsTnWTDBnH27tp0BLr2
 github.com/go-filesystems/s3 v0.3.0/go.mod h1:HzG6ZkIcGBS+oMQsUD8Aq1xDJU+BlDaTz/3Dc6/njS4=
 github.com/go-filesystems/sftp v0.5.1 h1:5Z9DkYFWjcrl3Snyb6RM7gOr3yCJHrQNVhwcGwB9Vd4=
 github.com/go-filesystems/sftp v0.5.1/go.mod h1:3HTEklCrjyk0/oXqljPfj2Fh0clzUaPIxJne4PUqVZc=
-github.com/go-filesystems/smb v0.6.0 h1:eWQJq7jdSKdmnVj10rrzXGC8syxuRfFDdP1hWqXMhTc=
-github.com/go-filesystems/smb v0.6.0/go.mod h1:rMs8HfE+nmO82JdCUfeeHTG5/Hp/1irh2gZWhTVyTN4=
+github.com/go-filesystems/smb v0.6.2 h1:YTtYT3m4G4UOFSO7bDY7dPSP9BIKwG7tIOlM6lYS8jk=
+github.com/go-filesystems/smb v0.6.2/go.mod h1:rMs8HfE+nmO82JdCUfeeHTG5/Hp/1irh2gZWhTVyTN4=
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b h1:GXfYwBRU7hYVy6Hst4gYbFLGIBJy2QPdBVz4wf6VEdk=
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b/go.mod h1:JP818cUyKO0bq/FtOyZLRSX8rVpG7q9/KBKJ++kppoU=
 github.com/go-filesystems/ufs v0.2.0 h1:a9iq3oOW1gYBfv2RIz0cEat2mKwTPyJCqXnmt8+yTKo=

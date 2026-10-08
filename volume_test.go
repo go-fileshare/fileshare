@@ -17,11 +17,13 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/go-fileshare/fileshare/internal/peercred"
@@ -744,3 +746,64 @@ func (fakeStream) SendHeader(metadata.MD) error { return nil }
 func (fakeStream) SetTrailer(metadata.MD)       {}
 func (fakeStream) SendMsg(any) error            { return nil }
 func (fakeStream) RecvMsg(any) error            { return nil }
+
+// A btrfs volume's size is its quota, and its free space the quota less
+// what the provisioner says its qgroup uses -- not statfs, which on btrfs is
+// the whole filesystem -- in the admin API and over WebDAV, and the usage is
+// asked again while the share is served.
+func TestABtrfsVolumeIsTheSizeOfItsQuota(t *testing.T) {
+	origTTL, origSpace := volumeTTL, spaceTTL
+	volumeTTL, spaceTTL = 0, 0
+	t.Cleanup(func() { volumeTTL, spaceTTL = origTTL, origSpace })
+	w := startVolumes(t)
+	goodKernel(kindBtrfs).install(t, filepath.Join(w.dir, "roots", "volumes"))
+	w.prov.mu.Lock()
+	w.prov.kind = provisionv1.Kind_KIND_BTRFS
+	w.prov.mu.Unlock()
+	ctx := context.Background()
+	const quota = 32 << 20
+	if _, err := w.client.CreateVolume(ctx, &adminv1.CreateVolumeRequest{Parent: "plain", Name: "b", QuotaBytes: quota}); err != nil {
+		t.Fatal(err)
+	}
+	setUsed := func(n uint64) {
+		// A new message, not an edit: the old one may be on its way out.
+		w.prov.mu.Lock()
+		v := proto.Clone(w.prov.vols["plain/b"]).(*provisionv1.Volume)
+		v.UsedBytes = n
+		w.prov.vols["plain/b"] = v
+		w.prov.mu.Unlock()
+	}
+	setUsed(1 << 20)
+	created, err := w.client.CreateShare(ctx, &adminv1.CreateShareRequest{Name: "bv",
+		Source: volumeSource("plain", "b"), Grants: aliceWrites()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := created.GetShare().GetSizeBytes(); got != quota {
+		t.Fatalf("the share's size is %d, want the quota %d (statfs would say the whole filesystem)", got, quota)
+	}
+	// The numbers the resolution brought, then the provisioner's new ones:
+	// asked in the background, so the answer arrives on a later PROPFIND.
+	want := func(used uint64) {
+		t.Helper()
+		var avail, u uint64
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if avail, u = webdavQuota(t, w.webdav, "/bv/"); u == used && avail == quota-used {
+				return
+			}
+		}
+		t.Fatalf("WebDAV: available %d, used %d; want %d, %d", avail, u, quota-used, used)
+	}
+	want(1 << 20)
+	setUsed(20 << 20)
+	want(20 << 20)
+	// The provisioner gone: the last numbers known are served.
+	w.prov.mu.Lock()
+	w.prov.fail["GetVolume"] = status.Error(codes.Unavailable, "down")
+	w.prov.mu.Unlock()
+	for range 5 {
+		if avail, u := webdavQuota(t, w.webdav, "/bv/"); u != 20<<20 || avail != quota-20<<20 {
+			t.Fatalf("with the provisioner down: available %d, used %d", avail, u)
+		}
+	}
+}

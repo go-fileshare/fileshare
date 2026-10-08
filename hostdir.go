@@ -42,16 +42,16 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	if err != nil {
 		return fmt.Errorf("share %q: %w", b.Name, err)
 	}
-	sh.fsys = &fullAware{hostTreeOf(fsys)}
+	tree := hostTreeOf(fsys)
+	sh.fsys = &fullAware{tree}
 	sh.kind = "directory"
 	sh.openedReadOnly = b.ReadOnly
 	sh.askedWrite = !b.ReadOnly
 	// What a client is told the capacity is: the filesystem the tree lives
-	// on. A platform that cannot say leaves it at zero, which the protocols
-	// read as "unknown" rather than "full".
-	if total, _, err := fsys.Usage(); err == nil {
-		sh.size = total
-	}
+	// on, asked at every query -- or, for a btrfs volume, its quota and
+	// what its qgroup uses (capacity.go). A platform that cannot say leaves
+	// it at zero, which the protocols read as "unknown" rather than "full".
+	sh.capacity, sh.size = s.capacityOf(b, tree.Usage)
 	sh.closers = []io.Closer{fsys}
 	return nil
 }

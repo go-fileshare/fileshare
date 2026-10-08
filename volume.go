@@ -32,10 +32,17 @@ type volumeRef struct {
 func (r volumeRef) String() string { return r.Parent + "/" + r.Name }
 
 // A volumeResolution is what asking for a volume share's volume found: the
-// path to serve, checked, or why it is not served.
+// path to serve, checked, or why it is not served. A volume that is served
+// also keeps what the provisioner said of it then: its kind, its quota and
+// what it used, the first numbers a btrfs volume's size is reported from
+// (capacity.go).
 type volumeResolution struct {
 	path string
 	why  string
+
+	ref         volumeRef
+	kind        string
+	quota, used uint64
 }
 
 // An unavailableShare is a volume share that is defined, not disabled, and

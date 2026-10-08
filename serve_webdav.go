@@ -33,13 +33,16 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
 		prefix := "/" + sh.name
-		read, err := webdav.New(sh.fsys,
-			webdav.WithPrefix(prefix), webdav.WithCapacity(sh.size, 0))
+		space := webdav.WithCapacity(sh.size, 0)
+		if sh.capacity != nil {
+			// A directory: what it is now, not what it was at the start.
+			space = webdav.WithCapacityFunc(sh.capacity)
+		}
+		read, err := webdav.New(sh.fsys, webdav.WithPrefix(prefix), space)
 		if err != nil {
 			return fmt.Errorf("%s: %w", sh.name, err)
 		}
-		write, err := webdav.New(sh.fsys,
-			webdav.WithPrefix(prefix), webdav.WithCapacity(sh.size, 0), webdav.ReadWrite())
+		write, err := webdav.New(sh.fsys, webdav.WithPrefix(prefix), space, webdav.ReadWrite())
 		if err != nil {
 			return fmt.Errorf("%s: %w", sh.name, err)
 		}

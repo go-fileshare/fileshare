@@ -103,6 +103,7 @@ func (m managedShare) block() shareBlock {
 		b.volume = m.Volume.String()
 		if m.resolved != nil && m.resolved.path != "" {
 			b.Directory = m.resolved.path
+			b.vol = m.resolved
 		}
 	}
 	for _, g := range m.Grants {

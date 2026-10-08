@@ -121,3 +121,22 @@ func xdrOpaque(p []byte) []byte {
 	}
 	return b
 }
+
+// nfsFsstat calls NFSv3 FSSTAT (RFC 1813 §3.3.18) on fh and returns tbytes
+// and fbytes.
+func nfsFsstat(t *testing.T, addr string, fh []byte) (tbytes, fbytes uint64) {
+	t.Helper()
+	res := nfsRPC(t, addr, 100003, 3, 18, xdrOpaque(fh))
+	if len(res) < 8 || getBE32(res) != 0 {
+		t.Fatalf("FSSTAT: % x", res)
+	}
+	off := 8 // status, post_op_attr's bool
+	if getBE32(res[4:]) == 1 {
+		off += 84 // fattr3
+	}
+	if len(res) < off+16 {
+		t.Fatalf("FSSTAT: short: % x", res)
+	}
+	be64 := func(b []byte) uint64 { return uint64(getBE32(b))<<32 | uint64(getBE32(b[4:])) }
+	return be64(res[off:]), be64(res[off+8:])
+}

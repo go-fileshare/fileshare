@@ -72,39 +72,58 @@ func resolveVolumes(a *adminBlock, shares []managedShare) map[string]*volumeReso
 			defer c.Close()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
-		path, err := resolveVolume(ctx, c, a.SourceRoots, *m.Volume)
+		res, err := resolveVolume(ctx, c, a.SourceRoots, *m.Volume)
 		cancel()
 		if err != nil {
 			out[key] = &volumeResolution{why: err.Error()}
 			continue
 		}
-		out[key] = &volumeResolution{path: path}
+		out[key] = res
 	}
 	return out
 }
 
 // resolveVolume asks the provisioner where a volume is, and checks it before
 // it is served. A refusal says what kind it is: a volume that does not exist,
-// a provisioner that does not answer, anything else.
-func resolveVolume(ctx context.Context, c volumeService, roots []string, ref volumeRef) (string, error) {
+// a provisioner that does not answer, anything else. What it found keeps the
+// volume's kind, quota and usage, which a btrfs volume's size is made of
+// (see capacity.go).
+func resolveVolume(ctx context.Context, c volumeService, roots []string, ref volumeRef) (*volumeResolution, error) {
 	v, err := c.Get(ctx, ref.Parent, ref.Name)
 	if err != nil {
 		st, _ := status.FromError(err)
 		switch st.Code() {
 		case codes.NotFound:
-			return "", refuse(refusedNotFound, "volume %s does not exist (the provisioner: %s)", ref, st.Message())
+			return nil, refuse(refusedNotFound, "volume %s does not exist (the provisioner: %s)", ref, st.Message())
 		case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled:
-			return "", refuse(refusedUnavailable, "the provisioner did not answer for volume %s: %s", ref, st.Message())
+			return nil, refuse(refusedUnavailable, "the provisioner did not answer for volume %s: %s", ref, st.Message())
 		case codes.InvalidArgument:
-			return "", refuse(refusedInvalid, "volume %s: %s", ref, st.Message())
+			return nil, refuse(refusedInvalid, "volume %s: %s", ref, st.Message())
 		}
-		return "", refuse(refusedPrecondition, "volume %s: the provisioner: %s: %s", ref, st.Code(), st.Message())
+		return nil, refuse(refusedPrecondition, "volume %s: the provisioner: %s: %s", ref, st.Code(), st.Message())
 	}
-	path, err := checkVolume(volumeFound{ref: ref, kind: kindName(v.GetKind()), path: v.GetPath()}, roots)
+	kind := kindName(v.GetKind())
+	path, err := checkVolume(volumeFound{ref: ref, kind: kind, path: v.GetPath()}, roots)
 	if err != nil {
-		return "", refuse(refusedPrecondition, "%v", err)
+		return nil, refuse(refusedPrecondition, "%v", err)
 	}
-	return path, nil
+	return &volumeResolution{path: path, ref: ref, kind: kind, quota: v.GetQuotaBytes(), used: v.GetUsedBytes()}, nil
+}
+
+// volumeUsage asks this server's provisioner for a volume's quota and what
+// it uses: for a btrfs volume's size, which statfs cannot say. It answers
+// an error while the admin API -- whose connection to the provisioner it
+// borrows -- is not running.
+func (s *server) volumeUsage(ctx context.Context, ref volumeRef) (quota, used uint64, err error) {
+	m := s.mgr.Load()
+	if m == nil || m.vols == nil {
+		return 0, 0, errNoProvisioner
+	}
+	v, err := m.vols.Get(ctx, ref.Parent, ref.Name)
+	if err != nil {
+		return 0, 0, err
+	}
+	return v.GetQuotaBytes(), v.GetUsedBytes(), nil
 }
 
 func kindName(k provisionv1.Kind) string {
@@ -383,9 +402,5 @@ func (m *manager) resolveFor(ctx context.Context, ref volumeRef) (*volumeResolut
 	if m.vols == nil {
 		return nil, refuse(refusedPrecondition, "no provisioner configured: name one in the admin block to serve volume %s", ref)
 	}
-	path, err := resolveVolume(ctx, m.vols, m.roots, ref)
-	if err != nil {
-		return nil, err
-	}
-	return &volumeResolution{path: path}, nil
+	return resolveVolume(ctx, m.vols, m.roots, ref)
 }

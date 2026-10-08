@@ -38,6 +38,10 @@ type share struct {
 	fsys filesystem.Filesystem
 	kind detect.Type
 	size uint64
+	// capacity, when set, is the total and available bytes as they are
+	// NOW, asked at every query; size is then only what the admin API
+	// shows. A directory share has one, an image none. See capacity.go.
+	capacity func() (total, avail uint64)
 	// named is true when the configuration said which filesystem this is,
 	// rather than the magic saying so.
 	named bool
@@ -125,6 +129,7 @@ func imageKeyOf(b shareBlock) imageKey {
 // leaves prev exactly as it was.
 func (s *share) adopt(prev *share) {
 	s.fsys, s.kind, s.size, s.named, s.partition = prev.fsys, prev.kind, prev.size, prev.named, prev.partition
+	s.capacity = prev.capacity
 	s.openedReadOnly, s.forcedReadOnly, s.askedWrite = prev.openedReadOnly, prev.forcedReadOnly, prev.askedWrite
 	s.closers = prev.closers
 	if s.openedReadOnly || s.forcedReadOnly {

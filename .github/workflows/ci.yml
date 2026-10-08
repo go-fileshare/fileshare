@@ -353,6 +353,14 @@ jobs:
           n=$(grep -c "bytes into a" e2e-output.txt)
           [ "$n" -eq 8 ] || { echo "::error::$n fills measured, want 8"; exit 1; }
           grep "bytes into a" e2e-output.txt
+          # What WebDAV and SMB clients are told a 32 MiB volume's size is,
+          # beside statfs inside it (the whole filesystem, for btrfs). Not
+          # NFS: it serves a share the admin API made only with kerberos or
+          # client certificates.
+          # The size lines, not the fill lines that end "(the share's size: N)".
+          n=$(grep -cE '_test\.go:[0-9]+: size: ' e2e-output.txt)
+          [ "$n" -eq 12 ] || { echo "::error::$n sizes measured, want 12"; exit 1; }
+          grep -E '_test\.go:[0-9]+: size: ' e2e-output.txt
 
   arches:
     name: arch ${{ matrix.goarch }}

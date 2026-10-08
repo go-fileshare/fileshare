@@ -30,7 +30,7 @@ require (
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.3.0
 	github.com/go-filesystems/s3 v0.3.0
-	github.com/go-filesystems/sftp v0.5.1
+	github.com/go-filesystems/sftp v0.6.0
 	github.com/go-filesystems/smb v0.6.2
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/ufs v0.2.0

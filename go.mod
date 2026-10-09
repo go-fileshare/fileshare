@@ -9,6 +9,7 @@ module github.com/go-fileshare/fileshare
 go 1.27.1
 
 require (
+	connectrpc.com/connect/v2 v2.0.0
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
 	github.com/go-authn/directory v0.11.0
 	github.com/go-authn/krb5 v0.2.1

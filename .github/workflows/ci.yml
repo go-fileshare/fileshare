@@ -180,9 +180,14 @@ jobs:
           sudo unzip -q -o /tmp/protoc.zip -d /usr/local bin/protoc 'include/*'
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          go install connectrpc.com/connect/v2/cmd/protoc-gen-connect-go@v2.0.0
           protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
             --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
             proto/fileshare/admin/v1/admin.proto proto/fileshare/provision/v1/provision.proto
+          # The admin API over HTTPS (admin_web.go) is Connect; the provisioner's
+          # stays gRPC on its socket.
+          protoc -I proto --connect-go_out=. --connect-go_opt=module=github.com/go-fileshare/fileshare \
+            proto/fileshare/admin/v1/admin.proto
           # ⛔ --exit-code alone ignores a file nobody committed: a NEW .proto
           # whose generated code was left out would pass. Untracked files
           # under proto/ fail the lane too.

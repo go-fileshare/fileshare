@@ -172,6 +172,9 @@ type adminBlock struct {
 	// at all -- so this narrows who may call (root, say, may not) and can
 	// never widen it.
 	AllowedUIDs []uint32 `hcl:"allowed_uids,optional"`
+	// Web serves the same API over HTTPS to OIDC bearer tokens, for the UIs:
+	// see admin_webconfig.go.
+	Web *adminWebBlock `hcl:"web,block"`
 }
 
 // A metricsBlock serves the endpoints a supervisor asks: whether the process
@@ -897,6 +900,11 @@ func (c *config) checkControl() error {
 		}
 		if err := a.checkVolumes(); err != nil {
 			return fmt.Errorf("admin: %w", err)
+		}
+		if a.Web != nil {
+			if err := a.Web.check(c.TLS != nil); err != nil {
+				return fmt.Errorf("admin: %w", err)
+			}
 		}
 	}
 	if m := c.Metrics; m != nil {

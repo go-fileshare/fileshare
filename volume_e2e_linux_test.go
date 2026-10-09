@@ -265,13 +265,19 @@ admin {
 		}
 	}
 	for _, r := range copies {
-		t.Logf("copy: %-5s an 8 MiB WebDAV COPY used %6.2f MiB of the filesystem; %d extent(s) shared; same bytes: %v",
-			r.Kind, float64(r.Used)/mib, r.Shared, r.Same)
+		used := fmt.Sprintf("%6.2f MiB", float64(r.Used)/mib)
+		if r.Kind == "zfs" {
+			used = "(not measured: ZFS accounts at txg sync)"
+		}
+		t.Logf("copy: %-5s an 8 MiB WebDAV COPY used %s of the filesystem; %d extent(s) shared; same bytes: %v",
+			r.Kind, used, r.Shared, r.Same)
 		if !r.Same {
 			t.Errorf("%s: the copy's bytes differ from the source's", r.Kind)
 		}
 		switch r.Kind {
-		case "btrfs", "xfs":
+		case "zfs":
+			// ZFS accounts space at a transaction group sync, which only
+			// root can force (zpool sync); its number is not a measure.
 			if r.Used > 2*mib {
 				t.Errorf("%s: the COPY used %d bytes; a reflink uses none", r.Kind, r.Used)
 			}

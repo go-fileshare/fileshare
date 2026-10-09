@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"os"
+	"syscall"
 	"time"
 
 	filesystem "github.com/go-filesystems/interface"
@@ -118,10 +119,32 @@ func (f *fullAware) OpenFile(p string) (filesystem.File, error) {
 		return nil, err
 	}
 	if w, ok := h.(filesystem.WritableFile); ok {
+		if hf, ok := h.(filesystem.HostFile); ok {
+			return fullAwareHostFile{fullAwareFile{w}, hf}, nil
+		}
 		return fullAwareFile{w}, nil
 	}
 	return h, nil
 }
+
+// fullAwareHostFile is a fullAwareFile over a file of the host, and still
+// one: without Read, Seek and SyscallConn passed on, a writable directory
+// share lost what lets a GET go out with sendfile(2) and a COPY be
+// copy_file_range(2) -- the wrapper hid them, and the e2e's reflink
+// measure is what showed it (8 MiB used for an 8 MiB COPY on btrfs).
+type fullAwareHostFile struct {
+	fullAwareFile
+	hf filesystem.HostFile
+}
+
+func (f fullAwareHostFile) Read(p []byte) (int, error) { return f.hf.Read(p) }
+func (f fullAwareHostFile) Seek(off int64, whence int) (int64, error) {
+	return f.hf.Seek(off, whence)
+}
+func (f fullAwareHostFile) SyscallConn() (syscall.RawConn, error) { return f.hf.SyscallConn() }
+func (f fullAwareHostFile) HostFile()                             { f.hf.HostFile() }
+
+var _ filesystem.HostFile = fullAwareHostFile{}
 
 // fullAwareFile is an open file whose writes say "full" one way. Close and
 // Sync are where a filesystem that delays allocation reports it.

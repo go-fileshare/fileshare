@@ -24,7 +24,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// TestThroughputAgainstTheHost reads one file of a directory share through
+// TestThroughputAgainstTheHost reads one file of a writable directory share
+// -- the common case, and the one whose files a wrapper once kept from
+// sendfile(2) -- through
 // every protocol and compares it with reading the same file on the host.
 // It is a measurement, not a check: it runs only when
 // FILESHARE_THROUGHPUT_MIB says how big the file is, and it fails nothing.
@@ -66,7 +68,6 @@ user "alice" {
 }
 share "tree" {
   directory = %q
-  read_only = true
 }
 serve "webdav" { addr = "127.0.0.1:0" }
 serve "sftp"   { addr = "127.0.0.1:0" }

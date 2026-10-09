@@ -721,6 +721,12 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	}
 	defer ctl()
 
+	// Every listener the CA may validate on is bound: ask for the ACME
+	// certificates now rather than at the first client (acme_prefetch.go).
+	if s.certs != nil && cfg.TLS.ACME != nil {
+		go prefetchCerts(ctx, s.certs, sleepCtx)
+	}
+
 	// The directory is read again on SIGHUP, and every `reload` when the
 	// configuration says so; see reload.go.
 	every, _ := cfg.reloadEvery()

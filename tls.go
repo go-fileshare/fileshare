@@ -52,9 +52,14 @@ import (
 //	http-01      the CA connects to port 80 (RFC 8555 §8.3): http_challenge
 //	             names a listener for it
 //	none         a CA whose account has the domain PRE-VALIDATED asks for
-//	             no challenge at all -- HARICA's enterprise accounts for GÉANT
-//	             TCS -- and then a server nobody outside can reach still gets
-//	             its certificate
+//	             no challenge at all -- a HARICA Enterprise ADMIN account for
+//	             GÉANT TCS (OV); an Enterprise USER account (DV) always
+//	             challenges -- and then a server nobody outside can reach still
+//	             gets its certificate. Its CAA record must allow harica.gr.
+//
+// The certificates are asked for as soon as the listeners are up, not at the
+// first client (acme_prefetch.go); a client by IP address, which sends no SNI,
+// is served the first domain's.
 //
 // ⛔ SMB and SFTP do not take `tls`: SMB 3 encrypts with its own keys, SFTP is
 // SSH. NFS over TLS is RFC 9289, and it authenticates the MACHINE: a client

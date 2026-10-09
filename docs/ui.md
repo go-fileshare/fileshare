@@ -1,7 +1,7 @@
 # Two UIs for many servers: design
 
-Status: **design, agreed 2026-10-09**. Nothing below is built yet unless a
-phase says so.
+Status: **design, agreed 2026-10-09**. Phase 1 is built (v0.28.0); nothing
+else below is built yet unless a phase says so.
 
 ## What is asked
 
@@ -43,8 +43,9 @@ against the raw text).
 
 - **fileshare** — the admin API also served over Connect, on a TCP listener
   with TLS; OIDC bearer tokens checked against a list of issuers with per-issuer
-  audiences; an `admins` rule (issuer, sub or group) that says who may call it.
-  The unix socket and mutual TLS stay as they are.
+  audiences; each issuer block names the subjects and groups that may call it
+  (`admin { web { issuer "<url>" { audience; subjects; groups } } }`, see the
+  README). The unix socket and mutual TLS stay as they are.
 - **BFF** (`go-fileshare/portal`, to create) — OIDC authorization code with
   PKCE as a confidential client; the session in an encrypted cookie so that any
   copy can serve any request (no shared state, so HA is a matter of running
@@ -74,7 +75,7 @@ against the raw text).
 ## Phases
 
 1. **fileshare**: admin API over Connect; OIDC issuers list with audiences;
-   `admins`. Release.
+   who may call, per issuer. **Done: v0.28.0** (#76).
 2. **portal (BFF)**: login, encrypted session, per-server tokens, Connect proxy,
    static UI serving; e2e against two fileshare servers and a test IdP.
 3. **console**: shares, grants, volumes, server state, over N servers.

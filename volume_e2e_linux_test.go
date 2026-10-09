@@ -249,6 +249,41 @@ admin {
 	if len(sizes) != 12 {
 		t.Errorf("%d sizes, want 12 (4 kinds x statfs, WebDAV, SMB)", len(sizes))
 	}
+
+	// A WebDAV COPY between two files of the host is copy_file_range(2): a
+	// reflink where the filesystem has them, so it costs the filesystem
+	// nothing on btrfs and XFS -- and 8 MiB on ext4, which has none, which
+	// is what shows the measure can see a copy at all.
+	var copies []e2eCopy
+	for _, line := range strings.Split(string(hout), "\n") {
+		if j, ok := strings.CutPrefix(strings.TrimSpace(line), "E2E-COPY "); ok {
+			var r e2eCopy
+			if err := json.Unmarshal([]byte(j), &r); err != nil {
+				t.Fatalf("%q: %v", line, err)
+			}
+			copies = append(copies, r)
+		}
+	}
+	for _, r := range copies {
+		t.Logf("copy: %-5s an 8 MiB WebDAV COPY used %6.2f MiB of the filesystem; %d extent(s) shared; same bytes: %v",
+			r.Kind, float64(r.Used)/mib, r.Shared, r.Same)
+		if !r.Same {
+			t.Errorf("%s: the copy's bytes differ from the source's", r.Kind)
+		}
+		switch r.Kind {
+		case "btrfs", "xfs":
+			if r.Used > 2*mib {
+				t.Errorf("%s: the COPY used %d bytes; a reflink uses none", r.Kind, r.Used)
+			}
+		case "ext4":
+			if r.Used < 6*mib {
+				t.Errorf("ext4: the COPY used %d bytes; a filesystem without reflinks copies all 8 MiB, so the measure is blind", r.Used)
+			}
+		}
+	}
+	if len(copies) != 4 {
+		t.Errorf("%d copies, want 4", len(copies))
+	}
 	for _, r := range results {
 		t.Logf("%-5s %-6s %9d bytes into a %d-byte volume, then %s (the share's size: %d)", r.Kind, r.Protocol, r.Written, e2eQuota, r.Answer, r.Size)
 	}
@@ -344,6 +379,8 @@ admin {
 			j, _ := json.Marshal(r)
 			fmt.Printf("E2E-SIZE %s\n", j)
 		}
+		j, _ := json.Marshal(probeCopy(t, ctx, api, addrs, p.GetId(), kind))
+		fmt.Printf("E2E-COPY %s\n", j)
 		for _, proto := range []string{"webdav", "sftp"} {
 			name := "e2e-" + proto
 			share := p.GetId() + "-" + proto
@@ -549,4 +586,73 @@ func smbAt(t *testing.T, addr, share string) *smb2.Share {
 	}
 	t.Cleanup(func() { fs.Umount(); s.Logoff(); cancel() })
 	return fs
+}
+
+// e2eCopy is what a WebDAV COPY of an 8 MiB file cost the filesystem under a
+// volume of one kind: the free space of the filesystem that holds it, before
+// and after, and how many extents of the copy filefrag calls shared.
+type e2eCopy struct {
+	Kind   string `json:"kind"`
+	Used   int64  `json:"used"`
+	Shared int    `json:"shared"`
+	Same   bool   `json:"same"`
+}
+
+// probeCopy writes an 8 MiB file into a new volume, COPYs it over WebDAV,
+// and measures what the copy cost the FILESYSTEM -- statfs of the directory
+// that holds the volume, not of the volume: inside an XFS or ext4 project, or
+// a ZFS dataset with a quota, statfs answers with the quota, and a quota
+// charges shared blocks to every file that has them. A copy the kernel made
+// as a reflink costs the filesystem nothing; a copy of the bytes costs 8 MiB.
+func probeCopy(t *testing.T, ctx context.Context, api adminv1.AdminServiceClient, addrs map[string]string, parent, kind string) e2eCopy {
+	t.Helper()
+	name, share := "e2e-copy", parent+"-copy"
+	v, err := api.CreateVolume(ctx, &adminv1.CreateVolumeRequest{Parent: parent, Name: name, QuotaBytes: e2eQuota})
+	if err != nil {
+		t.Fatalf("%s: CreateVolume: %v", kind, err)
+	}
+	if _, err := api.CreateShare(ctx, &adminv1.CreateShareRequest{Name: share, Source: volumeSource(parent, name), Grants: aliceWrites()}); err != nil {
+		t.Fatalf("%s: CreateShare: %v", kind, err)
+	}
+	path := v.GetVolume().GetPath()
+	data := make([]byte, e2eSizeWrite)
+	rand.Read(data) // random: ZFS compresses a repeated pattern away
+	if err := os.WriteFile(filepath.Join(path, "a.bin"), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	free := func() int64 {
+		syscall.Sync()
+		time.Sleep(time.Second) // btrfs and ZFS account at a transaction commit
+		syscall.Sync()
+		var st syscall.Statfs_t
+		if err := syscall.Statfs(filepath.Dir(path), &st); err != nil {
+			t.Fatalf("statfs: %v", err)
+		}
+		return int64(st.Bavail) * int64(st.Frsize)
+	}
+	before := free()
+	req, _ := http.NewRequest("COPY", "http://"+addrs["webdav"]+"/"+share+"/a.bin", nil)
+	req.Header.Set("Destination", "/"+share+"/b.bin")
+	req.SetBasicAuth("alice", "hunter2")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s: COPY: %v", kind, err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("%s: COPY answered %d", kind, res.StatusCode)
+	}
+	after := free()
+	got, _ := os.ReadFile(filepath.Join(path, "b.bin"))
+	r := e2eCopy{Kind: kind, Used: before - after, Same: bytes.Equal(got, data)}
+	if out, err := exec.Command("filefrag", "-v", filepath.Join(path, "b.bin")).CombinedOutput(); err == nil {
+		r.Shared = strings.Count(string(out), "shared")
+	}
+	if _, err := api.DeleteShare(ctx, &adminv1.DeleteShareRequest{Name: share}); err != nil {
+		t.Fatalf("%s: DeleteShare: %v", kind, err)
+	}
+	if _, err := api.DeleteVolume(ctx, &adminv1.DeleteVolumeRequest{Parent: parent, Name: name, DestroyData: true}); err != nil {
+		t.Fatalf("%s: DeleteVolume: %v", kind, err)
+	}
+	return r
 }

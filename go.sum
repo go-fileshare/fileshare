@@ -81,6 +81,8 @@ github.com/go-filesystems/fat32 v0.4.0 h1:wX4LGoTxdUAq9OJrsCcAg1lKtxTcuLaW3/Tk7A
 github.com/go-filesystems/fat32 v0.4.0/go.mod h1:4x09jEjl85nLiRE1Ojm3eWjmefYV48JG1YjLStESl/k=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd h1:rOHq51t4ZpD5/2TauUfrcJCKpWyg8eDe5EmCIMZBjvU=
 github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd/go.mod h1:DMXqQLSl8Nk3XhpV7pmlzCzwmBXTsrCLMH02CG6Q3mE=
+github.com/go-filesystems/hostcopy v0.1.0 h1:eNOy7iGrEe7dGZQ+UhnXJraZsnT+Ht3pP3OIWy69Wq0=
+github.com/go-filesystems/hostcopy v0.1.0/go.mod h1:5HPox1vd9HgHm4tzbem2w3a/QxmM0gyxhFQmKBKMrKI=
 github.com/go-filesystems/interface v0.5.0 h1:AsbSXYG5cp497Ki0Ez88s8wwrVEmeRmFLd40T4d3UwA=
 github.com/go-filesystems/interface v0.5.0/go.mod h1:u9v8mvapNV8djzObwCECdyd2g6JBU6HNTR4EAqxOn6U=
 github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26 h1:FwoyXEjiOzGiloqXbXN8av75RDujT/4BlPsG91CYELQ=
@@ -101,8 +103,8 @@ github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b h1:GXfYw
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b/go.mod h1:JP818cUyKO0bq/FtOyZLRSX8rVpG7q9/KBKJ++kppoU=
 github.com/go-filesystems/ufs v0.2.0 h1:a9iq3oOW1gYBfv2RIz0cEat2mKwTPyJCqXnmt8+yTKo=
 github.com/go-filesystems/ufs v0.2.0/go.mod h1:OOR5nRWbLlwPBhsDRrVYfNkfYwy+goA0GpRC1BgDiog=
-github.com/go-filesystems/webdav v0.4.0 h1:WgU0iRaxkB82Et2MQiHFtand9chzUqhAZwliwZirKwQ=
-github.com/go-filesystems/webdav v0.4.0/go.mod h1:snqHRDsMsknxRRVb/5P02sNiPWaGTlHavv+DEltGNJM=
+github.com/go-filesystems/webdav v0.5.0 h1:vk1G9imwUsa1QDxfcWk05IP67NoTpirew1nz0mdqRFc=
+github.com/go-filesystems/webdav v0.5.0/go.mod h1:KaUsWDD+Tpd0kvJuzCdQ37qdkmkUk1SfXFvXskKGiVQ=
 github.com/go-filesystems/xfs v0.1.0 h1:Yu4AvZfCbQS9gJJ48t5+p45jZqcDLd+WpCOa3BkOGes=
 github.com/go-filesystems/xfs v0.1.0/go.mod h1:EZxrQpldx5VV6ul2Ia5LbKczQleYPHijbHBpvQh0iBU=
 github.com/go-filesystems/zfs v0.1.0 h1:o5ukV23KKdcqq/S1Iv4cgHFbt0REi9onYQLuYOED5Yk=

@@ -329,7 +329,7 @@ oidc {
 }
 ```
 
-- **A certificate the provider's SSH CA signed** -- `bridge ssh-cert` writes
+- **A certificate the provider's SSH CA signed** -- `authn-bridge ssh-cert` writes
   one after a login through the federation. Its principal is the person, its
   `groups@go-authn.org` extension their groups, so `oidc:groups:` rules
   apply. It is *not* `trusted_user_ca_file`, whose certificates are about
@@ -353,7 +353,7 @@ open: these people are not in the directory, so no reload concerns them. The
 window is the certificate's lifetime: bridge's `ssh_ca { validity }` (12h by
 default, at most 168h, and never past the IdP session's end) and
 `opkssh_max_age` here. Keep it as short as the clients' re-login allows --
-`bridge token` and opkssh fetch a new one without asking the person.
+`authn-bridge token` and opkssh fetch a new one without asking the person.
 
 #### Revoking a certificate
 
@@ -408,7 +408,7 @@ Without it, a restart forgets the order, and fileshare says so at start: an
 older list, still signed and unexpired, would be taken. These files, like
 `ssh_ca_file`, the CA files and the list files, may not lie inside a share,
 since whoever writes there would decide who gets in. For a plain `sshd`
-next to fileshare, go-authn/revocation's `revokd` does the same and writes
+next to fileshare, go-authn/revocation's `authn-revokd` does the same and writes
 `RevokedKeys`.
 
 OpenPubkey (opkssh) certificates are not in any KRL — nothing issued them but

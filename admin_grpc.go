@@ -84,10 +84,25 @@ func startAdmin(ctx context.Context, s *server, cfg *config) (func(), error) {
 	if cfg.Admin.Reflection {
 		reflection.Register(gs)
 	}
+	stopWeb := func() {}
+	if cfg.Admin.Web != nil {
+		// The same service -- the same manager, state and audit -- over HTTPS.
+		stop, err := startAdminWeb(s, cfg, &adminService{m: mgr}, calls, mgr.audit)
+		if err != nil {
+			gs.Stop()
+			ln.Close()
+			if mgr.vols != nil {
+				mgr.vols.Close()
+			}
+			return nil, err
+		}
+		stopWeb = stop
+	}
 	s.mgr.Store(mgr)
 	go gs.Serve(ln)
 	fmt.Fprintf(s.out, "%-6s on %s — the admin API\n", "admin", cfg.Admin.Listen)
 	return func() {
+		stopWeb()
 		hs.Shutdown()
 		done := make(chan struct{})
 		go func() { gs.GracefulStop(); close(done) }()
@@ -103,8 +118,12 @@ func startAdmin(ctx context.Context, s *server, cfg *config) (func(), error) {
 }
 
 // callerOf says who made a call, for the audit line: "uid=N" from the
-// kernel on a unix socket, "cn=..." for mutual TLS.
+// kernel on a unix socket, "cn=..." for mutual TLS, "oidc=<issuer> <sub>"
+// over HTTPS.
 func callerOf(ctx context.Context) string {
+	if c, ok := ctx.Value(oidcCallerKey{}).(oidcCaller); ok {
+		return "oidc=" + c.issuer + " " + c.subject
+	}
 	if a, ok := peercred.FromContext(ctx); ok {
 		return fmt.Sprintf("uid=%d", a.UID)
 	}

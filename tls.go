@@ -132,6 +132,9 @@ func (c *config) checkTLS() error {
 	if c.TLS == nil {
 		return nil
 	}
+	if c.Admin != nil && c.Admin.Web != nil {
+		usesTLS = true // the admin API over HTTPS carries the certificate too
+	}
 	if !usesTLS {
 		return fmt.Errorf("there is a tls block and no serve block says tls = true: nothing would use it")
 	}

@@ -1025,13 +1025,53 @@ it did — the generation now served and how many connections were closed.
 
 The Go code under `proto/` is generated and committed, so `go install` needs no
 `protoc`; after changing the `.proto`, regenerate it with the versions CI pins
-(protoc 34.1, protoc-gen-go v1.36.12, protoc-gen-go-grpc v1.6.2):
+(protoc 34.1, protoc-gen-go v1.36.12, protoc-gen-go-grpc v1.6.2,
+protoc-gen-connect-go v2.0.0):
 
 ```sh
 protoc -I proto --go_out=. --go_opt=module=github.com/go-fileshare/fileshare \
   --go-grpc_out=. --go-grpc_opt=module=github.com/go-fileshare/fileshare \
   proto/fileshare/admin/v1/admin.proto proto/fileshare/provision/v1/provision.proto
+protoc -I proto --connect-go_out=. --connect-go_opt=module=github.com/go-fileshare/fileshare \
+  proto/fileshare/admin/v1/admin.proto
 ```
+
+### The admin API over HTTPS, for OIDC tokens
+
+The same API, the same state and audit, is also served over HTTPS when the
+admin block has a `web` block (since v0.28.0): Connect, gRPC-Web and gRPC on
+one listener, with the `tls` block's certificate. It is what the UIs talk to
+(see [docs/ui.md](docs/ui.md)).
+
+```hcl
+admin {
+  listen     = "unix:///run/fileshare/admin.sock"
+  state_file = "/var/lib/fileshare/shares.json"
+  web {
+    listen = "0.0.0.0:8443"
+    issuer "https://login.example.org" {
+      audience = "fileshare-a"            # what THIS server is called there
+      groups   = ["fileshare-admins"]
+    }
+    issuer "https://idp.partner.example" {
+      audience = "fileshare-a.partner"
+      subjects = ["5b0c…"]                # a person is (issuer, sub)
+    }
+  }
+}
+```
+
+A call is answered when one issuer's verifier accepts its bearer token --
+signature, `iss`, an `aud` naming this server, times -- **and** that issuer's
+block names the token's subject or one of its groups. A subject listed at one
+issuer is nobody at another. Each server has its own audience: a token
+addressed to several could be replayed by any of them to the others
+(RFC 8707, RFC 9068). The check runs on the headers alone, before a byte of the
+message is decoded. A refused caller is told "refused" and nothing more; the
+reason, and every change made, goes to the audit output under
+`oidc=<issuer> <sub>`. There is no CORS: browsers reach it through the UIs'
+server, not directly. Requests are bounded to 1 MiB and every phase of a
+connection has a timeout.
 
 `--isolate` does not go with an `admin` block yet: there is no one process a
 change could be applied to.

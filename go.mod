@@ -22,16 +22,16 @@ require (
 	github.com/go-filesystems/detect v0.1.0
 	github.com/go-filesystems/exfat v0.3.1-0.20260909091408-83177cc31aee
 	github.com/go-filesystems/ext4 v0.2.1-0.20260909093824-642490429d0a
-	github.com/go-filesystems/fat32 v0.4.0
+	github.com/go-filesystems/fat32 v0.5.0
 	github.com/go-filesystems/hfsplus v0.2.1-0.20260909093327-1576380a57fd
 	github.com/go-filesystems/interface v0.5.0
 	github.com/go-filesystems/iso9660 v0.2.1-0.20260909093319-946c297b0c26
 	github.com/go-filesystems/nfs v0.8.1
 	github.com/go-filesystems/ntfs v0.1.1-0.20260909092247-4afe8a8fc177
 	github.com/go-filesystems/osfs v0.3.0
-	github.com/go-filesystems/s3 v0.3.0
-	github.com/go-filesystems/sftp v0.6.0
-	github.com/go-filesystems/smb v0.6.2
+	github.com/go-filesystems/s3 v0.5.0
+	github.com/go-filesystems/sftp v0.7.0
+	github.com/go-filesystems/smb v0.7.0
 	github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b
 	github.com/go-filesystems/ufs v0.2.0
 	github.com/go-filesystems/webdav v0.5.0
@@ -44,7 +44,7 @@ require (
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/gpt v0.2.0
-	github.com/go-volumes/s3 v0.0.0-20260903051126-cfe79d096697
+	github.com/go-volumes/s3 v0.0.0-20261006065648-6e63f9316671
 	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0

@@ -1,7 +1,8 @@
 # Two UIs for many servers: design
 
-Status: **design, agreed 2026-10-09**. Phase 1 is built (v0.28.0); nothing
-else below is built yet unless a phase says so.
+Status: **design, agreed 2026-10-09**. Built so far: phase 1 (fileshare
+v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and the browser half of phase 3
+(go-fileshare/console v0.1.0). Each phase below says what is done.
 
 ## What is asked
 
@@ -46,14 +47,14 @@ against the raw text).
   audiences; each issuer block names the subjects and groups that may call it
   (`admin { web { issuer "<url>" { audience; subjects; groups } } }`, see the
   README). The unix socket and mutual TLS stay as they are.
-- **BFF** (`go-fileshare/portal`, to create) — OIDC authorization code with
+- **BFF** ([`go-fileshare/portal`](https://github.com/go-fileshare/portal)) — OIDC authorization code with
   PKCE as a confidential client; the session in an encrypted cookie so that any
   copy can serve any request (no shared state, so HA is a matter of running
   several); per-server tokens (audience-restricted, by RFC 8707 resource
   indicators where the IdP supports them, by RFC 8693 token exchange across
   organisations); serves the two wasm UIs and proxies their Connect calls and
   the explorer's WebDAV.
-- **admin console** (`go-fileshare/console`, to create) and **file explorer**
+- **admin console** ([`go-fileshare/console`](https://github.com/go-fileshare/console)) and **file explorer**
   (`go-fileshare/explorer`, to create) — go-widgets applications in the MVVM
   shape of go-widgets/app-template: a ViewModel that holds every piece of state
   as `mvvm` observables and knows no widget, a View bound through `mvvmtk`, CI
@@ -78,6 +79,17 @@ against the raw text).
    who may call, per issuer. **Done: v0.28.0** (#76).
 2. **portal (BFF)**: login, encrypted session, per-server tokens, Connect proxy,
    static UI serving; e2e against two fileshare servers and a test IdP.
+   **Done: portal v0.1.0.** The refresh token is spent in one place only
+   (`POST /session/refresh`), because a provider that rotates refresh tokens
+   revokes the grant on reuse. The session cookies are capped at 7600 bytes,
+   which fits nginx's default 8 KiB header line. go-authn/bridge v0.21.0 issues
+   the per-server tokens (RFC 8707 `resource`).
 3. **console**: shares, grants, volumes, server state, over N servers.
+   **Browser half done: console v0.1.0**: shares, details, grants,
+   create/enable/disable/delete, grant/revoke, tested end to end in headless
+   Chrome behind the portal binary and two fileshare binaries. What it needed
+   in go-widgets: mvvm v0.14.0 `Queue`, webcanvas v0.4.0 `RepaintAware` and
+   window v0.88.0 (a browser tab is a `Repainter`). Results from goroutines
+   reach the screen through those. **Not yet:** native login, volumes.
 4. **explorer**: browse, download, chunked upload, rename, copy (server-side).
 5. Docs site and landing; a security review of each phase.

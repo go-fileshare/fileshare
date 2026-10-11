@@ -2,8 +2,8 @@
 
 Status: **design, agreed 2026-10-09**. Built so far: phase 1 (fileshare
 v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and phase 3, in a browser and
-natively (go-fileshare/console v0.3.0), and phase 4 in a browser
-(go-fileshare/explorer v0.1.0). Each phase below says what is done.
+natively (go-fileshare/console v0.3.0), and phase 4 in a browser and natively
+(go-fileshare/explorer v0.2.0). Each phase below says what is done.
 
 ## What is asked
 
@@ -118,6 +118,20 @@ against the raw text).
    is replaced (`Overwrite: F`). Tested end to end in headless Chrome behind the
    portal binary and a fileshare binary, each step checked on disk. The UIs'
    side of the portal is a package now (`portal/client`), refreshes serialized
-   across tabs by Web Locks. **Not yet:** native login and a native file
-   picker (`-demo` only).
-5. Docs site and landing; a security review of each phase.
+   across tabs by Web Locks (`client.RefreshLock`, portal v0.3.0: one name for
+   every UI, since they share one session). **Native done: explorer v0.2.0**:
+   the console's way of logging in (go-authn/rp, loopback, public client), a
+   token per server for its WebDAV's audience, `explorer.hcl` with `dav_url`;
+   uploads through a picker of the explorer's own (go-widgets has no native
+   file dialog), read a piece at a time; tested against a real fileshare
+   binary, with a token for another audience refused as the control.
+5. Docs site and landing; a security review of each phase. **Docs site,
+   landing and organisation profile done** (2026-10-11). **Review, native
+   clients:** Go's client keeps `Authorization` across a redirect to the same
+   host on any scheme or port, and resends a POST body on a 307 or 308 to any
+   host. The console's and the explorer's native backends followed redirects
+   with a bearer token, and go-authn/rp followed them at the token endpoint
+   with the refresh token and the client's Basic credentials. None does now
+   (console v0.3.2, explorer v0.2.0, rp v0.1.1, portal v0.3.1), each fix with
+   a test whose listener received the secret before it. The portal's own
+   proxies were not affected: a `ReverseProxy` follows no redirect.

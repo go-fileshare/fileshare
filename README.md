@@ -154,6 +154,13 @@ the go-fileshare explorer) sends an empty PUT, then each piece with a
 name. A range that starts past the end is still 416: it would leave bytes
 nobody sent.
 
+**The root lists the shares, to WebDAV clients too** (since v0.29.0). A
+browser at `/` gets a page of the shares it may open; a PROPFIND of `/` gets
+them as collections (207), so a file manager can mount the server rather than
+one share. Depth infinity is refused (403, `propfind-finite-depth`), and so is
+anything that would write at the root (405). Up to v0.28 every method at `/`
+got the page, with a 200 no WebDAV client could read.
+
 ## The configuration
 
 ```hcl

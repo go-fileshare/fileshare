@@ -70,6 +70,11 @@ against the raw text).
   fileshare's WebDAV could only *patch* inside a file until go-filesystems/webdav
   v0.6.0 (fileshare v0.29.0), which appends a range that starts exactly at the
   end. Before, an upload in pieces was 416 at its first piece.
+- **The root of a server is a collection.** The explorer opens a server on the
+  shares the person may use, with a PROPFIND of `/`. fileshare answered every
+  method at `/` with its HTML page until v0.29.0; it now answers PROPFIND there
+  with the shares (207). Found by the explorer's browser test against the real
+  binary; the stand-in portal had listed them all along.
 - **The wasm is a few megabytes.** Measured: the go-widgets template alone is
   2.8 MB gzipped, and the console as built is 5.4 MB, once fileshare's
   generated package is replaced by messages and a Connect client without gRPC.

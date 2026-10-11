@@ -5,10 +5,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
 	"html"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-filesystems/webdav"
@@ -125,8 +129,11 @@ func (b *byUser) authenticated(w http.ResponseWriter, r *http.Request) (principa
 	return principal{}, false
 }
 
-// webdavIndex lists the shares this person may open, which is what a browser
-// pointed at the root should show rather than a 404.
+// webdavIndex answers at the root, which is no share: the shares this person
+// may open. A browser gets them as a page (GET); a WebDAV client -- a file
+// manager mounting the server, the go-fileshare explorer -- as the collection
+// it asks about with PROPFIND (RFC 4918 §9.1), each share a collection in it.
+// Nothing can be written there, and a method that would is 405.
 func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -148,17 +155,115 @@ func (s *server) webdavIndex(served []*share) http.HandlerFunc {
 			}
 			user = u
 		}
-		var b strings.Builder
-		b.WriteString("<!doctype html>\n<title>" + html.EscapeString(s.name) + "</title>\n<ul>\n")
+		var names []string
 		for _, sh := range served {
-			if !sh.mayUse(user) {
-				continue
+			if sh.mayUse(user) {
+				names = append(names, sh.name)
 			}
-			name := html.EscapeString(sh.name)
-			b.WriteString(`<li><a href="/` + name + `/">` + name + "</a></li>\n")
 		}
-		b.WriteString("</ul>\n")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, b.String())
+		const allow = "OPTIONS, GET, HEAD, PROPFIND"
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+			var b strings.Builder
+			b.WriteString("<!doctype html>\n<title>" + html.EscapeString(s.name) + "</title>\n<ul>\n")
+			for _, n := range names {
+				n = html.EscapeString(n)
+				b.WriteString(`<li><a href="/` + n + `/">` + n + "</a></li>\n")
+			}
+			b.WriteString("</ul>\n")
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, b.String())
+		case http.MethodOptions:
+			w.Header().Set("DAV", "1")
+			w.Header().Set("Allow", allow)
+		case "PROPFIND":
+			rootPropfind(w, r, names)
+		default:
+			w.Header().Set("Allow", allow)
+			http.Error(w, "the root holds the shares and nothing else", http.StatusMethodNotAllowed)
+		}
 	}
+}
+
+// rootPropfind answers a PROPFIND of the root: itself, and at Depth 1 each
+// share, all collections with a resourcetype and a displayname. A property
+// asked for and not known is reported 404 (§9.1), not left out. Depth
+// infinity -- also what no Depth header means -- is refused as §9.1 allows
+// (403, propfind-finite-depth): the shares hold everything on the server.
+func rootPropfind(w http.ResponseWriter, r *http.Request, shares []string) {
+	depth := r.Header.Get("Depth")
+	if depth != "0" && depth != "1" {
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `<?xml version="1.0" encoding="utf-8"?>`+"\n"+`<D:error xmlns:D="DAV:"><D:propfind-finite-depth/></D:error>`)
+		return
+	}
+	var req struct {
+		Prop *struct {
+			Names []struct{ XMLName xml.Name } `xml:",any"`
+		} `xml:"DAV: prop"`
+		PropName *struct{} `xml:"DAV: propname"`
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		http.Error(w, "unreadable body", http.StatusBadRequest)
+		return
+	}
+	if len(bytes.TrimSpace(body)) > 0 { // an empty body is allprop (§9.1)
+		if err := xml.Unmarshal(body, &req); err != nil {
+			http.Error(w, "the body is not a propfind", http.StatusBadRequest)
+			return
+		}
+	}
+	type res struct{ href, name string }
+	all := []res{{"/", "/"}}
+	if depth == "1" {
+		for _, n := range shares {
+			all = append(all, res{"/" + (&url.URL{Path: n}).EscapedPath() + "/", n})
+		}
+	}
+	esc := func(v string) string {
+		var b strings.Builder
+		_ = xml.EscapeText(&b, []byte(v))
+		return b.String()
+	}
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n" + `<D:multistatus xmlns:D="DAV:">`)
+	for _, x := range all {
+		b.WriteString("<D:response><D:href>" + esc(x.href) + "</D:href>")
+		known := map[string]string{
+			"resourcetype": "<D:resourcetype><D:collection/></D:resourcetype>",
+			"displayname":  "<D:displayname>" + esc(x.name) + "</D:displayname>",
+		}
+		switch {
+		case req.PropName != nil:
+			b.WriteString("<D:propstat><D:prop><D:resourcetype/><D:displayname/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>")
+		case req.Prop != nil:
+			var found, missing strings.Builder
+			for i, n := range req.Prop.Names {
+				if v, ok := known[n.XMLName.Local]; ok && n.XMLName.Space == "DAV:" {
+					found.WriteString(v)
+					continue
+				}
+				if n.XMLName.Space == "" { // no namespace: no prefix, there being no default one here
+					fmt.Fprintf(&missing, `<%s/>`, n.XMLName.Local)
+					continue
+				}
+				fmt.Fprintf(&missing, `<x%d:%s xmlns:x%d="%s"/>`, i, n.XMLName.Local, i, esc(n.XMLName.Space))
+			}
+			if found.Len() > 0 {
+				b.WriteString("<D:propstat><D:prop>" + found.String() + "</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>")
+			}
+			if missing.Len() > 0 {
+				b.WriteString("<D:propstat><D:prop>" + missing.String() + "</D:prop><D:status>HTTP/1.1 404 Not Found</D:status></D:propstat>")
+			}
+		default:
+			b.WriteString("<D:propstat><D:prop>" + known["resourcetype"] + known["displayname"] + "</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>")
+		}
+		b.WriteString("</D:response>")
+	}
+	b.WriteString("</D:multistatus>")
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusMultiStatus)
+	fmt.Fprint(w, b.String())
 }

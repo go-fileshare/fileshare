@@ -65,11 +65,22 @@ against the raw text).
 
 - **Uploads are chunked.** Streaming request bodies need `duplex:"half"` and
   HTTP/2 and exist in Chrome only, and Go's wasm `net/http` reads a request body
-  whole before sending it. The explorer uploads in ranges (fileshare's WebDAV
-  takes `Content-Range` PUTs), so a large file never sits in memory whole.
-- **The wasm is a few megabytes.** Measured: 2.8 MB gzipped with the `net/http`
-  client. That is the price of one codebase for both targets; the BFF serves it
-  compressed and cacheable.
+  whole before sending it. The explorer uploads in pieces: an empty PUT, then
+  each piece appended where the last ended, then a MOVE to the real name.
+  fileshare's WebDAV could only *patch* inside a file until go-filesystems/webdav
+  v0.6.0 (fileshare v0.29.0), which appends a range that starts exactly at the
+  end. Before, an upload in pieces was 416 at its first piece.
+- **The root of a server is a collection.** The explorer opens a server on the
+  shares the person may use, with a PROPFIND of `/`. fileshare answered every
+  method at `/` with its HTML page until v0.29.0; it now answers PROPFIND there
+  with the shares (207). Found by the explorer's browser test against the real
+  binary; the stand-in portal had listed them all along.
+- **The wasm is a few megabytes.** Measured: the go-widgets template alone is
+  2.8 MB gzipped, and the console as built is 5.4 MB, once fileshare's
+  generated package is replaced by messages and a Connect client without gRPC.
+  That package alone put 3 MB of gRPC in the page (7.1 MB before). That is the
+  price of one codebase for both targets; the portal serves the `.gz`, and the
+  browser revalidates it.
 - **DPoP is not used.** Its one-time-use check cannot be enforced across HA
   copies without shared state, and the tokens never reach the browser anyway.
 

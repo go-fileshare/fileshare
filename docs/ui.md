@@ -2,7 +2,8 @@
 
 Status: **design, agreed 2026-10-09**. Built so far: phase 1 (fileshare
 v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and phase 3, in a browser and
-natively (go-fileshare/console v0.3.0). Each phase below says what is done.
+natively (go-fileshare/console v0.3.0), and phase 4 in a browser
+(go-fileshare/explorer v0.1.0). Each phase below says what is done.
 
 ## What is asked
 
@@ -110,4 +111,13 @@ against the raw text).
    console never sends `destroy_data`: a volume holding data is the server's
    refusal, shown.
 4. **explorer**: browse, download, chunked upload, rename, copy (server-side).
+   **Browser half done: explorer v0.1.0**, through portal v0.2.0 (`/dav/<server>/...`,
+   answers served inert: `CSP: sandbox`, attachment, nosniff) and fileshare
+   v0.29.0 (an upload piece appended at the end; the WebDAV root a collection of
+   the shares). Uploads go in 8 MiB pieces to `<name>.part`, then a MOVE; nothing
+   is replaced (`Overwrite: F`). Tested end to end in headless Chrome behind the
+   portal binary and a fileshare binary, each step checked on disk. The UIs'
+   side of the portal is a package now (`portal/client`), refreshes serialized
+   across tabs by Web Locks. **Not yet:** native login and a native file
+   picker (`-demo` only).
 5. Docs site and landing; a security review of each phase.

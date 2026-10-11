@@ -147,6 +147,13 @@ login, so a session left idle stays open. Up to v0.16.7 none of the three had
 a deadline, and a client that sent half a request held its connection for
 good.
 
+**A large upload over WebDAV can go in pieces** (since v0.29.0). One PUT is
+held in memory whole, up to 1 GiB, so a client that cannot stream (a browser,
+the go-fileshare explorer) sends an empty PUT, then each piece with a
+`Content-Range` that starts where the last one ended, then a MOVE to the real
+name. A range that starts past the end is still 416: it would leave bytes
+nobody sent.
+
 ## The configuration
 
 ```hcl

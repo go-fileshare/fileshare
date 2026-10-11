@@ -105,8 +105,8 @@ github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b h1:GXfYw
 github.com/go-filesystems/squashfs v0.2.2-0.20260909093323-59fa5d6f474b/go.mod h1:JP818cUyKO0bq/FtOyZLRSX8rVpG7q9/KBKJ++kppoU=
 github.com/go-filesystems/ufs v0.2.0 h1:a9iq3oOW1gYBfv2RIz0cEat2mKwTPyJCqXnmt8+yTKo=
 github.com/go-filesystems/ufs v0.2.0/go.mod h1:OOR5nRWbLlwPBhsDRrVYfNkfYwy+goA0GpRC1BgDiog=
-github.com/go-filesystems/webdav v0.5.0 h1:vk1G9imwUsa1QDxfcWk05IP67NoTpirew1nz0mdqRFc=
-github.com/go-filesystems/webdav v0.5.0/go.mod h1:KaUsWDD+Tpd0kvJuzCdQ37qdkmkUk1SfXFvXskKGiVQ=
+github.com/go-filesystems/webdav v0.6.0 h1:LrXUP4eXX1INRx7eJzod31VqQkJMGu5Xpc0WXZaD4cU=
+github.com/go-filesystems/webdav v0.6.0/go.mod h1:KaUsWDD+Tpd0kvJuzCdQ37qdkmkUk1SfXFvXskKGiVQ=
 github.com/go-filesystems/xfs v0.1.0 h1:Yu4AvZfCbQS9gJJ48t5+p45jZqcDLd+WpCOa3BkOGes=
 github.com/go-filesystems/xfs v0.1.0/go.mod h1:EZxrQpldx5VV6ul2Ia5LbKczQleYPHijbHBpvQh0iBU=
 github.com/go-filesystems/zfs v0.1.0 h1:o5ukV23KKdcqq/S1Iv4cgHFbt0REi9onYQLuYOED5Yk=

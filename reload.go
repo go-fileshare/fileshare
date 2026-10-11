@@ -195,6 +195,15 @@ func tolerantExpand(dir *directory.Set, people map[string]*directory.Identity, n
 				note(notes, fmt.Sprintf("group %s no longer exists: it grants nothing", n))
 				continue
 			}
+			// ⛔ An emptied group grants nothing either, and is no more an
+			// outage than a deleted one. go-authn/directory v0.12.0 tells the
+			// two apart (ErrEmptyGroup); before, both were ErrNoSuchGroup, and
+			// adopting v0.12.0 without this line would have made one group
+			// emptied in LDAP fail the whole reload.
+			if errors.Is(err, directory.ErrEmptyGroup) {
+				note(notes, fmt.Sprintf("group %s has no members: it grants nothing", n))
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}

@@ -11,7 +11,7 @@ go 1.27.2
 require (
 	connectrpc.com/connect/v2 v2.0.0
 	github.com/cloudsoda/go-smb2 v0.0.0-20260803221621-0b399b9d036c
-	github.com/go-authn/directory v0.11.0
+	github.com/go-authn/directory v0.12.0
 	github.com/go-authn/krb5 v0.2.1
 	github.com/go-authn/krl v0.6.0
 	github.com/go-authn/oidc v0.2.4
@@ -88,7 +88,7 @@ require (
 	github.com/go-encryptions/zfscrypt v0.0.0-20260623125925-033c4ad509ed // indirect
 	github.com/go-fde/apfs v0.0.0-20260620062418-22bb63627e03 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
-	github.com/go-ldap/ldap/v3 v3.4.14 // indirect
+	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect

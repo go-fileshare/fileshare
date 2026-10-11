@@ -1,9 +1,8 @@
 # Two UIs for many servers: design
 
 Status: **design, agreed 2026-10-09**. Built so far: phase 1 (fileshare
-v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and phase 3 in a browser and
-natively (go-fileshare/console v0.2.0), less volumes. Each phase below says what
-is done.
+v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and phase 3, in a browser and
+natively (go-fileshare/console v0.3.0). Each phase below says what is done.
 
 ## What is asked
 
@@ -95,7 +94,9 @@ against the raw text).
    system browser and a loopback listener (go-authn/rp v0.1.0, RFC 8252, a
    public client), a token per server, the refresh token in memory and spent
    one refresh at a time; tested against two real fileshare binaries. The
-   portal's own client moved to go-authn/rp too (portal v0.1.2). **Not yet:**
-   volumes.
+   portal's own client moved to go-authn/rp too (portal v0.1.2). **Volumes
+   done: console v0.3.0**: create, resize, snapshot, share and delete. The
+   console never sends `destroy_data`: a volume holding data is the server's
+   refusal, shown.
 4. **explorer**: browse, download, chunked upload, rename, copy (server-side).
 5. Docs site and landing; a security review of each phase.

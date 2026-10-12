@@ -3,7 +3,7 @@
 Status: **design, agreed 2026-10-09**. Built so far: phase 1 (fileshare
 v0.28.0), phase 2 (go-fileshare/portal v0.1.0) and phase 3, in a browser and
 natively (go-fileshare/console v0.3.0), and phase 4 in a browser and natively
-(go-fileshare/explorer v0.2.0). Each phase below says what is done.
+(go-fileshare/explorer v0.3.0). Each phase below says what is done.
 
 ## What is asked
 
@@ -125,6 +125,12 @@ against the raw text).
    uploads through a picker of the explorer's own (go-widgets has no native
    file dialog), read a piece at a time; tested against a real fileshare
    binary, with a token for another audience refused as the control.
+   **Resumed uploads: explorer v0.3.0**: the part file is named after the
+   file's fingerprint (name, size, time); the same file uploaded again after a
+   network or server failure continues where the part ends, once the part's
+   last 64 KiB read back (a `Range` GET) are the file's. A refusal (4xx, 507)
+   removes the part. Verified against a real fileshare: the part on its disk
+   between the two attempts, the second starting at 8 MiB.
 5. Docs site and landing; a security review of each phase. **Docs site,
    landing and organisation profile done** (2026-10-11). **Review, native
    clients:** Go's client keeps `Authorization` across a redirect to the same

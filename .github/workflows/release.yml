@@ -1,0 +1,80 @@
+name: release
+
+# Binaries for a tag, so that somebody can try fileshare without a Go
+# toolchain: one static binary per platform (hack/release.sh), SHA256SUMS,
+# and a provenance attestation for each -- GitHub's, signed through Sigstore,
+# which says this workflow built that file from that commit. They are added to
+# the tag's GitHub release, created when there is none.
+#
+# On a tag push, and by hand for a tag that is already there:
+#   gh workflow run release.yml -R go-fileshare/fileshare -f tag=v0.29.1
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the release tag to build and publish binaries for
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # the release and its files
+      id-token: write      # the attestation's Sigstore certificate
+      attestations: write  # recording it
+    env:
+      # Data, never interpolated into a script: hack/release.sh checks its shape.
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GOWORK: "off"
+    steps:
+      # The script comes from main, the source from the tag: a tag made
+      # before the script existed can still be published, and the script
+      # is never part of the tree it builds (an untracked file there would
+      # make Go stamp the version "+dirty").
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          path: src
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Build
+        run: bash tools/hack/release.sh "$TAG" src "$RUNNER_TEMP/dist"
+      - name: Attest
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ runner.temp }}/dist/*.tar.gz
+            ${{ runner.temp }}/dist/*.zip
+            ${{ runner.temp }}/dist/SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/dist"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber -- *.tar.gz *.zip SHA256SUMS
+          else
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes \
+              -- *.tar.gz *.zip SHA256SUMS
+          fi
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'

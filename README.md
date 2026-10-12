@@ -11,8 +11,25 @@ one configuration, one binary, pure Go.**
 Documentation: **<https://go-fileshare.github.io/docs/>**
 
 ```sh
-go install github.com/go-fileshare/fileshare@latest
+go install github.com/go-fileshare/fileshare@latest          # with Go 1.27.2 or later
+```
 
+**Or a binary, with no Go at all** (since v0.29.1): every release carries one
+static binary per platform (Linux on amd64, arm64, riscv64, ppc64le, s390x and
+loong64; macOS; Windows; FreeBSD; OpenBSD) on its
+[release page](https://github.com/go-fileshare/fileshare/releases). Check what
+you downloaded, in either of two ways:
+
+```sh
+sha256sum -c --ignore-missing SHA256SUMS                     # the file is the one published
+gh attestation verify fileshare_v0.29.1_linux_amd64.tar.gz -R go-fileshare/fileshare
+                                                             # and GitHub built it, from that tag
+```
+
+The archives are reproducible: `hack/release.sh` rebuilds them from a checkout
+of the tag with the same Go, byte for byte.
+
+```sh
 fileshare --image disk.img --user alice --password-file pw   # one image, now
 fileshare --config /etc/fileshare.d                          # several, with users
 ```

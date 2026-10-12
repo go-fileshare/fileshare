@@ -13,6 +13,7 @@
 # untracked file in the tree as a modification, and stamps "+dirty".
 set -euo pipefail
 usage="usage: hack/release.sh vX.Y.Z <source checkout> <output directory>"
+tools="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" # where hack/archive is
 tag="${1:?$usage}" root="${2:?$usage}" dist="${3:?$usage}"
 root="$(cd "$root" && pwd)"
 mkdir -p "$dist"
@@ -36,8 +37,6 @@ targets=(
 
 rm -rf "${dist:?}"/*
 when="$(git log -1 --format=%ct)"
-# The same instant for touch -t, which BSD and GNU both read (POSIX), in UTC.
-stamp="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M.%S)"
 export CGO_ENABLED=0 GOWORK=off GOFLAGS=-mod=readonly
 for t in "${targets[@]}"; do
   os="${t%/*}" arch="${t#*/}"
@@ -50,16 +49,12 @@ for t in "${targets[@]}"; do
   # -buildvcs stamps the commit; the module version comes from the tag.
   GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$stage/$exe" .
   cp LICENSE README.md "$stage/"
-  # Reproducible archives: fixed order, owner and times, and no timestamp
-  # in the gzip header (gzip -n) -- the binaries are already identical from
-  # one build to the next; only the wrapping varied.
-  if [ "$os" = windows ]; then
-    find "$stage" -exec env TZ=UTC touch -t "$stamp" {} +
-    (cd "$dist" && find "$name" | LC_ALL=C sort | zip -qX "$name.zip" -@)
-  else
-    tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$when" \
-      -C "$dist" -cf - "$name" | gzip -9n > "$dist/$name.tar.gz"
-  fi
+  # Reproducible archives, written by Go rather than the system's tar and
+  # gzip -- Apple's gzip and GNU's compress the same stream to different
+  # bytes -- with one time for every entry and owner 0:0 (hack/archive).
+  ext=tar.gz
+  [ "$os" = windows ] && ext=zip
+  (cd "$tools" && go run ./hack/archive -mtime "$when" -o "$dist/$name.$ext" -C "$dist" "$name")
   rm -rf "$stage"
 done
 

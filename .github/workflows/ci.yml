@@ -367,6 +367,31 @@ jobs:
           [ "$n" -eq 12 ] || { echo "::error::$n sizes measured, want 12"; exit 1; }
           grep -E '_test\.go:[0-9]+: size: ' e2e-output.txt
 
+  # Every platform a release carries a binary for, cross-built on every pull
+  # request. NetBSD stopped building through a dependency and nobody could
+  # see it until a release left it out (awnumar/memcall v0.1.2 used
+  # MADV_DONTDUMP, which NetBSD does not have). hack/targets.txt is the one
+  # list, for this job and for hack/release.sh.
+  release-targets:
+    name: every release platform builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod, cache: true }
+      - run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r t; do
+            case "$t" in ''|'#'*) continue ;; esac
+            if GOOS="${t%/*}" GOARCH="${t#*/}" go build -trimpath -o /dev/null . 2> build.log; then
+              echo "ok   $t"
+            else
+              echo "FAIL $t"; sed 's/^/     /' build.log; fail=1
+            fi
+          done < hack/targets.txt
+          exit "$fail"
+
   arches:
     name: arch ${{ matrix.goarch }}
     runs-on: ubuntu-latest

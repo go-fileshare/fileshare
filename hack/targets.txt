@@ -1,0 +1,23 @@
+# The platforms a release carries a binary for: GOOS/GOARCH, one per line.
+# hack/release.sh builds them; CI cross-builds them on every pull request.
+#
+# Not here, and why (measured 2026-10-17 by cross-building each):
+#   netbsd/arm64, netbsd/386, freebsd/riscv64, dragonfly, solaris, illumos,
+#   aix, plan9 -- modernc.org/sqlite (or the modernc.org/libc under it) has no
+#   port there. A build with -tags nosql would work; a release carries the
+#   whole program. The 32-bit targets fail too.
+linux/amd64
+linux/arm64
+linux/riscv64
+linux/ppc64le
+linux/s390x
+linux/loong64
+darwin/amd64
+darwin/arm64
+windows/amd64
+windows/arm64
+freebsd/amd64
+freebsd/arm64
+openbsd/amd64
+openbsd/arm64
+netbsd/amd64

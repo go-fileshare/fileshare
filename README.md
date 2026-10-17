@@ -16,7 +16,7 @@ go install github.com/go-fileshare/fileshare@latest          # with Go 1.27.2 or
 
 **Or a binary, with no Go at all** (since v0.29.1): every release carries one
 static binary per platform (Linux on amd64, arm64, riscv64, ppc64le, s390x and
-loong64; macOS; Windows; FreeBSD; OpenBSD) on its
+loong64; macOS; Windows; FreeBSD; OpenBSD; NetBSD on amd64 since v0.29.2) on its
 [release page](https://github.com/go-fileshare/fileshare/releases). Check what
 you downloaded, in either of two ways:
 

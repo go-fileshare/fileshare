@@ -25,15 +25,13 @@ cd "$root"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")" ] || { echo "HEAD is not $tag" >&2; exit 2; }
 [ -z "$(git status --porcelain)" ] || { echo "the checkout is not clean" >&2; exit 2; }
 
-# Every platform it builds on, minus netbsd: a dependency (awnumar/memcall)
-# uses MADV_DONTDUMP, which x/sys does not define there.
-targets=(
-  linux/amd64 linux/arm64 linux/riscv64 linux/ppc64le linux/s390x linux/loong64
-  darwin/amd64 darwin/arm64
-  windows/amd64 windows/arm64
-  freebsd/amd64 freebsd/arm64
-  openbsd/amd64
-)
+# Every platform it builds on. hack/targets.txt is the list, one GOOS/GOARCH
+# per line; CI cross-builds every one of them on every pull request, so a
+# platform cannot break unseen until a release.
+targets=()
+while IFS= read -r t; do # not mapfile: macOS ships bash 3.2
+  case "$t" in ''|'#'*) ;; *) targets+=("$t") ;; esac
+done < "$tools/hack/targets.txt"
 
 rm -rf "${dist:?}"/*
 when="$(git log -1 --format=%ct)"

@@ -9,7 +9,7 @@ module github.com/go-fileshare/fileshare
 go 1.27.2
 
 require (
-	connectrpc.com/connect/v2 v2.0.0
+	connectrpc.com/connect/v2 v2.0.1
 	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
 	github.com/go-authn/directory v0.12.0
 	github.com/go-authn/krb5 v0.3.0
@@ -41,11 +41,11 @@ require (
 	github.com/go-fsctl/btrfs v0.1.1
 	github.com/go-fsctl/projquota v0.1.0
 	github.com/go-fsctl/zfs v0.1.1
-	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/gpt v0.3.0
-	github.com/go-volumes/s3 v0.0.0-20261012063907-c8acae20c27c
+	github.com/go-volumes/s3 v0.0.0-20261014052952-c4dbc36a4412
 	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0

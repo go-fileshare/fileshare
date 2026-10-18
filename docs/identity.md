@@ -1,6 +1,6 @@
 # Serving each person under their own system identity: design
 
-Status: **design, 2026-10-12, decisions completed 2026-10-18; the launcher is the parent process (privilege separation), 2026-10-18**. Nothing here is built yet.
+Status: **design, 2026-10-12, decisions completed 2026-10-18; the launcher is the parent process (privilege separation), 2026-10-18. Phase 1 (SFTP and WebDAV) is built, 2026-10-18**: see "What phase 1 built" at the end, which says where the code differs from what is written here first.
 
 ## What is asked
 
@@ -37,8 +37,8 @@ privilege. For a directory share marked `identity = "system"`, it no longer
 opens the tree itself. Instead it asks the **launcher** for that person's
 **worker**: a process that runs as the person and opens the tree under their
 identity. The front then forwards each filesystem operation to it. There is
-one worker per uid, shared by all of that person's connections and protocols,
-and it stops after a period with nothing to do.
+one worker per person and share, shared by all of that person's connections
+and protocols, and it stops after a period with nothing to do.
 
 ```
 fileshare serve (as root)  =  the LAUNCHER: binds the listeners, reads the configuration,
@@ -77,7 +77,8 @@ itself, passing them down with `ExtraFiles`.
   `SO_PEERCRED`, `LOCAL_PEERCRED`, `SO_PEERCRED` (OpenBSD) and `LOCAL_PEEREID`
   (NetBSD), one per system. golang.org/x/sys exposes only the first two
   cleanly, and OpenBSD does not let a program make the raw system call itself.
-- **A closed set of verbs**: start a worker, and stop one.
+- **A closed set of verbs**: one, start a worker. A worker stops when the
+  front closes its socket; the launcher keeps nothing to stop it with.
 - **A request never carries a uid or a path.** It names a **person** and a
   **share** from the configuration. The launcher resolves the person to a uid,
   a gid and groups **itself** (see "Resolving a person to a uid"), applies
@@ -92,9 +93,10 @@ itself, passing them down with `ExtraFiles`.
   check that for it.
 - **The worker's socket is handed to the front** over the socketpair, with
   `SCM_RIGHTS`. The launcher keeps no open file of the worker's.
-- **If the front dies, the launcher restarts it.** If the launcher dies, the
-  front, which is its child, gets no new workers. It fails those requests;
-  it never serves them as itself.
+- **If the front exits, the launcher exits with it**, with the front's
+  status, and a service manager restarts the pair. The workers exit too:
+  their sockets were the front's. If the launcher dies, the front gets no
+  new workers. It fails those requests; it never serves them as itself.
 
 ## The worker
 
@@ -111,24 +113,29 @@ itself, passing them down with `ExtraFiles`.
 - **It inherits nothing it should not have.** Its only open file is its end of
   the socket (`ExtraFiles`); every other descriptor is opened `O_CLOEXEC`
   (CWE-403). It never sees the TLS keys, the passwords or the tokens.
-- **It opens the trees itself, under its own identity, through `os.Root`.**
+- **It opens the tree itself, under its own identity, through `os.Root`.**
   A tree the person cannot enter is a refusal from the kernel, not from
   fileshare.
 - **Its protocol is the go-filesystems interface, method for method**
   (`Filesystem`, `Opener`, `File`, `WritableFile`, …), encoded in the
   simplest way that does not allocate per byte: a length, a code, then
   arguments. On the front's side it appears as one more filesystem driver,
-  `remotefs`, so a protocol server does not know it is talking to a worker.
+  [go-filesystems/remote](https://github.com/go-filesystems/remote), so a
+  protocol server does not know it is talking to a worker.
 
 ## Resolving a person to a uid
 
 Each person is resolved in this order, and the first answer counts:
 
-1. **fileshare's configuration:** `user "alice" { uid = 1001, gid = 100, groups = [27] }`.
-2. **The LDAP directory:** `uidNumber`, `gidNumber`, and the groups that list
-   them in `memberUid`. This is go-authn/directory, which already reads that
-   directory.
-3. **`/etc/passwd` and `/etc/group`**, by name. With `CGO_ENABLED=0`, Go reads
+1. **The directory fileshare already reads** (go-authn/directory), when it
+   carries `uidNumber` and `gidNumber`: a `user` block's
+   `attributes = { uidNumber = "1001", gidNumber = "100" }`, an LDAP source
+   with `attributes = ["uidNumber", "gidNumber"]`, an SQL source's
+   `users_attributes` query. The supplementary groups are the groups the
+   person names (`memberOf`) and those that list them (a `group` block's
+   `members`, `memberUid`), each by its `gidNumber`; a group without one is
+   no system group.
+2. **`/etc/passwd` and `/etc/group`**, by name. With `CGO_ENABLED=0`, Go reads
    only these files on Linux and the BSDs, not NSS, sssd or winbind. A site
    whose accounts exist only in sssd goes through LDAP.
 
@@ -138,8 +145,9 @@ There are two further rules:
   claim carries one (OIDC Core §5.1), and fileshare does not guess from
   `preferred_username`. They are mapped through the directory, by name, or
   refused.
-- **uid 0 is always refused**, and so is any uid below a configured minimum
-  (`min_uid`, 1000 by default). An account that gets a worker as root is the
+- **uid 0 is always refused**, and so are gid 0, `(uid_t)-1`, any uid below
+  `min_uid` and any primary gid below `min_gid` (1000 by default), and
+  `deny_uids`. A supplementary group below `min_gid` is dropped, and said. An account that gets a worker as root is the
   one thing this design must never produce.
 
 ## Per protocol
@@ -177,3 +185,39 @@ There are two further rules:
   their uid. That is measured, not built.
 - ACLs beyond Unix permissions: the kernel applies whatever the tree carries,
   and fileshare neither reads nor writes them.
+
+## What phase 1 built
+
+Built on 2026-10-18 (`internal/account`, `internal/launch`, `identity*.go`,
+`workerpool.go`), and where it differs from the text above:
+
+- **Configuration.** `identity = "system"` on a directory share, and a
+  top-level `identity { service_user, min_uid, min_gid, deny_uids, idle }`
+  block. `check` refuses such a share over a protocol that cannot serve it
+  yet, an image share, a share without the block, and a configuration that
+  declares no people.
+- **The processes.** `fileshare serve`, as root, binds the listeners, starts
+  `fileshare serve-front` as `service_user` (with that account's own groups,
+  never gid 0) with the socketpair on descriptor 3 and the listeners from 4,
+  and answers its requests. A descriptor is taken only when the parent says
+  in the environment that it passed one, and only if it is a socket: taking
+  fd 3 on faith closed the Go runtime's own poller in a front run by hand.
+- **One worker per person and share**, not per uid. A pool in the front
+  counts its users, shares it across connections and protocols, closes it
+  after `idle` (2 minutes by default), and replaces one that died.
+- **SFTP** takes a worker per session at login and releases it when the
+  connection ends: `sftp.Server` never closes the tree, so the end of the SSH
+  connection is the only signal. **WebDAV** takes one per request, and keeps
+  its handlers on the worker, so a lock outlives the request that took it.
+- **Refusals.** A person the launcher refuses gets 403 over WebDAV and loses
+  the share from their SFTP tree; a worker that cannot start gives 503. The
+  reason goes to the log, never to the client. A person the provider vouches
+  for gets a worker only under `local_names`.
+- **Tested** without root by a fake launcher (`identity*_test.go`: per person
+  trees, release at disconnect, the pool's sharing and idling), and as root
+  with real accounts by `hack/identity-e2e.sh` in CI, on Linux, FreeBSD and
+  OpenBSD.
+- **Not yet:** a share added or changed while serving is refused by the
+  launcher until a restart; `--isolate` does not go with it; the launcher
+  reads the whole directory at each worker's start, which is cheap for a
+  file or SQL and not for a large LDAP tree.

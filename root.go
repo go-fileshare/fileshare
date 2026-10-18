@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -99,7 +100,7 @@ func newRootCmd() *cobra.Command {
 	o.bind(root.PersistentFlags())
 	root.SuggestionsMinimumDistance = 2
 	root.SetFlagErrorFunc(flagError)
-	root.AddCommand(newServeCmd(&o), newCheckCmd(&o), newPasswdCmd(&o), newServeOneCmd(&o), newProvisionerCmd(&o), newWorkerCmd())
+	root.AddCommand(newServeCmd(&o), newCheckCmd(&o), newPasswdCmd(&o), newServeOneCmd(&o), newProvisionerCmd(&o), newWorkerCmd(), newFrontCmd(&o))
 	return root
 }
 
@@ -121,6 +122,14 @@ func serve(cmd *cobra.Command, o *options, args []string) error {
 	cfg, err := configOf(o, nil)
 	if err != nil {
 		return err
+	}
+	if cfg.systemShares() {
+		// Two processes, and only one of them root: see identity_unix.go.
+		if o.isolate {
+			return errors.New("--isolate does not go with shares served as their people yet: " +
+				"the launcher would have to start one front per protocol")
+		}
+		return serveWithLauncher(cfg, append(append([]string{}, o.files...), args...), cmd.OutOrStdout())
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -454,6 +463,22 @@ func report(cmd *cobra.Command, cfg *config) error {
 			b.ClientCAFile, src, maxAge)
 	}
 
+	if b := cfg.Identity; b != nil {
+		var names []string
+		for _, sh := range cfg.Shares {
+			if sh.Identity == identitySystem {
+				names = append(names, sh.Name)
+			}
+		}
+		p := b.policy()
+		idle, _ := b.idle()
+		fmt.Fprintf(out, "\n%s: served as each person -- a worker per person runs with their uid, gid and groups "+
+			"(from the directory's uidNumber and gidNumber, else /etc/passwd), over %s only. "+
+			"`fileshare serve` must start as root; it serves the protocols as %s. "+
+			"Refused: uid 0, uid below %d, gid below %d%s. Unused workers stop after %s\n",
+			list(names), list(identityProtocols), b.ServiceUser, p.MinUID, p.MinGID, denied(p.DenyUIDs), idle)
+	}
+
 	// Offline is not absent: whoever reads this before a restart should see
 	// that a share they expect is defined and deliberately not served.
 	if len(cfg.offline) > 0 {
@@ -568,4 +593,16 @@ func version() string {
 		return info.Main.Version
 	}
 	return "unknown"
+}
+
+// denied is deny_uids as the identity summary says it.
+func denied(uids []uint32) string {
+	if len(uids) == 0 {
+		return ""
+	}
+	s := make([]string, len(uids))
+	for i, u := range uids {
+		s[i] = strconv.FormatUint(uint64(u), 10)
+	}
+	return ", uid " + list(s)
 }

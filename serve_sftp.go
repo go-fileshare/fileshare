@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 
+	filesystem "github.com/go-filesystems/interface"
 	"github.com/go-filesystems/sftp"
 	"github.com/go-filesystems/sftp/sshd"
 	"golang.org/x/crypto/ssh"
@@ -90,7 +91,15 @@ func serveSFTP(s *server, p *protocol, ln net.Listener) error {
 					// is in is the first thing asked when a share does not appear.
 					fmt.Fprintf(s.out, "sftp: %s, vouched for by the provider, in groups %v\n", user, who.groups)
 				}
-				tree := unionFor(served, who)
+				tree := unionForWith(served, who, func(sh *share) (filesystem.Filesystem, bool) {
+					w, release, err := s.workerOf(who, sh)
+					if err != nil {
+						fmt.Fprintf(s.out, "sftp: %s: %s left out: %v\n", user, sh.name, err)
+						return nil, false
+					}
+					c.onClose(release)
+					return w.fsys, true
+				})
 				tree.revoked = fed.sessionRevoked(user, perms, func(why error) {
 					// Refusing each operation is not enough: the client is
 					// told, and the connection is not kept for a session

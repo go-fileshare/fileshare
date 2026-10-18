@@ -428,6 +428,39 @@ jobs:
             cat /tmp/as-root.log
             grep -q -- '--- PASS: TestAsRoot' /tmp/as-root.log
 
+  identity-e2e:
+    name: shares served as their people, end to end (${{ matrix.os }}, root)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux }
+          - { os: freebsd, vm: freebsd }
+          - { os: openbsd, vm: openbsd }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod, cache: true }
+      - name: Build fileshare
+        env: { TARGET_OS: "${{ matrix.os }}" }
+        run: CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH=amd64 go build -o fileshare-e2e .
+      - name: Run (Linux)
+        if: ${{ !matrix.vm }}
+        run: sudo sh hack/identity-e2e.sh "$PWD/fileshare-e2e"
+      - name: Run (FreeBSD)
+        if: ${{ matrix.vm == 'freebsd' }}
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          prepare: pkg install -y curl
+          run: sh "$GITHUB_WORKSPACE/hack/identity-e2e.sh" "$GITHUB_WORKSPACE/fileshare-e2e"
+      - name: Run (OpenBSD)
+        if: ${{ matrix.vm == 'openbsd' }}
+        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        with:
+          prepare: pkg_add curl
+          run: sh "$GITHUB_WORKSPACE/hack/identity-e2e.sh" "$GITHUB_WORKSPACE/fileshare-e2e"
+
   release-targets:
     name: every release platform builds
     runs-on: ubuntu-latest

@@ -7,14 +7,17 @@ package main
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
+	filesystem "github.com/go-filesystems/interface"
 	"github.com/go-filesystems/webdav"
 )
 
@@ -41,6 +44,12 @@ func serveWebDAV(s *server, p *protocol, ln net.Listener) error {
 		if sh.capacity != nil {
 			// A directory: what it is now, not what it was at the start.
 			space = webdav.WithCapacityFunc(sh.capacity)
+		}
+		if sh.system {
+			// No handler over the tree here: each person gets theirs, over
+			// their worker, when they first ask (byUser.asThem).
+			routes[sh.name] = &byUser{server: s, share: sh, opts: []webdav.Option{webdav.WithPrefix(prefix), space}}
+			continue
 		}
 		read, err := webdav.New(sh.fsys, webdav.WithPrefix(prefix), space)
 		if err != nil {
@@ -79,6 +88,9 @@ type byUser struct {
 	server      *server
 	share       *share
 	read, write http.Handler
+	// opts are what a share served as its people builds each person's
+	// handlers with.
+	opts []webdav.Option
 }
 
 func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +104,48 @@ func (b *byUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if b.share.system {
+		b.asThem(w, r, user)
+		return
+	}
 	if b.share.readOnlyFor(user) {
 		b.read.ServeHTTP(w, r)
 		return
 	}
 	b.write.ServeHTTP(w, r)
+}
+
+// asThem serves a share served as its people through this person's worker,
+// with a handler kept on the worker -- so a WebDAV lock taken by one request
+// is there for the next one, for as long as the worker is.
+//
+// A refusal is told as little as a missing share is: 403 when the launcher
+// refused this person (no account, or one the policy forbids), 503 when no
+// worker could be started; the reason goes to the log, not to the client.
+func (b *byUser) asThem(w http.ResponseWriter, r *http.Request, user principal) {
+	wk, release, err := b.server.workerOf(user, b.share)
+	if err != nil {
+		fmt.Fprintf(b.server.out, "webdav: %s: %s: %v\n", user.name, b.share.name, err)
+		var refused *refusedWorker
+		if errors.As(err, &refused) {
+			http.Error(w, "this share is not served to you", http.StatusForbidden)
+			return
+		}
+		http.Error(w, "this share cannot be served now", http.StatusServiceUnavailable)
+		return
+	}
+	defer release()
+	name, opts := "webdav-read", b.opts
+	if !b.share.readOnlyFor(user) {
+		name, opts = "webdav-write", append(slices.Clone(b.opts), webdav.ReadWrite())
+	}
+	h, err := wk.attach(name, func(fsys filesystem.Filesystem) (any, error) { return webdav.New(fsys, opts...) })
+	if err != nil {
+		fmt.Fprintf(b.server.out, "webdav: %s: %s: %v\n", user.name, b.share.name, err)
+		http.Error(w, "this share cannot be served now", http.StatusServiceUnavailable)
+		return
+	}
+	h.(http.Handler).ServeHTTP(w, r)
 }
 
 // authenticated returns the user, or writes the challenge and returns false.

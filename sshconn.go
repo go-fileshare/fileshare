@@ -17,6 +17,29 @@ import (
 type sshConn struct {
 	net.Conn
 	once sync.Once
+
+	mu    sync.Mutex
+	after []func()
+}
+
+// onClose runs fs once the connection has ended: the workers a session took
+// are released there, since nothing tells a filesystem its session is over
+// (sftp.Server.Serve closes the handles, never the filesystem).
+func (c *sshConn) onClose(fs ...func()) {
+	c.mu.Lock()
+	c.after = append(c.after, fs...)
+	c.mu.Unlock()
+}
+
+// ended runs what onClose was given.
+func (c *sshConn) ended() {
+	c.mu.Lock()
+	fs := c.after
+	c.after = nil
+	c.mu.Unlock()
+	for _, f := range fs {
+		f()
+	}
 }
 
 // loggedIn lifts the handshake deadline: from here the person has proved who
@@ -87,7 +110,9 @@ func serveSSH(ln net.Listener, stop <-chan struct{}, preAuth time.Duration, hand
 			}()
 			// One client's failure -- a handshake that timed out included --
 			// is that client's: it does not end the accept loop.
-			_ = handle(&sshConn{Conn: c})
+			sc := &sshConn{Conn: c}
+			defer sc.ended()
+			_ = handle(sc)
 		}()
 	}
 }

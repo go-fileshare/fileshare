@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"syscall"
 
@@ -316,4 +317,68 @@ func parseRights(oob []byte) ([]int, error) {
 		fds = append(fds, got...)
 	}
 	return fds, nil
+}
+
+// Pair is the socket between a launcher and the front it starts: the
+// launcher's end, to Serve on, and the front's, for its ExtraFiles. Both are
+// close-on-exec; the front's is inherited only because ExtraFiles names it.
+func Pair() (launcher *net.UnixConn, front *os.File, err error) {
+	ours, theirs, err := socketpair()
+	if err != nil {
+		return nil, nil, err
+	}
+	c, err := net.FileConn(ours)
+	ours.Close()
+	if err != nil {
+		theirs.Close()
+		return nil, nil, fmt.Errorf("launch: %w", err)
+	}
+	return c.(*net.UnixConn), theirs, nil
+}
+
+// FrontConn is the front's end, from the descriptor it inherited -- which
+// the launcher says it passed, in FrontEnv.
+func FrontConn(fd int) (*net.UnixConn, error) {
+	f, err := Inherited(fd, FrontEnv)
+	if err != nil {
+		return nil, err
+	}
+	c, err := net.FileConn(f)
+	f.Close()
+	if err != nil {
+		return nil, fmt.Errorf("launch: the socket on descriptor %d: %w", fd, err)
+	}
+	u, ok := c.(*net.UnixConn)
+	if !ok {
+		c.Close()
+		return nil, fmt.Errorf("launch: descriptor %d is a %T, not a unix socket", fd, c)
+	}
+	return u, nil
+}
+
+// The variables that say a descriptor was passed, and which: the launcher
+// sets FrontEnv for the front, Exec sets WorkerEnv for a worker.
+const (
+	FrontEnv  = "FILESHARE_LAUNCHER_FD"
+	WorkerEnv = "FILESHARE_WORKER_FD"
+)
+
+// Inherited is descriptor fd, if env says it was passed and it is a socket.
+//
+// ⛔ Never take a descriptor on faith. A process started by hand has nothing
+// on fd 3, and the Go runtime puts its own poller there (kqueue, epoll):
+// os.NewFile(3) and Close then closes the runtime's poller, and the process
+// dies in netpoll -- measured, running serve-front by hand.
+func Inherited(fd int, env string) (*os.File, error) {
+	if os.Getenv(env) != strconv.Itoa(fd) {
+		return nil, fmt.Errorf("launch: no descriptor was passed (%s is not %d): this is started by `fileshare serve`, not by hand", env, fd)
+	}
+	var st syscall.Stat_t
+	if err := syscall.Fstat(fd, &st); err != nil {
+		return nil, fmt.Errorf("launch: descriptor %d: %w", fd, err)
+	}
+	if st.Mode&syscall.S_IFMT != syscall.S_IFSOCK {
+		return nil, fmt.Errorf("launch: descriptor %d is not a socket", fd)
+	}
+	return os.NewFile(uintptr(fd), "inherited"), nil
 }

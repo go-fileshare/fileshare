@@ -101,6 +101,10 @@ type config struct {
 	TLS *tlsBlock `hcl:"tls,block"`
 	// SSF is where revocations of federated people come from; see ssf.go.
 	SSF *ssfBlock `hcl:"ssf,block"`
+	// Identity is how shares with identity = "system" are served: as whom
+	// the front runs, and which accounts no worker may run as. See
+	// identity.go.
+	Identity *identityBlock `hcl:"identity,block"`
 
 	// managed is the names of the shares that came from the admin API's
 	// state file rather than from these files, upper-cased the way SMB
@@ -363,6 +367,12 @@ type shareBlock struct {
 	// because one that cannot tell people apart is refused a restricted share
 	// whatever this says.
 	Protocols []string `hcl:"protocols,optional"`
+	// Identity = "system" serves a directory AS each person: their files are
+	// opened by a worker running with their uid, gid and groups, and the
+	// kernel decides what they may do. It needs the top-level identity block
+	// and `fileshare serve` started as root; see identity.go and
+	// docs/identity.md.
+	Identity string `hcl:"identity,optional"`
 
 	// vol is what the provisioner said of the volume an admin API share is
 	// made from, when it is served: see capacity.go.
@@ -519,6 +529,9 @@ func (c *config) check() error {
 				return fmt.Errorf("share %q: %w", s.Name, err)
 			}
 		}
+		if err := c.checkShareIdentity(s); err != nil {
+			return err
+		}
 		if s.ReadOnly && len(s.Writers) > 0 {
 			return fmt.Errorf("share %q is read_only and also lists writers: read_only wins, so say one or the other", s.Name)
 		}
@@ -605,11 +618,13 @@ func (c *config) check() error {
 		var why []string
 		for _, sb := range c.Shares {
 			sh := &share{name: sb.Name, readOnly: sb.ReadOnly, allow: sb.Allow,
-				writers: sb.Writers, protocols: sb.Protocols}
+				writers: sb.Writers, protocols: sb.Protocols, system: sb.Identity == identitySystem}
 			served, refused := p.exports(c, []*share{sh})
 			switch {
 			case len(served) == 1:
 				carried = true
+			case len(refused) == 1 && sh.system:
+				why = append(why, fmt.Sprintf("%s is served as its people, which only %s can do", sh.name, list(identityProtocols)))
 			case len(refused) == 1:
 				why = append(why, fmt.Sprintf("%s is restricted to %s", sh.name, sh.who()))
 			default:
@@ -622,6 +637,9 @@ func (c *config) check() error {
 		}
 	}
 
+	if err := c.Identity.check(c); err != nil {
+		return err
+	}
 	if err := c.checkSSHDomains(); err != nil {
 		return err
 	}

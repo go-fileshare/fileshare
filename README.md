@@ -987,6 +987,78 @@ start and by the admin API, whichever is written first. Two shares choosing
 *different* partitions of one disk image are the one overlap allowed: each
 driver is confined to its partition, and such a share is read-only.
 
+## A directory, served as each person
+
+Ordinarily one fileshare process serves everybody, as one account: fileshare
+decides who may do what, and every file it creates belongs to that account.
+A directory share can instead be served **as each person**. The files of
+whoever logged in are opened by a process running with their uid, gid and
+groups. The kernel then applies the tree's permissions, and what they create
+belongs to them.
+
+```hcl
+identity {
+  service_user = "fileshare"   # the account the protocols are served as
+  min_uid      = 1000          # the default; uid 0 is refused whatever this says
+  min_gid      = 1000
+  deny_uids    = [65534]
+  idle         = "2m"          # how long an unused worker is kept
+}
+
+share "home" {
+  directory = "/srv/home"
+  identity  = "system"
+}
+```
+
+`fileshare serve` must then be **started as root**. It stays root only to
+start each person's worker, and runs everything that faces the network in a
+second process, as `service_user`:
+
+- **The launcher** (`fileshare serve`, root) binds the listeners, starts the
+  front and answers the front's requests for workers. It speaks no protocol.
+- **The front** (`service_user`, no privilege) speaks the protocols and
+  authenticates, as `serve` always has. For a share served as its people, it
+  names a **person and a share** to the launcher, and never a uid or a path.
+- **A worker** (the person) is started by the launcher for one person and one
+  share. It checks that it is running as exactly that uid, gid and set of
+  groups, and that it cannot become root again, before it opens the tree
+  through an `os.Root`. Then it serves the tree to the front over a socket the
+  launcher handed across. One worker serves all of that person's connections
+  to the share, and it stops once nothing has used it for `idle`.
+
+The launcher resolves the person **itself**: first the directory's
+`uidNumber` and `gidNumber`, then `/etc/passwd` and `/etc/group`. The
+directory has them when it is told to carry them: a `user` block's
+`attributes = { uidNumber = "2001", gidNumber = "2001" }`, an LDAP source's
+`attributes = ["uidNumber", "gidNumber"]` (and `group_attributes =
+["gidNumber"]` for the supplementary groups), or an SQL source's
+`users_attributes` and `groups_attributes` queries. It refuses uid 0, gid 0, `(uid_t)-1`,
+anything below `min_uid` or `min_gid`, and `deny_uids`. A person it cannot
+resolve is refused: no shared fallback account exists. So a front that has
+been taken over can ask only for a person who exists and is allowed, on a
+share that exists. It still decides **who** authenticated, and the launcher
+cannot check that for it.
+
+⛔ What this does not do yet:
+
+- **SFTP and WebDAV only.** SMB, NFS and S3 refuse such a share, and `check`
+  says so. SMB and NFS need a filesystem per session in their libraries; NFS
+  will only ever do it under Kerberos, since `AUTH_UNIX` is the client's own
+  claim.
+- **Unix only**: Linux, the BSDs and macOS.
+- **The front reads the configuration.** The configuration file, and every
+  file it names (password files, host key, certificates), must be readable by
+  `service_user`. The binary must be executable by the people, who run it as
+  their workers.
+- **Restart to add or change such a share.** The launcher reads the
+  configuration once. A share the front learns of later is refused by the
+  launcher, never served as the front.
+- `--isolate` does not go with it.
+
+The design, and why each of these choices was made, is in
+[docs/identity.md](docs/identity.md).
+
 ## The admin API
 
 ```hcl

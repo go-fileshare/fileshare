@@ -59,8 +59,9 @@ It is the same binary in another role, `fileshare launcher`, the counterpart of
 `fileshare provisioner`. It applies the same rules:
 
 - **One client, identified by the kernel.** The front's uid is read with
-  `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` on macOS, and `getpeereid` on the
-  BSDs (`internal/peercred`). Anybody else, root included, is refused before a
+  `SO_PEERCRED` on Linux and `LOCAL_PEERCRED` on macOS (`internal/peercred`,
+  as for the provisioner). The BSDs need `getpeereid`, which `internal/peercred`
+  does not have yet: adding it is part of phase 1. Anybody else, root included, is refused before a
   byte of the request is decoded.
 - **A closed set of verbs**: start a worker, and stop one.
 - **A request never carries a uid or a path.** It names a **person** and a
@@ -159,7 +160,8 @@ There are two further rules:
 ## Phases
 
 1. **The launcher, the worker, `remotefs`, and resolution from configuration
-   and `/etc/passwd`. SFTP and WebDAV.** Tested as root in CI (Linux, and the
+   and `/etc/passwd`, plus `getpeereid` in `internal/peercred` for the BSDs.
+   SFTP and WebDAV.** Tested as root in CI (Linux, and the
    FreeBSD lane), with two real local accounts:
    - a file created by alice belongs to alice;
    - bob is refused by the kernel on a tree that is alice's alone;

@@ -1,6 +1,6 @@
 # Serving each person under their own system identity: design
 
-Status: **design, 2026-10-12, decisions completed 2026-10-18**. Nothing here is built yet.
+Status: **design, 2026-10-12, decisions completed 2026-10-18; the launcher is the parent process (privilege separation), 2026-10-18**. Nothing here is built yet.
 
 ## What is asked
 
@@ -26,7 +26,7 @@ Taken by the project owner on 2026-10-18:
 
 | | |
 |---|---|
-| **Who starts a worker** | **A separate privileged launcher**, `fileshare launcher`, built like the existing `fileshare provisioner`. The front that parses the protocols holds **no** privilege, and `CAP_SETUID` never sits in the process that talks to strangers. |
+| **Who starts a worker** | **A separate privileged launcher.** The front that parses the protocols holds **no** privilege, and `CAP_SETUID` never sits in the process that talks to strangers. |
 | **NFSv3 `AUTH_UNIX`** | It **never** selects a worker. Under `AUTH_UNIX` the uid is the client's own claim (RFC 5531 §14: it "SHOULD NOT be used for services that permit clients to modify data"). Over NFS, a share requiring identity is served only under Kerberos. |
 | **Which uids are refused** | **Configurable**: `min_uid` and `min_gid` (default 1000 for both), plus a `deny_uids` list. **uid 0 is refused whatever the configuration**, because a worker running as root is the one thing this design exists to prevent. That is the only rule that is not a setting. |
 
@@ -41,12 +41,17 @@ one worker per uid, shared by all of that person's connections and protocols,
 and it stops after a period with nothing to do.
 
 ```
-client ──SMB/WebDAV/SFTP/S3/NFS──► front (no privilege; authenticates)
-                                     │ 1. "a worker for alice, share photos"
-                                     ▼    (unix socket, SO_PEERCRED: the front's uid only)
-                                   launcher (root; resolves alice ITSELF; checks min_uid)
-                                     │ 2. starts the worker, hands the front its socket (SCM_RIGHTS)
-                                     ▼
+fileshare serve (as root)  =  the LAUNCHER: binds the listeners, reads the configuration,
+   │                          speaks to nobody on the network
+   │ starts the front as the service account, with the listeners
+   │ and one end of a socketpair (ExtraFiles)
+   ▼
+front (no privilege) ◄── client: SMB/WebDAV/SFTP/S3/NFS; authenticates
+   │ 1. over the socketpair: "a worker for alice, share photos"
+   ▼
+launcher: resolves alice ITSELF, checks min_uid, starts the worker,
+   │      hands the front the worker's socket (SCM_RIGHTS)
+   ▼
 front ◄──filesystem operations──► worker as alice (uid 1001, gid 100, groups 100,27)
                                      │  os.Root over /data/photos
                                      ▼
@@ -55,14 +60,23 @@ front ◄──filesystem operations──► worker as alice (uid 1001, gid 100
 
 ## The launcher
 
-It is the same binary in another role, `fileshare launcher`, the counterpart of
-`fileshare provisioner`. It applies the same rules:
+This is OpenSSH's privilege separation: a privileged **monitor** whose only
+peer is the unprivileged child it started (bibliography §1a), and the shape
+`--isolate` already has, where the parent binds the listeners and re-executes
+itself, passing them down with `ExtraFiles`.
 
-- **One client, identified by the kernel.** The front's uid is read with
-  `SO_PEERCRED` on Linux and `LOCAL_PEERCRED` on macOS (`internal/peercred`,
-  as for the provisioner). The BSDs need `getpeereid`, which `internal/peercred`
-  does not have yet: adding it is part of phase 1. Anybody else, root included, is refused before a
-  byte of the request is decoded.
+- **The launcher is the parent process.** `fileshare serve`, started as root,
+  becomes the launcher. It binds the listeners, so a privileged port needs no
+  privilege in the front. Then it starts the front as the configured service
+  account (`SysProcAttr.Credential`, groups cleared), handing it the listeners
+  and **one end of a socketpair**. The launcher never parses a network
+  protocol.
+- **No name, so no stranger.** The socketpair exists only in the two
+  processes. Nothing else can connect to it, so there is no socket path to
+  protect and no peer to identify. Identifying the peer would have needed
+  `SO_PEERCRED`, `LOCAL_PEERCRED`, `SO_PEERCRED` (OpenBSD) and `LOCAL_PEEREID`
+  (NetBSD), one per system. golang.org/x/sys exposes only the first two
+  cleanly, and OpenBSD does not let a program make the raw system call itself.
 - **A closed set of verbs**: start a worker, and stop one.
 - **A request never carries a uid or a path.** It names a **person** and a
   **share** from the configuration. The launcher resolves the person to a uid,
@@ -76,30 +90,11 @@ It is the same binary in another role, `fileshare launcher`, the counterpart of
   arbitrary directory. That is the limit of what separating the launcher buys:
   the front still decides *who* has authenticated, and the launcher cannot
   check that for it.
-- **The worker's socket is handed to the front** over the launcher's socket,
-  with `SCM_RIGHTS`. The launcher keeps no open file of the worker's.
-
-**Why this and not something else.** The bibliography is
-`localhost/_bibliography/fileshare-per-user-worker-identity-2026-10-12.md`.
-
-- **Not a process per connection, as sshd does.** Only SSH gives one user per
-  connection (RFC 4252 §5.3). SMB2 carries several users' sessions on one
-  connection and picks the user per request by `SessionId` (MS-SMB2 §2.2.1.2,
-  §3.3.1.7). HTTP and S3 authenticate every request (RFC 9110 §3.3). NFS
-  carries the credential in every call (RFC 5531, RFC 1813 §1.5).
-- **Not switching threads inside one root process, as Samba and NFS-Ganesha
-  do.** It is Linux only (`setfsuid`), and both keep the saved uid at 0 on
-  purpose, so a compromised worker can become root again. In Go, every
-  goroutine the I/O path starts runs without the identity. And
-  `syscall.Setuid` has changed the whole process since Go 1.16
-  (`AllThreadsSyscall`).
-- **A separate process drops privileges for good.** Go's
-  `SysProcAttr.Credential` does setgroups, then setgid, then setuid in the
-  child, and checks each step on Linux, FreeBSD, OpenBSD and macOS. That is
-  the order CERT POS36-C requires and the checking POS37-C requires.
-
-**What it costs.** One exchange over a local socket per filesystem operation,
-and one process per person who is active.
+- **The worker's socket is handed to the front** over the socketpair, with
+  `SCM_RIGHTS`. The launcher keeps no open file of the worker's.
+- **If the front dies, the launcher restarts it.** If the launcher dies, the
+  front, which is its child, gets no new workers. It fails those requests;
+  it never serves them as itself.
 
 ## The worker
 
@@ -159,15 +154,16 @@ There are two further rules:
 
 ## Phases
 
-1. **The launcher, the worker, `remotefs`, and resolution from configuration
-   and `/etc/passwd`, plus `getpeereid` in `internal/peercred` for the BSDs.
-   SFTP and WebDAV.** Tested as root in CI (Linux, and the
+1. **The launcher as the parent, the worker, `remotefs`, and resolution from
+   configuration and `/etc/passwd`. SFTP and WebDAV.** Tested as root in CI (Linux, and the
    FreeBSD lane), with two real local accounts:
    - a file created by alice belongs to alice;
    - bob is refused by the kernel on a tree that is alice's alone;
    - a worker that could get root back fails its start;
-   - the launcher refuses uid 0, a uid below `min_uid`, a peer that is not the
-     front, and a request naming a share that does not exist.
+   - the launcher refuses uid 0, a uid below `min_uid`, and a request naming
+     a share that does not exist;
+   - the front runs as the service account, with no privilege, whatever
+     started the launcher.
 2. **LDAP resolution** (`posixAccount`, `memberUid`) and **S3**.
 3. **SMB**, which needs a filesystem per session in go-filesystems/smb.
 4. **NFS under Kerberos**, which needs a filesystem per credential in

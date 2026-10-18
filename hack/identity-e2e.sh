@@ -98,7 +98,8 @@ chmod 644 "$work/c.hcl"
 "$work/fileshare" serve -c "$work/c.hcl" > "$work/log" 2>&1 &
 pid=$!
 i=0
-until grep -q "sftp on 127.0.0.1:$((port + 1))" "$work/log" && grep -q "webdav on 127.0.0.1:$port" "$work/log"; do
+# The announcements are aligned: "sftp   on", "webdav on".
+until grep -Eq "sftp +on 127\.0\.0\.1:$((port + 1))" "$work/log" && grep -Eq "webdav +on 127\.0\.0\.1:$port" "$work/log"; do
 	kill -0 "$pid" 2>/dev/null || fail "the server exited"
 	i=$((i + 1)); [ "$i" -lt 100 ] || fail "the server never announced itself"
 	sleep 0.1

@@ -199,3 +199,29 @@ func TestNoGroupGIDs(t *testing.T) {
 		t.Fatalf("%+v %v", a, err)
 	}
 }
+
+// A group can name the person (memberUid, a configuration's group block) as
+// well as the person naming the group (memberOf): both make a supplementary
+// group, once each.
+func TestMemberOf(t *testing.T) {
+	r := resolver(map[string]*directory.Identity{
+		"alice": person(t, "alice", []string{"@staff"}, ids("1001", "1001")...),
+	}, map[string]uint32{"@staff": 2000, "@lab": 3000}, nil)
+	r.MemberOf = func(name string) ([]string, error) {
+		if name != "alice" {
+			return nil, nil
+		}
+		return []string{"@lab", "@staff"}, nil
+	}
+	a, err := r.Resolve("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(a.Groups) != "[1001 2000 3000]" {
+		t.Fatalf("%+v", a)
+	}
+	r.MemberOf = func(string) ([]string, error) { return nil, errors.New("ldap down") }
+	if _, err := r.Resolve("alice"); err == nil || !strings.Contains(err.Error(), "ldap down") {
+		t.Fatalf("a broken group listing got %v", err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -419,7 +420,7 @@ func TestCommand(t *testing.T) {
 	for _, groups := range [][]uint32{{1001, 2000}, nil} {
 		a := account.Account{UID: 1001, GID: 1001, Groups: groups}
 		cmd := command("/x/fileshare", []string{"worker"}, a, Share{Directory: "/d"}, sock)
-		if strings.Join(cmd.Env, " ") != "PATH=/usr/bin:/bin" {
+		if strings.Join(cmd.Env, " ") != "PATH=/usr/bin:/bin FILESHARE_WORKER_FD=3" {
 			t.Errorf("env %q", cmd.Env)
 		}
 		if cmd.Dir != "/" || len(cmd.ExtraFiles) != 1 || cmd.ExtraFiles[0] != sock {
@@ -437,4 +438,41 @@ func TestCommand(t *testing.T) {
 			t.Errorf("args %q", cmd.Args)
 		}
 	}
+}
+
+// A descriptor is taken only when the launcher said it passed one, and only
+// if it is a socket: taking fd 3 on faith closed the Go runtime's poller in a
+// front run by hand, and the process died in netpoll.
+func TestInheritedRefusesWhatWasNotPassed(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	fd := int(r.Fd())
+	t.Setenv("FILESHARE_TEST_FD", "")
+	if _, err := Inherited(fd, "FILESHARE_TEST_FD"); err == nil || !strings.Contains(err.Error(), "not by hand") {
+		t.Fatalf("no variable: %v", err)
+	}
+	t.Setenv("FILESHARE_TEST_FD", strconv.Itoa(fd))
+	if _, err := Inherited(fd, "FILESHARE_TEST_FD"); err == nil || !strings.Contains(err.Error(), "not a socket") {
+		t.Fatalf("a pipe: %v", err)
+	}
+	ours, theirs, err := socketpair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ours.Close()
+	sfd := int(theirs.Fd())
+	t.Setenv("FILESHARE_TEST_FD", strconv.Itoa(sfd))
+	f, err := Inherited(sfd, "FILESHARE_TEST_FD")
+	if err != nil {
+		t.Fatalf("a socket: %v", err)
+	}
+	f.Close()
+	if _, err := Inherited(sfd, "FILESHARE_TEST_FD"); err == nil {
+		t.Fatal("a closed descriptor was taken")
+	}
+	theirs.Close() // already closed through f; the error is expected
 }

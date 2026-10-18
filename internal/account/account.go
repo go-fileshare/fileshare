@@ -71,6 +71,11 @@ type Resolver struct {
 	// GroupGID is the gidNumber of one of the person's directory groups;
 	// ok is false for a group that has none (it is no system group).
 	GroupGID func(group string) (gid uint32, ok bool, err error)
+	// MemberOf is the directory's groups that list name as a member (a
+	// configuration's group block, RFC 2307 memberUid). They are added to
+	// the groups the identity itself names (memberOf): a source says one or
+	// the other, and either makes a supplementary group. Nil asks nothing.
+	MemberOf func(name string) ([]string, error)
 	Passwd   Passwd
 	Policy   Policy
 }
@@ -125,7 +130,11 @@ func (r *Resolver) fromDirectory(id *directory.Identity) (Account, bool, error) 
 		gid, err = one("gidNumber", gs)
 		if err == nil {
 			a := Account{Name: id.Name(), UID: uid, GID: gid, From: "the directory"}
-			for _, g := range id.Groups() {
+			groups, err := r.groupsOf(id)
+			if err != nil {
+				return Account{}, true, err
+			}
+			for _, g := range groups {
 				if r.GroupGID == nil {
 					break
 				}
@@ -141,6 +150,24 @@ func (r *Resolver) fromDirectory(id *directory.Identity) (Account, bool, error) 
 		}
 	}
 	return Account{}, true, fmt.Errorf("%s: %w", id.Name(), err)
+}
+
+// groupsOf is the groups the identity names, and those that name it.
+func (r *Resolver) groupsOf(id *directory.Identity) ([]string, error) {
+	groups := id.Groups()
+	if r.MemberOf == nil {
+		return groups, nil
+	}
+	more, err := r.MemberOf(id.Name())
+	if err != nil {
+		return nil, fmt.Errorf("%s: the groups listing them: %w", id.Name(), err)
+	}
+	for _, g := range more {
+		if !slices.Contains(groups, g) {
+			groups = append(groups, g)
+		}
+	}
+	return groups, nil
 }
 
 // one is the single decimal value of a numeric attribute.

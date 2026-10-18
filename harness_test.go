@@ -85,7 +85,10 @@ func (s *safeBuffer) String() string {
 
 // start opens the configuration and serves it, on port 0 for every protocol,
 // and hands back the addresses a client should dial.
-func start(t *testing.T, body string) *running {
+func start(t *testing.T, body string) *running { t.Helper(); return startWith(t, body, nil) }
+
+// startWith is start with prep run on the server before it serves anything.
+func startWith(t *testing.T, body string, prep func(*server)) *running {
 	t.Helper()
 	dir := t.TempDir()
 	path := write(t, dir, "test.hcl", body)
@@ -97,6 +100,9 @@ func start(t *testing.T, body string) *running {
 	srv, err := open(cfg, out)
 	if err != nil {
 		t.Fatalf("opening: %v", err)
+	}
+	if prep != nil {
+		prep(srv)
 	}
 
 	// Bind first, announce second -- and hand the test what was actually

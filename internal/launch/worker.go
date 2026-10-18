@@ -29,8 +29,8 @@ const workerFD = 3
 // subcommand that runs Worker) as a: setgroups, setgid, setuid in the child,
 // each checked by the Go runtime before exec (SysProcAttr.Credential).
 //
-//   - The environment is EMPTY but for PATH: a worker running as a person
-//     must not inherit the launcher's, whatever is in it.
+//   - The environment is EMPTY but for PATH and WorkerEnv: a worker running
+//     as a person must not inherit the launcher's, whatever is in it.
 //   - Its only descriptor besides 0-2 is its end of the socket; every other
 //     one is close-on-exec, which Go guarantees for what it opens.
 //   - It is in a session of its own, so a signal to the launcher's process
@@ -57,7 +57,7 @@ func Exec(exe string, args ...string) Spawn {
 // command is the worker's command line and everything it inherits.
 func command(exe string, args []string, a account.Account, s Share, socket *os.File) *exec.Cmd {
 	cmd := exec.Command(exe, append(slices.Clone(args), workerArgs(a, s)...)...)
-	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Env = []string{"PATH=/usr/bin:/bin", WorkerEnv + "=" + strconv.Itoa(workerFD)}
 	cmd.Dir = "/"
 	cmd.Stdin, cmd.Stdout = nil, nil
 	cmd.Stderr = os.Stderr
@@ -194,9 +194,9 @@ func Worker(e Expect, dir string, readOnly bool) error {
 		return fmt.Errorf("worker: %w", err)
 	}
 	defer fsys.Close()
-	f := os.NewFile(workerFD, "worker")
-	if f == nil {
-		return errors.New("worker: no socket on descriptor 3")
+	f, err := Inherited(workerFD, WorkerEnv)
+	if err != nil {
+		return fmt.Errorf("worker: %w", err)
 	}
 	conn, err := net.FileConn(f)
 	f.Close()

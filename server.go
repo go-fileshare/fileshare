@@ -37,7 +37,13 @@ import (
 
 // A server is everything the configuration asked for, opened and ready.
 type server struct {
-	name string
+	// workers are the people's workers, for the shares served as them; nil
+	// unless this process is a front a launcher started (identity.go).
+	workers *workerPool
+	// inherited are the listeners a launcher bound, one per serve block in
+	// order; nil binds them here.
+	inherited []net.Listener
+	name      string
 	// shares is replaced whole when the admin API changes them, and read
 	// through currentShares; a *share is never modified once it is here.
 	sharesMu sync.RWMutex
@@ -370,6 +376,7 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 			allowClaims:  allowClaims,
 			writerClaims: writerClaims,
 			protocols:    b.Protocols,
+			system:       b.Identity == identitySystem,
 			opened:       imageKeyOf(b),
 			block:        b,
 			allowNamed:   len(allowNames) > 0,
@@ -377,7 +384,9 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 		}
 		// The previous list's drivers, and this list's own: two shares of one
 		// configuration on one image share its driver too.
-		if prev := sameImage(append(slices.Clone(previous), out...), sh.opened); prev != nil {
+		// Never for a share served as its people: a driver this process
+		// opened is this process's view of the tree, not theirs.
+		if prev := sameImage(append(slices.Clone(previous), out...), sh.opened); prev != nil && !sh.system {
 			// Refused only when the open never tried to write: a driver that
 			// fell back to read-only by itself stays read-only, served as it
 			// was, rather than blocking every change to every other share.
@@ -393,7 +402,12 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 			continue
 		}
 		open := s.openImage
-		if b.Directory != "" {
+		switch {
+		case sh.system:
+			// Opened by each person's worker, never here: this process may
+			// not be able to read it, and must not be the one that does.
+			open = openNothing
+		case b.Directory != "":
 			open = s.openDirectory
 		}
 		if err := open(sh, b); err != nil {
@@ -403,6 +417,13 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 		out = append(out, sh)
 	}
 	return out, nil
+}
+
+// openNothing is the open of a share served as its people: there is nothing
+// for this process to open.
+func openNothing(sh *share, _ shareBlock) error {
+	sh.kind = "directory"
+	return nil
 }
 
 // openImage opens a share's image and its filesystem, and says -- once, when
@@ -693,7 +714,7 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	// it has one is a harness that lies about what failed.
 	for i := range cfg.Serves {
 		b := cfg.Serves[i]
-		ln, err := net.Listen("tcp", b.Addr)
+		ln, err := s.listen(i, b)
 		if err != nil {
 			closeAll()
 			return fmt.Errorf("%s: %w", b.Protocol, err)
@@ -752,6 +773,14 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 	}
 }
 
+// listen is serve block i's listener: the launcher's, or bound here.
+func (s *server) listen(i int, b serveBlock) (net.Listener, error) {
+	if s.inherited != nil {
+		return s.inherited[i], nil
+	}
+	return net.Listen("tcp", b.Addr)
+}
+
 // shutdown stops the current generation and closes the sockets.
 func (s *server) shutdown(closeFeeds func()) {
 	s.ready.Store(false)
@@ -781,6 +810,11 @@ func (s *server) swap(next []*share) (closed uint64, err error) {
 	}
 	s.ready.Store(false)
 	closed = s.gen.stop()
+	if s.workers != nil {
+		// The shares may name other trees now, and every connection that
+		// used a worker went with the generation.
+		s.workers.reset()
+	}
 	s.sharesMu.Lock()
 	prev := s.shares
 	s.shares = next

@@ -49,16 +49,32 @@ type unionEntry struct {
 // rather than into "the medium is broken".
 var errReadOnly = os.ErrPermission
 
-// unionFor builds the tree one person sees.
-func unionFor(shares []*share, p principal) *unionFS {
+// unionFor builds the tree one person sees, without the shares served as
+// their people.
+func unionFor(shares []*share, p principal) *unionFS { return unionForWith(shares, p, nil) }
+
+// unionForWith builds it with those shares too, each reached through
+// worker: a share it has no filesystem for (false) is left out, as one the
+// person may not use is.
+func unionForWith(shares []*share, p principal, worker func(*share) (filesystem.Filesystem, bool)) *unionFS {
 	u := &unionFS{}
 	for _, sh := range shares {
 		if !sh.mayUse(p) {
 			continue
 		}
+		fsys := sh.fsys
+		if sh.system {
+			var ok bool
+			if worker == nil {
+				continue
+			}
+			if fsys, ok = worker(sh); !ok {
+				continue
+			}
+		}
 		u.entries = append(u.entries, unionEntry{
 			name:     sh.name,
-			fsys:     sh.fsys,
+			fsys:     fsys,
 			readOnly: sh.readOnlyFor(p),
 		})
 	}

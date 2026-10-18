@@ -131,6 +131,10 @@ func (p *protocol) exports(c *config, shares []*share) (served, refused []*share
 			refused = append(refused, s)
 			continue
 		}
+		if s.system && !identityProtocol(p.name) {
+			refused = append(refused, s)
+			continue
+		}
 		served = append(served, s)
 	}
 	return served, refused
@@ -138,6 +142,10 @@ func (p *protocol) exports(c *config, shares []*share) (served, refused []*share
 
 // refusal is what a person reads when a share is not exported.
 func (p *protocol) refusal(s *share) string {
+	if s.system && !identityProtocol(p.name) {
+		return fmt.Sprintf("%s is not served over %s: it is served as its people (identity = %q), which only %s can do yet",
+			s.name, p.name, identitySystem, list(identityProtocols))
+	}
 	return fmt.Sprintf("%s is not served over %s: it is restricted to %s, and %s",
 		s.name, p.name, s.who(), p.why)
 }

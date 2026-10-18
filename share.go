@@ -33,6 +33,9 @@ type share struct {
 	// protocols is which of them may carry this share; empty means all of
 	// them. See protocol.exports.
 	protocols []string
+	// system is identity = "system": the share is served as each person,
+	// through their worker, and fsys stays nil. See identity.go.
+	system bool
 
 	// Filled in when the image is opened.
 	fsys filesystem.Filesystem

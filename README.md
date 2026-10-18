@@ -699,8 +699,14 @@ users "ldap" {
 The **queries are yours**, because a site's people are already in that site's
 shape; a schema invented here would mean copying them into a second one. The
 LDAP side reads what a Samba-aware directory already publishes —
-`sambaNTPassword`, `sshPublicKey`, `memberUid` — and every name is
-configurable.
+`sambaNTPassword`, `sshPublicKey`, `memberUid` — and the filters and the
+user, group and member attributes are configurable; `sambaNTPassword` is
+read under that name only. By default (go-authn/directory v0.14.0) people are
+`(|(objectClass=posixAccount)(objectClass=account)(objectClass=uidObject))`
+and groups `(|(objectClass=posixGroup)(objectClass=groupOfNames))`, whose
+`member` DNs count only when they are the DN of somebody the people search
+returned. That is what go-authn/authnd v0.11.0 publishes; an older default
+read `posixAccount` and `posixGroup` alone.
 
 ⛔ The `dsn_file`, the `bind_password_file` and — for sqlite — the database
 file the DSN names (with its `-journal`, `-wal` and `-shm` files) may not lie

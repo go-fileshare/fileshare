@@ -45,8 +45,8 @@ github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1/go.mod h1:5ueZMujvJ5nu
 github.com/go-asn1-ber/asn1-ber v1.5.5/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
 github.com/go-asn1-ber/asn1-ber v1.5.8 h1:H9AZkK22UOmfX8J84ubyaZxKJZ3FMHVwn8swoMML7iQ=
 github.com/go-asn1-ber/asn1-ber v1.5.8/go.mod h1:hEBeB/ic+5LoWskz+yKT7vGhhPYkProFKoKdwZRWMe0=
-github.com/go-authn/directory v0.12.0 h1:yIsJpXaqqxv7dNCzX2tgvSOCeYX/JPFhYzF6RurPGhk=
-github.com/go-authn/directory v0.12.0/go.mod h1:JzIgDzAps98mFdKJ+JjlwUewySmH7+fkPtxhss6s6vM=
+github.com/go-authn/directory v0.14.0 h1:Qp8idW+ZUFCza4ovJQugJ7VR4WksGtWfj5SwQLyfwiM=
+github.com/go-authn/directory v0.14.0/go.mod h1:wKkjpPF7MbH4K1Ocu0EkbMQ2sjOQN8k45Ah0i12FfA8=
 github.com/go-authn/krb5 v0.3.0 h1:tWD223zEcyv7YH5WdRiaLoKyo5ikwMXvXL9vxNE6ELA=
 github.com/go-authn/krb5 v0.3.0/go.mod h1:NYYsSfrU+qcH/Y/F6HE/3LMFw4JHqvBIaeshi9AdI+Q=
 github.com/go-authn/krl v0.6.0 h1:FgDNWur+4OuL97W5OIKoEb8y2Lu0owlCuUl0Y1ReWPo=

@@ -11,7 +11,7 @@ go 1.27.2
 require (
 	connectrpc.com/connect/v2 v2.0.1
 	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
-	github.com/go-authn/directory v0.12.0
+	github.com/go-authn/directory v0.14.0
 	github.com/go-authn/krb5 v0.3.0
 	github.com/go-authn/krl v0.6.0
 	github.com/go-authn/oidc v0.4.0

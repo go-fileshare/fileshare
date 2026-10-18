@@ -29,6 +29,12 @@ gh attestation verify fileshare_v0.29.1_linux_amd64.tar.gz -R go-fileshare/files
 The archives are reproducible: `hack/release.sh` rebuilds them from a checkout
 of the tag with the same Go, byte for byte.
 
+Nothing is published that was not run first. Before the files are added to a
+release, CI starts each binary on its own system: Linux amd64 and arm64, macOS,
+Windows, and NetBSD, FreeBSD and OpenBSD in a virtual machine. It puts each
+through the quickstart: a directory over WebDAV, a file put and read back, and
+`401` for an anonymous client and for a wrong password (`hack/smoke.sh`).
+
 ```sh
 fileshare --image disk.img --user alice --password-file pw   # one image, now
 fileshare --config /etc/fileshare.d                          # several, with users

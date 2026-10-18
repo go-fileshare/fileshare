@@ -3,11 +3,20 @@ name: release
 # Binaries for a tag, so that somebody can try fileshare without a Go
 # toolchain: one static binary per platform (hack/release.sh), SHA256SUMS,
 # and a provenance attestation for each -- GitHub's, signed through Sigstore,
-# which says this workflow built that file from that commit. They are added to
-# the tag's GitHub release, created when there is none.
+# which says this workflow built that file from that commit.
 #
-# On a tag push, and by hand for a tag that is already there:
-#   gh workflow run release.yml -R go-fileshare/fileshare -f tag=v0.29.1
+# Nothing is published that was not RUN first: every binary a person is
+# likely to download is started on its own system and put through the
+# quickstart of the release notes (hack/smoke.sh) -- natively on Linux, macOS
+# and Windows, and in a virtual machine for NetBSD, FreeBSD and OpenBSD, for
+# which GitHub has no runner. Only then are the files added to the tag's
+# release (created when there is none).
+#
+# On a tag push, and by hand for a tag that is already there -- with
+# publish=false for a dry run that builds and runs everything and publishes
+# nothing:
+#   gh workflow run release.yml -R go-fileshare/fileshare -f tag=v0.29.2
+#   gh workflow run release.yml -R go-fileshare/fileshare -f tag=v0.29.2 -f publish=false --ref <branch>
 
 on:
   push:
@@ -17,6 +26,10 @@ on:
       tag:
         description: the release tag to build and publish binaries for
         required: true
+      publish:
+        description: add the files to the release (false = build and run them only)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -25,25 +38,26 @@ concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
+env:
+  # Data, never interpolated into a script: hack/release.sh checks its shape.
+  TAG: ${{ inputs.tag || github.ref_name }}
+  GOWORK: "off"
+
 jobs:
-  binaries:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write      # the release and its files
+      contents: read
       id-token: write      # the attestation's Sigstore certificate
       attestations: write  # recording it
-    env:
-      # Data, never interpolated into a script: hack/release.sh checks its shape.
-      TAG: ${{ inputs.tag || github.ref_name }}
-      GOWORK: "off"
     steps:
-      # The script comes from main, the source from the tag: a tag made
-      # before the script existed can still be published, and the script
-      # is never part of the tree it builds (an untracked file there would
-      # make Go stamp the version "+dirty").
+      # The scripts come from main on a tag push (a tag made before they
+      # existed can still be published), from the branch run by hand; the
+      # source always from the tag. The scripts are never part of the tree
+      # they build: an untracked file there would make Go stamp "+dirty".
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || 'main' }}
           path: tools
           persist-credentials: false
       - uses: actions/checkout@v7
@@ -65,12 +79,94 @@ jobs:
             ${{ runner.temp }}/dist/*.tar.gz
             ${{ runner.temp }}/dist/*.zip
             ${{ runner.temp }}/dist/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: ${{ runner.temp }}/dist
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke
+          path: tools/hack/smoke.sh
+          if-no-files-found: error
+          retention-days: 7
+
+  # Each binary started on its own system. Read-only: the virtual machine
+  # actions are third-party code, and nothing here can write to the release.
+  smoke:
+    needs: build
+    name: run ${{ matrix.archive }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { archive: linux_amd64,   runner: ubuntu-latest }
+          - { archive: linux_arm64,   runner: ubuntu-24.04-arm }
+          - { archive: darwin_arm64,  runner: macos-latest }
+          - { archive: windows_amd64, runner: windows-latest, zip: true }
+          - { archive: netbsd_amd64,  runner: ubuntu-latest, vm: netbsd }
+          - { archive: freebsd_amd64, runner: ubuntu-latest, vm: freebsd }
+          - { archive: openbsd_amd64, runner: ubuntu-latest, vm: openbsd }
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: dist, path: dist }
+      - uses: actions/download-artifact@v8
+        with: { name: smoke, path: . }
+      - name: Unpack
+        shell: bash
+        env:
+          ARCHIVE: ${{ matrix.archive }}
+          ZIP: ${{ matrix.zip }}
+        run: |
+          set -euo pipefail
+          name="fileshare_${TAG}_${ARCHIVE}"
+          if [ "$ZIP" = true ]; then unzip -q "dist/$name.zip"; else tar -xzf "dist/$name.tar.gz"; fi
+          echo "DIR=$name" >> "$GITHUB_ENV"
+      - name: Run (native)
+        if: ${{ !matrix.vm }}
+        shell: bash
+        run: sh smoke.sh "$DIR" "$TAG"
+      - name: Run (NetBSD)
+        if: ${{ matrix.vm == 'netbsd' }}
+        uses: vmactions/netbsd-vm@c8a0d7ddb84619a7a8cc4e652efa7950b3fd9f92 # v1.5.2
+        with:
+          envs: DIR TAG
+          prepare: /usr/sbin/pkg_add curl
+          run: cd "$GITHUB_WORKSPACE" && sh smoke.sh "$DIR" "$TAG"
+      - name: Run (FreeBSD)
+        if: ${{ matrix.vm == 'freebsd' }}
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          envs: DIR TAG
+          prepare: pkg install -y curl
+          run: cd "$GITHUB_WORKSPACE" && sh smoke.sh "$DIR" "$TAG"
+      - name: Run (OpenBSD)
+        if: ${{ matrix.vm == 'openbsd' }}
+        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        with:
+          envs: DIR TAG
+          prepare: pkg_add curl
+          run: cd "$GITHUB_WORKSPACE" && sh smoke.sh "$DIR" "$TAG"
+
+  publish:
+    needs: [build, smoke]
+    if: ${{ github.event_name == 'push' || inputs.publish }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # the release and its files
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: dist, path: dist }
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd "$RUNNER_TEMP/dist"
+          cd dist
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" -R "$GITHUB_REPOSITORY" --clobber -- *.tar.gz *.zip SHA256SUMS
           else

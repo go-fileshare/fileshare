@@ -21,11 +21,28 @@ type workerPool struct {
 	// get starts a worker: in the front, a request to the launcher.
 	get  func(person, share string) (filesystem.Filesystem, error)
 	idle time.Duration
+	// hold is how long a failure to get a worker is answered without asking
+	// again. Without it, a person whose worker cannot start -- a tree they
+	// cannot open -- starts a process with every WebDAV request they send.
+	hold time.Duration
+	now  func() time.Time
 
 	mu     sync.Mutex
 	m      map[workerKey]*worker
+	failed map[workerKey]failure
 	closed bool
 }
+
+// failure is a failed start, answered again until until.
+type failure struct {
+	err   error
+	until time.Time
+}
+
+// defaultFailureHold is short enough that a fixed tree is served again
+// almost at once, long enough that a client retrying in a loop starts a
+// process a few times a minute rather than hundreds of times a second.
+const defaultFailureHold = 5 * time.Second
 
 type workerKey struct{ person, share string }
 
@@ -50,7 +67,8 @@ type worker struct {
 var errPoolClosed = errors.New("the server is stopping")
 
 func newWorkerPool(get func(person, share string) (filesystem.Filesystem, error), idle time.Duration) *workerPool {
-	return &workerPool{get: get, idle: idle, m: map[workerKey]*worker{}}
+	return &workerPool{get: get, idle: idle, hold: defaultFailureHold, now: time.Now,
+		m: map[workerKey]*worker{}, failed: map[workerKey]failure{}}
 }
 
 // acquire is person's worker on share, and the release that says this use of
@@ -68,6 +86,13 @@ func (p *workerPool) acquire(person, share string) (*worker, func(), error) {
 			p.mu.Unlock()
 			return nil, nil, errPoolClosed
 		}
+		if f, held := p.failed[k]; held {
+			if p.now().Before(f.until) {
+				p.mu.Unlock()
+				return nil, nil, f.err
+			}
+			delete(p.failed, k)
+		}
 		w, ok := p.m[k]
 		if !ok {
 			w = &worker{pool: p, key: k, ready: make(chan struct{}), refs: 1}
@@ -79,6 +104,9 @@ func (p *workerPool) acquire(person, share string) (*worker, func(), error) {
 				p.mu.Lock()
 				if p.m[k] == w {
 					delete(p.m, k)
+				}
+				if !errors.Is(w.err, errPoolClosed) {
+					p.failed[k] = failure{err: w.err, until: p.now().Add(p.hold)}
 				}
 				p.mu.Unlock()
 				return nil, nil, w.err
@@ -93,8 +121,8 @@ func (p *workerPool) acquire(person, share string) (*worker, func(), error) {
 		p.mu.Unlock()
 		<-w.ready
 		if w.err != nil {
-			// The first request's failure is this one's too; the entry is
-			// gone, so the next request tries again.
+			// The first request's failure is this one's too; it is held
+			// for hold, then the next request tries again.
 			return nil, nil, w.err
 		}
 		if w.alive() {
@@ -189,6 +217,7 @@ func (p *workerPool) reset() {
 	p.mu.Lock()
 	old := p.m
 	p.m = map[workerKey]*worker{}
+	p.failed = map[workerKey]failure{} // what failed may serve now
 	for _, w := range old {
 		if w.timer != nil {
 			w.timer.Stop()

@@ -247,20 +247,50 @@ func TestWorkerPoolConcurrentFirstAcquire(t *testing.T) {
 	}
 }
 
-// A refusal is not kept: the next request asks again.
-func TestWorkerPoolDoesNotKeepFailures(t *testing.T) {
-	l := &fakeLauncher{root: t.TempDir(), fail: errors.New("launcher gone")}
-	p := newWorkerPool(l.get, time.Hour)
-	defer p.Close()
-	if _, _, err := p.acquire("alice", "home"); err == nil {
-		t.Fatal("a failed start was served")
+// A failure is held for a while -- a client retrying in a loop must not start
+// a process per request -- and then asked again.
+func TestWorkerPoolHoldsFailures(t *testing.T) {
+	var asked int
+	fail := errors.New("the tree cannot be opened")
+	get := func(person, share string) (filesystem.Filesystem, error) {
+		asked++
+		if fail != nil {
+			return nil, fail
+		}
+		return (&fakeLauncher{root: t.TempDir()}).get(person, share)
 	}
-	l.fail = nil
+	p := newWorkerPool(get, time.Hour)
+	defer p.Close()
+	now := time.Unix(1_000_000, 0)
+	p.now = func() time.Time { return now }
+	for range 50 {
+		if _, _, err := p.acquire("alice", "home"); !errors.Is(err, fail) {
+			t.Fatalf("got %v", err)
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("50 requests within the hold asked the launcher %d times", asked)
+	}
+	if _, _, err := p.acquire("bob", "home"); err == nil || asked != 2 {
+		t.Fatal("alice's failure was held for bob")
+	}
+	fail = nil
+	now = now.Add(defaultFailureHold)
 	_, rel, err := p.acquire("alice", "home")
 	if err != nil {
-		t.Fatalf("the failure was kept: %v", err)
+		t.Fatalf("the failure outlived its hold: %v", err)
 	}
 	rel()
+	// A change to the shares forgets what failed: the tree may be fixed.
+	fail = errors.New("again")
+	if _, _, err := p.acquire("carol", "home"); !errors.Is(err, fail) {
+		t.Fatalf("carol got %v", err)
+	}
+	before := asked
+	p.reset()
+	if _, _, _ = p.acquire("carol", "home"); asked != before+1 {
+		t.Fatal("reset kept a held failure")
+	}
 }
 
 // A worker that died is replaced, not served as errors until it goes idle.

@@ -372,6 +372,62 @@ jobs:
   # see it until a release left it out (awnumar/memcall v0.1.2 used
   # MADV_DONTDUMP, which NetBSD does not have). hack/targets.txt is the one
   # list, for this job and for hack/release.sh.
+  # A worker started as root and setuid to another account serves a share as
+  # that account: the kernel applies its permissions, and what it creates
+  # belongs to it (docs/identity.md). It needs root, on each Unix the design
+  # promises. go test's own build directory is 0700, so the test binary is
+  # built where the worker's uid can execute it.
+  as-root:
+    name: a worker runs as the person (${{ matrix.os }}, root)
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,   runner: ubuntu-latest }
+          - { os: darwin,  runner: macos-latest }
+          - { os: freebsd, runner: ubuntu-latest, vm: freebsd }
+          - { os: openbsd, runner: ubuntu-latest, vm: openbsd }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod, cache: true }
+      - name: Build the test binary
+        env: { TARGET_OS: "${{ matrix.os }}" }
+        run: |
+          arch=amd64
+          [ "$TARGET_OS" = darwin ] && arch=arm64 # macos-latest is Apple silicon
+          GOOS="$TARGET_OS" GOARCH="$arch" go test -c -o launch.test ./internal/launch
+          chmod 755 launch.test
+      - name: Run (native)
+        if: ${{ !matrix.vm }}
+        run: |
+          set -o pipefail
+          sudo cp launch.test /tmp/launch.test
+          sudo chmod 755 /tmp/launch.test
+          sudo env TMPDIR=/tmp /tmp/launch.test -test.run '^TestAsRoot$' -test.v | tee as-root.log
+          grep -q -- '--- PASS: TestAsRoot' as-root.log
+      - name: Run (FreeBSD)
+        if: ${{ matrix.vm == 'freebsd' }}
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          run: |
+            set -e
+            cp "$GITHUB_WORKSPACE/launch.test" /tmp/launch.test && chmod 755 /tmp/launch.test
+            env TMPDIR=/tmp /tmp/launch.test -test.run '^TestAsRoot$' -test.v > /tmp/as-root.log 2>&1 || { cat /tmp/as-root.log; exit 1; }
+            cat /tmp/as-root.log
+            grep -q -- '--- PASS: TestAsRoot' /tmp/as-root.log
+      - name: Run (OpenBSD)
+        if: ${{ matrix.vm == 'openbsd' }}
+        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        with:
+          run: |
+            set -e
+            cp "$GITHUB_WORKSPACE/launch.test" /tmp/launch.test && chmod 755 /tmp/launch.test
+            env TMPDIR=/tmp /tmp/launch.test -test.run '^TestAsRoot$' -test.v > /tmp/as-root.log 2>&1 || { cat /tmp/as-root.log; exit 1; }
+            cat /tmp/as-root.log
+            grep -q -- '--- PASS: TestAsRoot' /tmp/as-root.log
+
   release-targets:
     name: every release platform builds
     runs-on: ubuntu-latest

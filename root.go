@@ -99,7 +99,7 @@ func newRootCmd() *cobra.Command {
 	o.bind(root.PersistentFlags())
 	root.SuggestionsMinimumDistance = 2
 	root.SetFlagErrorFunc(flagError)
-	root.AddCommand(newServeCmd(&o), newCheckCmd(&o), newPasswdCmd(&o), newServeOneCmd(&o), newProvisionerCmd(&o))
+	root.AddCommand(newServeCmd(&o), newCheckCmd(&o), newPasswdCmd(&o), newServeOneCmd(&o), newProvisionerCmd(&o), newWorkerCmd())
 	return root
 }
 

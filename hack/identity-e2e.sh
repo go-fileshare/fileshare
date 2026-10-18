@@ -133,8 +133,10 @@ case "$c" in 2*) fail "bob wrote into alice's 0700 directory" ;; esac
 [ ! -e "$work/home/private/b.txt" ] || fail "b.txt exists in alice's directory"
 ok "bob may not write into alice's 0700 directory ($c)"
 
-ps -A -o uid= -o args= > "$work/ps"
-grep -q '^ *2001 .*fileshare worker .*--uid 2001' "$work/ps" || { cat "$work/ps"; fail "no worker running as alice"; }
+# -ww: OpenBSD's ps cuts the command line at 80 columns otherwise. The uid
+# column is what is checked; the arguments only say which process it is.
+ps -A -ww -o uid= -o args= > "$work/ps"
+grep -q '^ *2001 .*fileshare worker ' "$work/ps" || { cat "$work/ps"; fail "no worker running as alice"; }
 if grep ' worker ' "$work/ps" | grep -v '^ *200[12] ' | grep -q fileshare; then
 	cat "$work/ps"; fail "a worker runs as somebody other than its person"
 fi

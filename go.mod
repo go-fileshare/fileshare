@@ -30,6 +30,7 @@ require (
 	github.com/go-filesystems/nfs v0.8.1
 	github.com/go-filesystems/ntfs v0.2.0
 	github.com/go-filesystems/osfs v0.3.0
+	github.com/go-filesystems/remote v0.1.0
 	github.com/go-filesystems/s3 v0.5.0
 	github.com/go-filesystems/sftp v0.7.0
 	github.com/go-filesystems/smb v0.7.0

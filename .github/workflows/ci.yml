@@ -419,7 +419,7 @@ jobs:
             grep -q -- '--- PASS: TestAsRoot' /tmp/as-root.log
       - name: Run (OpenBSD)
         if: ${{ matrix.vm == 'openbsd' }}
-        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
         with:
           run: |
             set -e
@@ -456,7 +456,7 @@ jobs:
           run: sh "$GITHUB_WORKSPACE/hack/identity-e2e.sh" "$GITHUB_WORKSPACE/fileshare-e2e"
       - name: Run (OpenBSD)
         if: ${{ matrix.vm == 'openbsd' }}
-        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
         with:
           prepare: pkg_add curl
           run: sh "$GITHUB_WORKSPACE/hack/identity-e2e.sh" "$GITHUB_WORKSPACE/fileshare-e2e"

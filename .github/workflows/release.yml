@@ -146,7 +146,7 @@ jobs:
           run: cd "$GITHUB_WORKSPACE" && sh smoke.sh "$DIR" "$TAG"
       - name: Run (OpenBSD)
         if: ${{ matrix.vm == 'openbsd' }}
-        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
         with:
           envs: DIR TAG
           prepare: pkg_add curl

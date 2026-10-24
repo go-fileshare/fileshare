@@ -14,7 +14,7 @@ require (
 	github.com/go-authn/directory v0.14.1
 	github.com/go-authn/krb5 v0.3.1
 	github.com/go-authn/krl v0.6.1
-	github.com/go-authn/oidc v0.4.1
+	github.com/go-authn/oidc v0.4.2
 	github.com/go-authn/revocation v0.6.4
 	github.com/go-authn/servercert v0.5.2
 	github.com/go-authn/sshcert v0.1.7
@@ -53,9 +53,9 @@ require (
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
-	github.com/lestrrat-go/jwx/v3 v3.3.0
+	github.com/lestrrat-go/jwx/v3 v3.4.0
 	github.com/openpubkey/openpubkey v0.29.0
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.58.0
@@ -94,7 +94,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
-	github.com/goccy/go-json v0.10.6 // indirect
+	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect

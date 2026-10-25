@@ -11,7 +11,7 @@ one configuration, one binary, pure Go.**
 Documentation: **<https://go-fileshare.github.io/docs/>**
 
 ```sh
-go install github.com/go-fileshare/fileshare@latest          # with Go 1.27.2 or later
+go install github.com/go-fileshare/fileshare@latest          # with Go 1.27.3 or later
 ```
 
 **Or a binary, with no Go at all** (since v0.29.1): every release carries one

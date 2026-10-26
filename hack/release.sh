@@ -45,7 +45,7 @@ for t in "${targets[@]}"; do
   [ "$os" = windows ] && exe=fileshare.exe
   # -trimpath: no path of the machine that built it inside the binary.
   # -buildvcs stamps the commit; the module version comes from the tag.
-  GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$stage/$exe" .
+  GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-w" -o "$stage/$exe" .
   cp LICENSE README.md "$stage/"
   # Reproducible archives, written by Go rather than the system's tar and
   # gzip -- Apple's gzip and GNU's compress the same stream to different

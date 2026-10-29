@@ -11,13 +11,13 @@ go 1.27.3
 require (
 	connectrpc.com/connect/v2 v2.0.2
 	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
-	github.com/go-authn/directory v0.14.1
+	github.com/go-authn/directory v0.15.0
 	github.com/go-authn/krb5 v0.3.1
 	github.com/go-authn/krl v0.6.1
-	github.com/go-authn/oidc v0.4.1
-	github.com/go-authn/revocation v0.6.4
+	github.com/go-authn/oidc v0.4.3
+	github.com/go-authn/revocation v0.6.6
 	github.com/go-authn/servercert v0.5.2
-	github.com/go-authn/sshcert v0.1.7
+	github.com/go-authn/sshcert v0.1.9
 	github.com/go-filesystems/apfs v0.3.0
 	github.com/go-filesystems/btrfs v0.3.0
 	github.com/go-filesystems/detect v0.3.0
@@ -46,22 +46,22 @@ require (
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/gpt v0.3.0
-	github.com/go-volumes/s3 v0.0.0-20261014052952-c4dbc36a4412
+	github.com/go-volumes/s3 v0.2.2
 	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
-	github.com/lestrrat-go/jwx/v3 v3.3.0
+	github.com/lestrrat-go/jwx/v3 v3.4.0
 	github.com/openpubkey/openpubkey v0.29.0
-	github.com/pkg/sftp v1.13.11
+	github.com/pkg/sftp v1.13.12
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.49.0
-	google.golang.org/grpc v1.84.0
+	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0
 )
@@ -91,10 +91,10 @@ require (
 	github.com/go-fde/apfs v0.0.0-20260912170739-6acb57fc9eb0 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
-	github.com/goccy/go-json v0.10.6 // indirect
+	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
@@ -135,9 +135,9 @@ require (
 	github.com/zitadel/oidc/v3 v3.23.2 // indirect
 	github.com/zitadel/schema v1.3.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.44.0 // indirect
-	go.opentelemetry.io/otel/metric v1.44.0 // indirect
-	go.opentelemetry.io/otel/trace v1.44.0 // indirect
+	go.opentelemetry.io/otel v1.45.0 // indirect
+	go.opentelemetry.io/otel/metric v1.45.0 // indirect
+	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.42.0 // indirect
@@ -145,7 +145,7 @@ require (
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260817212433-ac3dfec99bb1 // indirect
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect

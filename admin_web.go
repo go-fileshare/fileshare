@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"path"
 	"slices"
@@ -183,7 +182,7 @@ func startAdminWeb(s *server, cfg *config, svc adminv1connect.AdminServiceHandle
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, srv, connecthttp.WithReadMaxBytes(webMaxBytes))
 
-	ln, err := net.Listen("tcp", cfg.Admin.Web.Listen)
+	ln, err := listenTCP(cfg.Admin.Web.Listen)
 	if err != nil {
 		return nil, fmt.Errorf("admin web: %w", err)
 	}

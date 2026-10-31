@@ -7,12 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 
 	"github.com/go-authn/directory"
@@ -131,7 +129,7 @@ func serve(cmd *cobra.Command, o *options, args []string) error {
 		}
 		return serveWithLauncher(cfg, append(append([]string{}, o.files...), args...), cmd.OutOrStdout())
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := notifyContext(context.Background())
 	defer stop()
 
 	if o.isolate {

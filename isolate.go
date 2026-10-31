@@ -9,11 +9,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"os/signal"
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -229,7 +227,7 @@ func newServeOneCmd(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			ctx, stop := notifyContext(context.Background())
 			defer stop()
 			go func() { <-ctx.Done(); ln.Close() }()
 			if err := p.serve(srv, p, ln); err != nil && !errors.Is(err, net.ErrClosed) {

@@ -778,7 +778,7 @@ func (s *server) listen(i int, b serveBlock) (net.Listener, error) {
 	if s.inherited != nil {
 		return s.inherited[i], nil
 	}
-	return net.Listen("tcp", b.Addr)
+	return listenTCP(b.Addr)
 }
 
 // shutdown stops the current generation and closes the sockets.

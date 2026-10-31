@@ -481,6 +481,21 @@ jobs:
           done < hack/targets.txt
           exit "$fail"
 
+  # A WebAssembly container (wasip1): what the go-wasmcontainers playground
+  # runs in a browser tab. SQL drivers (modernc.org/libc) and openpubkey
+  # (awnumar/memcall, logrus) do not build there, so those features are left out;
+  # the second build is the playground image's, WebDAV only.
+  # TestNoSignalSubscriptionOnWasip1 (in the test job) keeps signal.Notify out.
+  wasip1:
+    name: wasip1 (a WebAssembly container)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod, cache: true }
+      - run: GOOS=wasip1 GOARCH=wasm go build -tags nosql,noopenpubkey -o /dev/null .
+      - run: GOOS=wasip1 GOARCH=wasm go build -trimpath -tags nosql,noopenpubkey,nosmb,nonfs,nos3,nosftp,nogrpc,nopartitioned,noprovisioner -o /dev/null .
+
   arches:
     name: arch ${{ matrix.goarch }}
     runs-on: ubuntu-latest

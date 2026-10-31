@@ -856,6 +856,38 @@ is one process per protocol using this same binary, not a plugin framework.
 [docs/plugins.md](docs/plugins.md) has the measurements and the design
 question that decides it: who owns the image.
 
+### As a WebAssembly container (`wasip1`)
+
+fileshare builds for `GOOS=wasip1 GOARCH=wasm`, and serves WebDAV as a WASI
+container: for example in the [go-wasmcontainers](https://github.com/go-wasmcontainers)
+engine, natively or in a browser tab.
+
+```sh
+GOOS=wasip1 GOARCH=wasm go build -trimpath \
+  -tags nosql,noopenpubkey,nosmb,nonfs,nos3,nosftp,nogrpc,nopartitioned,noprovisioner \
+  -o fileshare.wasm .                              # WebDAV only: 6.5 MB gzip
+```
+
+- `nosql` and `noopenpubkey` are required there: the SQLite driver (modernc's
+  libc) and openpubkey's dependencies (memguard's `mlock`, logrus) do not build
+  for wasip1. A full wasip1 build (`-tags nosql,noopenpubkey`) is 11.5 MB gzip.
+- **Listening** goes through the engine's sockets (`stealthrocket/net/wasip1`,
+  the WasmEdge socket extension): Go's `net.Listen` has none on wasip1.
+- **No signals**: nothing subscribes to one on wasip1. The Go runtime waits for
+  a signal there by yielding in a loop, and a single `signal.Notify` starved the
+  network poller, so the server listened and accepted nothing.
+  `TestNoSignalSubscriptionOnWasip1` keeps it out, and the container ends when
+  its engine stops it.
+- **TLS** ends in front of a container: serve WebDAV with `plaintext = true`
+  when the hop to it is private, an engine's in-memory network for one.
+
+CI builds both variants. Measured in the engine (`wctrd`, a container with
+`-p 18080:80`):
+- no credentials: 401;
+- GET with credentials: 200;
+- a PUT: 201, and the file reads back;
+- a wrong password: 401.
+
 ## One process per protocol
 
 ```sh

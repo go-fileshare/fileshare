@@ -171,7 +171,7 @@ func (s *server) startControl(ctx context.Context, cfg *config) (func(), error) 
 // serveHTTPChallenge answers ACME's http-01 on the address the CA's port 80
 // reaches, and redirects everything else to HTTPS.
 func (s *server) serveHTTPChallenge(addr string) (func(), error) {
-	ln, err := net.Listen("tcp", addr)
+	ln, err := listenTCP(addr)
 	if err != nil {
 		return nil, err
 	}

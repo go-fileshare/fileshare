@@ -10,7 +10,7 @@ go 1.27.3
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
-	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
+	github.com/cloudsoda/go-smb2 v0.0.0-20261029174947-95daac2ef783
 	github.com/go-authn/directory v0.15.0
 	github.com/go-authn/krb5 v0.3.1
 	github.com/go-authn/krl v0.6.1
@@ -18,12 +18,12 @@ require (
 	github.com/go-authn/revocation v0.6.6
 	github.com/go-authn/servercert v0.5.2
 	github.com/go-authn/sshcert v0.1.9
-	github.com/go-filesystems/apfs v0.3.0
+	github.com/go-filesystems/apfs v0.4.0
 	github.com/go-filesystems/btrfs v0.3.0
 	github.com/go-filesystems/detect v0.3.0
 	github.com/go-filesystems/exfat v0.4.0
 	github.com/go-filesystems/ext4 v0.3.0
-	github.com/go-filesystems/fat32 v0.5.0
+	github.com/go-filesystems/fat32 v0.5.1
 	github.com/go-filesystems/hfsplus v0.4.0
 	github.com/go-filesystems/interface v0.5.0
 	github.com/go-filesystems/iso9660 v0.4.0
@@ -42,7 +42,7 @@ require (
 	github.com/go-fsctl/btrfs v0.1.1
 	github.com/go-fsctl/projquota v0.1.0
 	github.com/go-fsctl/zfs v0.1.1
-	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-jose/go-jose/v4 v4.1.7
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/gpt v0.3.0
@@ -51,10 +51,10 @@ require (
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/lestrrat-go/jwx/v3 v3.4.0
-	github.com/openpubkey/openpubkey v0.29.0
+	github.com/openpubkey/openpubkey v0.30.0
 	github.com/pkg/sftp v1.13.12
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -84,16 +84,16 @@ require (
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
-	github.com/go-compressions/lzfse v0.4.1 // indirect
+	github.com/go-compressions/lzfse v0.5.0 // indirect
 	github.com/go-encryptions/ccm v0.0.0-20260927083542-1713f748107c // indirect
-	github.com/go-encryptions/xts v0.0.0-20260911133109-312298263872 // indirect
+	github.com/go-encryptions/xts v0.0.0-20261012185738-047ae186ad23 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20260927173133-ff7dd33bb415 // indirect
-	github.com/go-fde/apfs v0.0.0-20260912170739-6acb57fc9eb0 // indirect
+	github.com/go-fde/apfs v0.2.0 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-volumes/safeio v0.0.0-20260831125406-d8f54b2890d4 // indirect
+	github.com/go-volumes/safeio v0.0.0-20261011024942-5635ea21db3b // indirect
 	github.com/goccy/go-json v0.11.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -103,7 +103,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
@@ -124,20 +124,18 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/ulikunitz/xz v0.5.17 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/yeqown/go-qrcode/v2 v2.2.5 // indirect
 	github.com/yeqown/reedsolomon v1.0.0 // indirect
 	github.com/zclconf/go-cty v1.19.0 // indirect
-	github.com/zitadel/logging v0.6.0 // indirect
-	github.com/zitadel/oidc/v3 v3.23.2 // indirect
-	github.com/zitadel/schema v1.3.0 // indirect
+	github.com/zitadel/oidc/v3 v3.51.8 // indirect
+	github.com/zitadel/schema v1.3.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.45.0 // indirect
-	go.opentelemetry.io/otel/metric v1.45.0 // indirect
-	go.opentelemetry.io/otel/trace v1.45.0 // indirect
+	go.opentelemetry.io/otel v1.46.0 // indirect
+	go.opentelemetry.io/otel/metric v1.46.0 // indirect
+	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.42.0 // indirect

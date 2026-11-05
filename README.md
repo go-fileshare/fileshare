@@ -1597,6 +1597,27 @@ go-filesystems/nfs's CI):
   key owned by root, the key mode 600 — otherwise it fails with *gnutls: Error
   in the certificate (-43)*, naming neither.
 
+## SFTP answers requests concurrently
+
+Since `go-filesystems/sftp` v0.8.0 a session answers up to 64 requests at once
+and replies by request id, so a client that pipelines 64 `READ`s — OpenSSH's
+`sftp` does — is no longer served one packet at a time. `READ` and `WRITE`
+run in parallel through the driver's positional `ReadAt`/`WriteAt`; overlapping
+ranges on one file, `OPEN`, `CLOSE` and every metadata request stay in order.
+A **directory** share reaches the host's files without a lock of its own, so it
+gets the whole gain; an **image** share is still behind the one lock above,
+which keeps it correct and keeps it serial.
+
+To measure it, `FILESHARE_THROUGHPUT_MIB=256 go test -run
+TestThroughputAgainstTheHost -v` reads one file through every protocol and
+prints it against the host: sftp with 64 requests in flight and with 1, nfs
+over 1, 4 and 8 connections, one client and four at once, interleaved rounds,
+median. It refuses to run when the 1-minute load average is above 8
+(`FILESHARE_THROUGHPUT_FORCE=1` runs it and stamps the table INVALID), and
+`FILESHARE_THROUGHPUT_COLD=1` evicts the file from the page cache before each
+run on Linux. The comment on the test gives the matching commands for Linux
+knfsd, Samba and OpenSSH's `sftp-server`.
+
 ## One image, several protocols, one lock
 
 Every server in this family serialises the driver itself, because

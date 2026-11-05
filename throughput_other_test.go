@@ -5,5 +5,5 @@
 package main
 
 // Neither can be done here: the harness says "warm" and "load unknown".
-func evictFromCache(string) bool      { return false }
+func evictFromCache(string) bool    { return false }
 func loadAverage1() (float64, bool) { return 0, false }

@@ -1643,7 +1643,7 @@ safety.
 
 **Drivers without `Opener`** (hfsplus, ntfs, xfs, apfs, btrfs, zfs, ufs at the
 versions pinned) can only read a file whole. Two bounds keep that from being a
-memory hazard (since v0.33.0, after the audit of 2026-11-05):
+memory hazard (since v0.34.0, after the audit of 2026-11-05):
 
 - **SFTP.** An open reads nothing; the first read of a handle loads the file
   once, and every handle open on that file shares the bytes, freed when the last

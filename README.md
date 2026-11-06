@@ -1641,9 +1641,13 @@ those and the whole-file fallback was measured at ~70× elsewhere in the family,
 so a wrapper that erased them would be a performance defect disguised as
 safety.
 
-**Drivers without `Opener`** (hfsplus, ntfs, xfs, apfs, btrfs, zfs, ufs at the
-versions pinned) can only read a file whole. Two bounds keep that from being a
-memory hazard (since v0.34.0, after the audit of 2026-11-05):
+**Every driver this program serves now reads by range** (since v0.35.0:
+hfsplus v0.6.0, ntfs v0.4.0, xfs v0.5.0, apfs v0.6.0, btrfs v0.5.0, zfs v0.5.0
+and ufs v0.5.0 implement `Opener`; a test fails if one loses it). A READ at 66 MiB
+of a 72 MiB file allocates 0 bytes through them (1 MB on zfs) and 75 MB (538 MB
+on zfs) through the whole-file read. Two bounds remain as the safety net for a
+driver that has no `Opener` (a third-party one, or a future one), added in
+v0.34.0 after the audit of 2026-11-05:
 
 - **SFTP.** An open reads nothing; the first read of a handle loads the file
   once, and every handle open on that file shares the bytes, freed when the last
@@ -1658,7 +1662,9 @@ memory hazard (since v0.34.0, after the audit of 2026-11-05):
   set it to 0.
 
 The remedy for a large file on such a share is a driver that implements
-`Opener`, which is read by range.
+`Opener`, which is read by range. The compressed (LZNT1) streams of a real NTFS
+volume are the one case that is still read whole, once, on the first read,
+within the driver's data ceiling.
 
 ## Verified
 

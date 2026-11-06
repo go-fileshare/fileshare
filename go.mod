@@ -32,7 +32,7 @@ require (
 	github.com/go-filesystems/osfs v0.3.0
 	github.com/go-filesystems/remote v0.1.0
 	github.com/go-filesystems/s3 v0.5.0
-	github.com/go-filesystems/sftp v0.8.0
+	github.com/go-filesystems/sftp v0.9.0
 	github.com/go-filesystems/smb v0.7.0
 	github.com/go-filesystems/squashfs v0.4.0
 	github.com/go-filesystems/ufs v0.3.0

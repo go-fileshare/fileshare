@@ -1641,6 +1641,25 @@ those and the whole-file fallback was measured at ~70× elsewhere in the family,
 so a wrapper that erased them would be a performance defect disguised as
 safety.
 
+**Drivers without `Opener`** (hfsplus, ntfs, xfs, apfs, btrfs, zfs, ufs at the
+versions pinned) can only read a file whole. Two bounds keep that from being a
+memory hazard (since v0.33.0, after the audit of 2026-11-05):
+
+- **SFTP.** An open reads nothing; the first read of a handle loads the file
+  once, and every handle open on that file shares the bytes, freed when the last
+  closes. Memory is the distinct files open, not handles x size (one SFTP
+  session may hold 1024 handles). A file over 64 MiB, or one that would take the
+  process's snapshots past 512 MiB, is refused (`errSnapshotTooLarge`). Measured
+  with 64 handles on an 8 MiB file: 537 MB allocated before, 8.4 MB after.
+- **NFS** (go-filesystems/nfs v0.10.0). A READ of a file over 64 MiB through such
+  a driver answers `NFS3ERR_IO` instead of loading the file for each request;
+  a partial `SETATTR` of the owner (uid alone or gid alone) is refused
+  (`NFS3ERR_NOTSUPP`) unless the driver can say the other one, where it used to
+  set it to 0.
+
+The remedy for a large file on such a share is a driver that implements
+`Opener`, which is read by range.
+
 ## Verified
 
 - **macOS** mounts a share over SMB while `curl` is writing to the same image

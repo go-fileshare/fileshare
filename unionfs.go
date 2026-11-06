@@ -3,11 +3,13 @@
 package main
 
 import (
-	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	filesystem "github.com/go-filesystems/interface"
 )
@@ -42,6 +44,8 @@ type unionEntry struct {
 	name     string
 	fsys     filesystem.Filesystem
 	readOnly bool
+	// snapshots serve the files of a driver without Opener (see snapshotFile).
+	snapshots *snapshotCache
 }
 
 // errReadOnly is what a write into a read-only share comes back as. It is
@@ -73,9 +77,10 @@ func unionForWith(shares []*share, p principal, worker func(*share) (filesystem.
 			}
 		}
 		u.entries = append(u.entries, unionEntry{
-			name:     sh.name,
-			fsys:     fsys,
-			readOnly: sh.readOnlyFor(p),
+			name:      sh.name,
+			fsys:      fsys,
+			readOnly:  sh.readOnlyFor(p),
+			snapshots: &snapshotCache{},
 		})
 	}
 	return u
@@ -251,11 +256,11 @@ func (u *unionFS) OpenFile(p string) (filesystem.File, error) {
 		// unreadable over SFTP (found by the security review). A write
 		// open gets a File that cannot write, and the SFTP server then
 		// writes by path, as it does for any such driver.
-		data, err := e.fsys.ReadFile(inside)
-		if err != nil {
-			return nil, err
+		c := e.snapshots
+		if c == nil { // an entry built by hand: no sharing between its handles
+			c = &snapshotCache{}
 		}
-		f = snapshotFile{bytes.NewReader(data)}
+		f = c.open(e.fsys, inside)
 	}
 	if e.readOnly {
 		// A writable File through a read-only view would be the one way past
@@ -275,10 +280,139 @@ func (u *unionFS) OpenFile(p string) (filesystem.File, error) {
 	return f, nil
 }
 
-// snapshotFile is a file read whole: what a driver without Opener offers.
-type snapshotFile struct{ *bytes.Reader }
+// What a driver without Opener offers is ReadFile: the whole file, in memory.
+// The union serves it through a snapshot that is
+//
+//   - lazy: opening a file reads nothing; the first Size or ReadAt does, so a
+//     client that opens and never reads costs nothing, and a handle that is
+//     only closed is free;
+//   - shared: every handle open on one file of one share holds the same bytes
+//     (one read, one copy), counted by handles, and freed when the last one
+//     closes -- so memory is bounded by the distinct files open, not by
+//     handles x size (one session may hold 1024 handles);
+//   - bounded: a file larger than maxSnapshotFile, or one that would take the
+//     process's snapshots past maxSnapshotTotal, is refused with errSnapshotTooLarge
+//     rather than loaded. The remedy for such a file is a driver that
+//     implements Opener, which is read by range.
+const (
+	maxSnapshotFile  = 64 << 20
+	maxSnapshotTotal = 512 << 20
+)
 
-func (snapshotFile) Close() error { return nil }
+// errSnapshotTooLarge says a file cannot be served whole from memory.
+var errSnapshotTooLarge = errors.New("this share's driver has no random access, and the file is too large to serve from memory")
+
+// snapshotBytes is what the snapshots of the whole process hold.
+var snapshotBytes atomic.Int64
+
+// snapshotCache is the snapshots of one share's files, by path.
+type snapshotCache struct {
+	mu sync.Mutex
+	m  map[string]*snapshot
+}
+
+type snapshot struct {
+	c    *snapshotCache
+	path string
+	fsys filesystem.Filesystem
+	refs int
+
+	once sync.Once
+	data []byte
+	err  error
+}
+
+// open returns a handle on the snapshot of path, creating it (unread) when no
+// handle holds it.
+func (c *snapshotCache) open(fsys filesystem.Filesystem, path string) filesystem.File {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.m == nil {
+		c.m = map[string]*snapshot{}
+	}
+	s := c.m[path]
+	if s == nil {
+		s = &snapshot{c: c, path: path, fsys: fsys}
+		c.m[path] = s
+	}
+	s.refs++
+	return &snapshotFile{s: s}
+}
+
+// bytes loads the snapshot once, within the bounds.
+func (s *snapshot) bytes() ([]byte, error) {
+	s.once.Do(func() {
+		data, err := s.fsys.ReadFile(s.path)
+		if err != nil {
+			s.err = err
+			return
+		}
+		if len(data) > maxSnapshotFile || snapshotBytes.Add(int64(len(data))) > maxSnapshotTotal {
+			if len(data) <= maxSnapshotFile {
+				snapshotBytes.Add(-int64(len(data)))
+			}
+			s.err = errSnapshotTooLarge
+			return
+		}
+		s.data = data
+	})
+	return s.data, s.err
+}
+
+// release drops one handle; the last one frees the bytes.
+func (s *snapshot) release() {
+	s.c.mu.Lock()
+	defer s.c.mu.Unlock()
+	if s.refs--; s.refs > 0 {
+		return
+	}
+	delete(s.c.m, s.path)
+	snapshotBytes.Add(-int64(len(s.data)))
+	s.data = nil
+}
+
+// snapshotFile is a handle on a snapshot: a filesystem.File that cannot write.
+type snapshotFile struct {
+	s      *snapshot
+	closed atomic.Bool
+}
+
+func (f *snapshotFile) Size() int64 {
+	if f.closed.Load() {
+		return 0
+	}
+	data, _ := f.s.bytes()
+	return int64(len(data))
+}
+
+func (f *snapshotFile) ReadAt(p []byte, off int64) (int, error) {
+	if f.closed.Load() {
+		return 0, os.ErrClosed
+	}
+	data, err := f.s.bytes()
+	if err != nil {
+		return 0, err
+	}
+	if off < 0 {
+		return 0, os.ErrInvalid
+	}
+	if off >= int64(len(data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, data[off:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (f *snapshotFile) Close() error {
+	if f.closed.Swap(true) {
+		return nil
+	}
+	f.s.release()
+	return nil
+}
 
 // revocableFile is an open file that stops answering when its session is
 // revoked.

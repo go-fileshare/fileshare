@@ -1599,8 +1599,10 @@ go-filesystems/nfs's CI):
 
 ## SFTP answers requests concurrently
 
-Since `go-filesystems/sftp` v0.8.0 a session answers up to 64 requests at once
-and replies by request id, so a client that pipelines 64 `READ`s — OpenSSH's
+Since `go-filesystems/sftp` v0.9.0 a session answers up to 64 requests at once
+(and all sessions together at most 256: a server-wide bound on memory), with
+replies sent in the order the requests arrived, which OpenSSH's resume needs,
+so a client that pipelines 64 `READ`s — OpenSSH's
 `sftp` does — is no longer served one packet at a time. `READ` and `WRITE`
 run in parallel through the driver's positional `ReadAt`/`WriteAt`; overlapping
 ranges on one file, `OPEN`, `CLOSE` and every metadata request stay in order.

@@ -12,7 +12,7 @@ require (
 	connectrpc.com/connect/v2 v2.0.2
 	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
 	github.com/go-authn/directory v0.15.0
-	github.com/go-authn/krb5 v0.3.1
+	github.com/go-authn/krb5 v0.3.3
 	github.com/go-authn/krl v0.6.1
 	github.com/go-authn/oidc v0.4.3
 	github.com/go-authn/revocation v0.6.6
@@ -27,7 +27,7 @@ require (
 	github.com/go-filesystems/hfsplus v0.4.0
 	github.com/go-filesystems/interface v0.5.0
 	github.com/go-filesystems/iso9660 v0.4.0
-	github.com/go-filesystems/nfs v0.8.1
+	github.com/go-filesystems/nfs v0.10.0
 	github.com/go-filesystems/ntfs v0.2.0
 	github.com/go-filesystems/osfs v0.3.0
 	github.com/go-filesystems/remote v0.1.0
@@ -99,7 +99,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
-	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/hashicorp/go-uuid v1.0.4 // indirect
 	github.com/hstern/go-subjectid v0.0.0-20260525222327-b47140763585 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -142,7 +142,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect

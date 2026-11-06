@@ -10,7 +10,7 @@ go 1.27.3
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
-	github.com/cloudsoda/go-smb2 v0.0.0-20260918041005-0c5d69b69701
+	github.com/cloudsoda/go-smb2 v0.0.0-20261103071945-eb7a6cfa5657
 	github.com/go-authn/directory v0.15.0
 	github.com/go-authn/krb5 v0.3.3
 	github.com/go-authn/krl v0.6.1
@@ -27,13 +27,13 @@ require (
 	github.com/go-filesystems/hfsplus v0.4.0
 	github.com/go-filesystems/interface v0.5.0
 	github.com/go-filesystems/iso9660 v0.4.0
-	github.com/go-filesystems/nfs v0.10.0
+	github.com/go-filesystems/nfs v0.11.1
 	github.com/go-filesystems/ntfs v0.2.0
 	github.com/go-filesystems/osfs v0.3.0
 	github.com/go-filesystems/remote v0.1.0
 	github.com/go-filesystems/s3 v0.5.0
-	github.com/go-filesystems/sftp v0.9.0
-	github.com/go-filesystems/smb v0.7.0
+	github.com/go-filesystems/sftp v0.10.1
+	github.com/go-filesystems/smb v0.8.1
 	github.com/go-filesystems/squashfs v0.4.0
 	github.com/go-filesystems/ufs v0.3.0
 	github.com/go-filesystems/webdav v0.6.0
@@ -91,6 +91,7 @@ require (
 	github.com/go-encryptions/zfscrypt v0.0.0-20260927173133-ff7dd33bb415 // indirect
 	github.com/go-fde/apfs v0.0.0-20260912170739-6acb57fc9eb0 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
+	github.com/go-filesystems/inflight v0.1.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

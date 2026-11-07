@@ -10,31 +10,31 @@ go 1.27.3
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
-	github.com/cloudsoda/go-smb2 v0.0.0-20261103071945-eb7a6cfa5657
-	github.com/go-authn/directory v0.15.0
+	github.com/cloudsoda/go-smb2 v0.0.0-20261105190815-95be04a983b8
+	github.com/go-authn/directory v0.19.0
 	github.com/go-authn/krb5 v0.3.3
 	github.com/go-authn/krl v0.6.1
-	github.com/go-authn/oidc v0.4.3
-	github.com/go-authn/revocation v0.6.6
-	github.com/go-authn/servercert v0.5.2
-	github.com/go-authn/sshcert v0.1.9
+	github.com/go-authn/oidc v0.7.0
+	github.com/go-authn/revocation v0.6.7
+	github.com/go-authn/servercert v0.6.0
+	github.com/go-authn/sshcert v0.1.10
 	github.com/go-filesystems/apfs v0.6.0
 	github.com/go-filesystems/btrfs v0.5.0
-	github.com/go-filesystems/detect v0.3.0
-	github.com/go-filesystems/exfat v0.4.0
-	github.com/go-filesystems/ext4 v0.3.0
-	github.com/go-filesystems/fat32 v0.5.0
+	github.com/go-filesystems/detect v0.5.1
+	github.com/go-filesystems/exfat v0.4.1
+	github.com/go-filesystems/ext4 v0.4.0
+	github.com/go-filesystems/fat32 v0.11.0
 	github.com/go-filesystems/hfsplus v0.6.0
 	github.com/go-filesystems/interface v0.5.0
-	github.com/go-filesystems/iso9660 v0.4.0
+	github.com/go-filesystems/iso9660 v0.5.0
 	github.com/go-filesystems/nfs v0.11.1
-	github.com/go-filesystems/ntfs v0.4.0
+	github.com/go-filesystems/ntfs v0.4.1
 	github.com/go-filesystems/osfs v0.3.0
-	github.com/go-filesystems/remote v0.1.0
+	github.com/go-filesystems/remote v0.1.1
 	github.com/go-filesystems/s3 v0.5.0
 	github.com/go-filesystems/sftp v0.10.1
 	github.com/go-filesystems/smb v0.8.1
-	github.com/go-filesystems/squashfs v0.4.0
+	github.com/go-filesystems/squashfs v0.6.0
 	github.com/go-filesystems/ufs v0.5.0
 	github.com/go-filesystems/webdav v0.6.0
 	github.com/go-filesystems/xfs v0.5.0
@@ -42,7 +42,7 @@ require (
 	github.com/go-fsctl/btrfs v0.1.1
 	github.com/go-fsctl/projquota v0.1.0
 	github.com/go-fsctl/zfs v0.1.1
-	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-net-health/endpoint v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-volumes/gpt v0.3.0
@@ -51,20 +51,20 @@ require (
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/lestrrat-go/jwx/v3 v3.4.0
-	github.com/openpubkey/openpubkey v0.29.0
+	github.com/openpubkey/openpubkey v0.30.0
 	github.com/pkg/sftp v1.13.12
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
 	github.com/stealthrocket/net v0.2.1
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sys v0.49.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.61.0
+	modernc.org/sqlite v1.61.1
 )
 
 require (
@@ -79,13 +79,14 @@ require (
 	github.com/awnumar/memguard v0.23.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudsoda/sddl v0.0.0-20250224235906-926454e91efc // indirect
+	github.com/cloudsoda/sddl v0.0.0-20261105185302-1c8f96799263 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
 	github.com/go-compressions/lzfse v0.6.0 // indirect
+	github.com/go-compressions/xz v0.1.0 // indirect
 	github.com/go-encryptions/ccm v0.0.0-20261101000501-f1aae5a045b6 // indirect
 	github.com/go-encryptions/xts v0.1.0 // indirect
 	github.com/go-encryptions/zfscrypt v0.0.0-20261102192741-5b96965ca160 // indirect
@@ -105,7 +106,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/gofork v1.7.6 // indirect
@@ -126,20 +127,18 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/ulikunitz/xz v0.5.17 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/yeqown/go-qrcode/v2 v2.2.5 // indirect
 	github.com/yeqown/reedsolomon v1.0.0 // indirect
 	github.com/zclconf/go-cty v1.19.0 // indirect
-	github.com/zitadel/logging v0.6.0 // indirect
-	github.com/zitadel/oidc/v3 v3.23.2 // indirect
-	github.com/zitadel/schema v1.3.0 // indirect
+	github.com/zitadel/oidc/v3 v3.51.8 // indirect
+	github.com/zitadel/schema v1.3.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.45.0 // indirect
-	go.opentelemetry.io/otel/metric v1.45.0 // indirect
-	go.opentelemetry.io/otel/trace v1.45.0 // indirect
+	go.opentelemetry.io/otel v1.46.0 // indirect
+	go.opentelemetry.io/otel/metric v1.46.0 // indirect
+	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/mod v0.42.0 // indirect

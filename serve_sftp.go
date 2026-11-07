@@ -12,7 +12,7 @@ import (
 	filesystem "github.com/go-filesystems/interface"
 	"github.com/go-filesystems/sftp"
 	"github.com/go-filesystems/sftp/sshd"
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 )
 
 // SFTP is the protocol every client already has -- `sftp` ships with OpenSSH,

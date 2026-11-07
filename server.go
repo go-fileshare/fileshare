@@ -20,7 +20,7 @@ import (
 	"github.com/go-authn/directory"
 	"github.com/go-authn/oidc"
 	"github.com/go-authn/servercert"
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 
 	"github.com/go-filesystems/detect"
 	filesystem "github.com/go-filesystems/interface"

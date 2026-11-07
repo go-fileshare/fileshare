@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-authn/sshcert"
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 )
 
 // The domain grant: which hosts a certificate is meant for.
@@ -94,7 +94,12 @@ func (s *server) grantedCertificateFor(cas []ssh.PublicKey, fed *federatedSFTP) 
 func (s *server) domainGrant(user string, cert *ssh.Certificate) error {
 	g := &s.stats.grants
 	domains := s.cfg.SSHDomains
-	patterns, present, err := sshcert.DomainGrant(cert)
+	xc, err := upstreamCert(cert)
+	var patterns []string
+	var present bool
+	if err == nil {
+		patterns, present, err = sshcert.DomainGrant(xc)
+	}
 	var why error
 	switch {
 	case err != nil:

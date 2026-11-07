@@ -15,7 +15,7 @@ import (
 	"github.com/go-authn/krl"
 	"github.com/go-authn/revocation"
 	"github.com/go-filesystems/sftp/sshd"
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 )
 
 // sshKRL is an OpenSSH KRL, as a revocation list: go-authn/krl reads it and
@@ -70,9 +70,13 @@ func openSSHKRL(o *oidcBlock, out io.Writer) (*revocationList, error) {
 	if err != nil || o.SSHKRLURL == "" {
 		return l, err
 	}
-	ca, err := readSSHCA(o.SSHCAFile)
+	forkCA, err := readSSHCA(o.SSHCAFile)
 	if err != nil {
 		return nil, fmt.Errorf("ssh_krl_url: the list is verified against ssh_ca_file: %w", err)
+	}
+	ca, err := upstreamKey(forkCA)
+	if err != nil {
+		return nil, fmt.Errorf("ssh_krl_url: ssh_ca_file: %w", err)
 	}
 	l.verify = func(ctx context.Context, body []byte, tag string) ([]byte, error) {
 		sig, err := l.fetchSignature(ctx, tag)

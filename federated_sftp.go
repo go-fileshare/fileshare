@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/go-filesystems/sftp/sshd"
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 )
 
 // People the identity provider vouches for, over SFTP. Two shapes of
@@ -170,7 +170,11 @@ func (f *federatedSFTP) revokedCert(cert *ssh.Certificate) error {
 	if err != nil {
 		return err
 	}
-	if list.(sshKRL).k.IsRevoked(cert) {
+	xc, err := upstreamCert(cert)
+	if err != nil {
+		return err // fail closed: a certificate that cannot be read is not checked
+	}
+	if list.(sshKRL).k.IsRevoked(xc) {
 		return fmt.Errorf("certificate %d (%s) was revoked by the provider", cert.Serial, cert.KeyId)
 	}
 	return nil

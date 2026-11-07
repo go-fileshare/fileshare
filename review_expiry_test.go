@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-authn/krl"
 	"github.com/go-filesystems/nfs/rpc"
+	fork "github.com/go-filesystems/ssh"
 	"github.com/go-jose/go-jose/v4"
 	"golang.org/x/crypto/ssh"
 )
@@ -134,7 +135,8 @@ func TestFoundSFTPSessionIgnoresExpiry(t *testing.T) {
 	if _, err := l.fetch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f := &federatedSFTP{ca: caKey, krl: l, revoked: func(string, string, string, time.Time) error { return nil }}
+	forkCA, _ := fork.NewPublicKey(caPub) // the sftp library speaks the go-filesystems/ssh fork
+	f := &federatedSFTP{ca: forkCA, krl: l, revoked: func(string, string, string, time.Time) error { return nil }}
 	perms := marked(nil)
 	perms.Extensions[certMark] = b64(cert.Marshal())
 	perms.Extensions[issuedMark] = fmt.Sprint(cert.ValidAfter)

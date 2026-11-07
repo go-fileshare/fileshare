@@ -45,6 +45,7 @@ func (s *server) openDirectory(sh *share, b shareBlock) error {
 	tree := hostTreeOf(fsys)
 	sh.fsys = &fullAware{tree}
 	sh.kind = "directory"
+	sh.concurrentPathOps = true
 	sh.openedReadOnly = b.ReadOnly
 	sh.askedWrite = !b.ReadOnly
 	// What a client is told the capacity is: the filesystem the tree lives

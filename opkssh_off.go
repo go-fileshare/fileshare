@@ -8,7 +8,7 @@ import (
 	"errors"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/go-filesystems/ssh"
 )
 
 // Built with -tags noopenpubkey: a configuration asking for opkssh logins is

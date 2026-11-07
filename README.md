@@ -1608,7 +1608,22 @@ run in parallel through the driver's positional `ReadAt`/`WriteAt`; overlapping
 ranges on one file, `OPEN`, `CLOSE` and every metadata request stay in order.
 A **directory** share reaches the host's files without a lock of its own, so it
 gets the whole gain; an **image** share is still behind the one lock above,
-which keeps it correct and keeps it serial.
+which keeps it correct and keeps it serial. Since v0.38.0 (`go-filesystems/sftp`
+v0.11.0) the replies of a burst are written together and the SSH transport
+(the `go-filesystems/ssh` fork of `x/crypto/ssh`) flushes once per channel
+write instead of once per packet: 32 `write(2)` calls per MiB sent instead of 96.
+
+**NFS** (`go-filesystems/nfs` v0.12.0) gets the same for a **directory** share:
+it is exported with `WithConcurrentPathOps()`, the embedder's word that the
+driver's read-only path calls (`Stat`, `Open`, `Close`) are safe beside each
+other, which `osfs` documents ("safe for concurrent use") and no image driver
+does. A READ then takes one shared lock around the attributes, the open, the
+`ReadAt`, the close and the post-op attributes, so READs of any connection never
+wait for each other, while every mutating call stays exclusive and a WRITE never
+overlaps a READ in the driver (a test counts both). An **image** share is not
+given the option: it sits behind `lockFS`, and the interface promises only
+`ReadAt` and non-overlapping `WriteAt` as concurrent. The decision is the
+`share.concurrentPathOps` field, set by `openDirectory` and nowhere else.
 
 To measure it, `FILESHARE_THROUGHPUT_MIB=256 go test -run
 TestThroughputAgainstTheHost -v` reads one file through every protocol and

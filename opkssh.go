@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-filesystems/ssh"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/openpubkey/openpubkey/pktoken"
 	"github.com/openpubkey/openpubkey/providers"
 	"github.com/openpubkey/openpubkey/verifier"
-	"golang.org/x/crypto/ssh"
 )
 
 // OpenPubkey (opkssh) logins. `-tags noopenpubkey` leaves this out, with

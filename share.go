@@ -45,6 +45,14 @@ type share struct {
 	// NOW, asked at every query; size is then only what the admin API
 	// shows. A directory share has one, an image none. See capacity.go.
 	capacity func() (total, avail uint64)
+	// concurrentPathOps is the word we give go-filesystems/nfs that this
+	// share's driver allows read-only path calls (Stat, Open, Close) beside
+	// each other, and beside ReadAt and WriteAt. Only openDirectory sets it:
+	// osfs documents "safe for concurrent use" (osfs@v0.3.0 osfs.go:89-90), and
+	// every image driver sits behind lockFS (server.go:512), whose one mutex
+	// exists because the interface promises only ReadAt and non-overlapping
+	// WriteAt as concurrent (interface@v0.5.0 interface.go:353, 426-432).
+	concurrentPathOps bool
 	// named is true when the configuration said which filesystem this is,
 	// rather than the magic saying so.
 	named bool
@@ -132,7 +140,7 @@ func imageKeyOf(b shareBlock) imageKey {
 // leaves prev exactly as it was.
 func (s *share) adopt(prev *share) {
 	s.fsys, s.kind, s.size, s.named, s.partition = prev.fsys, prev.kind, prev.size, prev.named, prev.partition
-	s.capacity = prev.capacity
+	s.capacity, s.concurrentPathOps = prev.capacity, prev.concurrentPathOps
 	s.openedReadOnly, s.forcedReadOnly, s.askedWrite = prev.openedReadOnly, prev.forcedReadOnly, prev.askedWrite
 	s.closers = prev.closers
 	if s.openedReadOnly || s.forcedReadOnly {

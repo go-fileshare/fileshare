@@ -87,12 +87,13 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 
 	served, _ := p.exports(s.cfg, s.currentShares())
 	for _, sh := range served {
-		opts := []nfs.ExportOption{
+		opts := exportOptions(sh)
+		opts = append(opts,
 			// The size is known because the image was opened to find it, and
 			// `df` on a mount that reports zero free bytes makes a client
 			// refuse writes it could have done.
 			nfs.WithCapacity(sh.size, sh.size),
-		}
+		)
 		if sh.capacity != nil {
 			// A directory: what it is now, not what it was at the start.
 			opts = append(opts, nfs.WithCapacityFunc(sh.capacity))
@@ -131,6 +132,18 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 		return refuseAll(ln)
 	}
 	return srv.Serve(ln)
+}
+
+// exportOptions is what an export gets for the kind of driver behind it,
+// before capacity and access. WithConcurrentPathOps is the embedder's word that
+// the driver's read-only path calls are safe beside each other: it is given on
+// the share's own flag (set by openDirectory for a host tree), never for an
+// image driver, which lockFS serialises. See share.concurrentPathOps.
+func exportOptions(sh *share) []nfs.ExportOption {
+	if sh.concurrentPathOps {
+		return []nfs.ExportOption{nfs.WithConcurrentPathOps()}
+	}
+	return nil
 }
 
 // refuseAll accepts and closes every connection until the listener closes.

@@ -1641,8 +1641,9 @@ those and the whole-file fallback was measured at ~70× elsewhere in the family,
 so a wrapper that erased them would be a performance defect disguised as
 safety.
 
-**Every driver this program serves now reads by range** (since v0.36.0:
-hfsplus v0.6.0, ntfs v0.4.0, xfs v0.5.0, apfs v0.6.0, btrfs v0.5.0, zfs v0.5.0
+**Every driver this program serves now reads by range** (since v0.36.0, and since v0.37.0 a
+compressed NTFS stream too, read unit by unit:
+hfsplus v0.6.0, ntfs v0.4.1, xfs v0.5.0, apfs v0.6.0, btrfs v0.5.0, zfs v0.5.0
 and ufs v0.5.0 implement `Opener`; a test fails if one loses it). A READ at 66 MiB
 of a 72 MiB file allocates 0 bytes through them (1 MB on zfs) and 75 MB (538 MB
 on zfs) through the whole-file read. Two bounds remain as the safety net for a

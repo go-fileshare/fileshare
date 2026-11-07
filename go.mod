@@ -28,7 +28,7 @@ require (
 	github.com/go-filesystems/interface v0.5.0
 	github.com/go-filesystems/iso9660 v0.4.0
 	github.com/go-filesystems/nfs v0.11.1
-	github.com/go-filesystems/ntfs v0.4.0
+	github.com/go-filesystems/ntfs v0.4.1
 	github.com/go-filesystems/osfs v0.3.0
 	github.com/go-filesystems/remote v0.1.0
 	github.com/go-filesystems/s3 v0.5.0

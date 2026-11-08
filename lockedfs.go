@@ -43,6 +43,89 @@ type lockedFS struct {
 // lockFS wraps a driver so that every server shares one lock. It returns
 // something that answers exactly the capabilities the driver answered.
 func lockFS(fsys filesystem.Filesystem) filesystem.Filesystem {
+	locked := lockFSCaps(fsys)
+	tr, ok := fsys.(filesystem.TimesReader)
+	if !ok {
+		return locked
+	}
+	// TimesReader (interface v0.6.0) is the ninth shape's other axis: carried
+	// through, or a FAT image would answer "now" over every protocol.
+	var l lockedFS
+	switch b := locked.(type) {
+	case lockedFull:
+		l = b.lockedFS
+		return lockedFullT{b, lockedTimes{l, tr}}
+	case lockedOpenTrunc:
+		l = b.lockedFS
+		return lockedOpenTruncT{b, lockedTimes{l, tr}}
+	case lockedOpenLabel:
+		l = b.lockedFS
+		return lockedOpenLabelT{b, lockedTimes{l, tr}}
+	case lockedOpen:
+		l = b.lockedFS
+		return lockedOpenT{b, lockedTimes{l, tr}}
+	case lockedTruncLabel:
+		l = b.lockedFS
+		return lockedTruncLabelT{b, lockedTimes{l, tr}}
+	case lockedTrunc:
+		l = b.lockedFS
+		return lockedTruncT{b, lockedTimes{l, tr}}
+	case lockedLabelled:
+		l = b.lockedFS
+		return lockedLabelledT{b, lockedTimes{l, tr}}
+	case lockedFS:
+		return lockedPlainT{b, lockedTimes{b, tr}}
+	}
+	return locked
+}
+
+// lockedTimes serialises Times with every other call on the image.
+type lockedTimes struct {
+	l  lockedFS
+	up filesystem.TimesReader
+}
+
+func (t lockedTimes) Times(p string) (filesystem.FileTimes, error) {
+	t.l.mu.Lock()
+	defer t.l.mu.Unlock()
+	return t.up.Times(p)
+}
+
+// The same eight shapes, with Times.
+type lockedFullT struct {
+	lockedFull
+	lockedTimes
+}
+type lockedOpenTruncT struct {
+	lockedOpenTrunc
+	lockedTimes
+}
+type lockedOpenLabelT struct {
+	lockedOpenLabel
+	lockedTimes
+}
+type lockedOpenT struct {
+	lockedOpen
+	lockedTimes
+}
+type lockedTruncLabelT struct {
+	lockedTruncLabel
+	lockedTimes
+}
+type lockedTruncT struct {
+	lockedTrunc
+	lockedTimes
+}
+type lockedLabelledT struct {
+	lockedLabelled
+	lockedTimes
+}
+type lockedPlainT struct {
+	lockedFS
+	lockedTimes
+}
+
+func lockFSCaps(fsys filesystem.Filesystem) filesystem.Filesystem {
 	l := lockedFS{mu: new(sync.Mutex), fsys: fsys}
 	// The combinations are spelled out because Go has no way to build a type
 	// whose method set depends on a value. Each one is a real driver shape:

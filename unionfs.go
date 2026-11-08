@@ -159,6 +159,25 @@ func (u *unionFS) Stat(p string) (filesystem.Stat, error) {
 	return e.fsys.Stat(inside)
 }
 
+// Times passes a share's own times through (interface v0.6.0 TimesReader). The
+// root, a share's directory and a driver without the capability answer
+// errors.ErrUnsupported, which every protocol reads as "no times to give" and
+// answers as it did before the capability existed.
+func (u *unionFS) Times(p string) (filesystem.FileTimes, error) {
+	e, inside, ok := u.route(p)
+	if !ok {
+		return filesystem.FileTimes{}, os.ErrNotExist
+	}
+	if e == nil || inside == "/" {
+		return filesystem.FileTimes{}, errors.ErrUnsupported
+	}
+	tr, ok := e.fsys.(filesystem.TimesReader)
+	if !ok {
+		return filesystem.FileTimes{}, errors.ErrUnsupported
+	}
+	return tr.Times(inside)
+}
+
 func (u *unionFS) WriteFile(p string, data []byte, perm os.FileMode) error {
 	e, inside, err := u.writable(p)
 	if err != nil {

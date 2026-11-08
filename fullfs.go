@@ -78,6 +78,7 @@ type hostTree interface {
 	filesystem.Symlinker
 	filesystem.HardLinker
 	filesystem.MetadataSetter
+	filesystem.TimesReader
 	Usage() (total, free uint64, err error)
 }
 

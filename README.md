@@ -1597,6 +1597,31 @@ go-filesystems/nfs's CI):
   key owned by root, the key mode 600 — otherwise it fails with *gnutls: Error
   in the certificate (-43)*, naming neither.
 
+## Files report their real times
+
+Since v0.39.0 (`go-filesystems/interface` v0.6.0, whose optional `TimesReader`
+capability reads the access, modification, change and birth times a format
+records) a **directory** share and a **FAT image** share answer each file's own
+times over NFS, SMB, SFTP and WebDAV, instead of "now". They cross the
+`remote` worker (v0.2.0) too, so a share served as its people reports the
+host's times. exFAT, NTFS, ext4 and HFS+ have no `TimesReader` yet
+(exfat#29, ntfs#32, ext4#41, hfsplus#25): those shares answer as before.
+
+Each protocol states what it does with a time the format does not keep (FAT
+has no change time, and the root of an image has none at all):
+
+| Protocol | A time that is not recorded |
+|---|---|
+| SMB | sent as 0 ("not specified"); a driver **without** the capability still answers now |
+| NFS | atime and ctime become the mtime; a missing mtime is the server's start time (nanosecond resolution) |
+| SFTP | a missing mtime clears the ACMODTIME flag (seconds resolution) |
+| WebDAV | `creationdate` is the birth time; an unrecorded time is absent |
+
+A time is reported at the resolution of the format (FAT: 2 s for the write
+time, one day for the access time, 10 ms for creation). Limitation: a client
+that **sets** a time over SMB (SET_INFO) is not obeyed, the time stays as it
+was (go-filesystems/smb#45).
+
 ## SFTP answers requests concurrently
 
 Since `go-filesystems/sftp` v0.9.0 a session answers up to 64 requests at once

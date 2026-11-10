@@ -1648,6 +1648,37 @@ is a setting of SMB: a share whose `protocols` leave SMB out cannot set it.
 There is no server-wide default; say it on each share. (A share made through the
 admin API is on `ignore`.)
 
+**When is a time unstorable?** A request is judged field by field; one
+unstorable field is enough for `refuse` to refuse the whole request and for
+`log` to write its line. A time is unstorable when:
+
+1. **CreationTime** is set to a value different from the one the driver reports
+   (or the driver reports none): there is no creation-time setter. A value equal
+   to the reported one is accepted.
+2. **ChangeTime** is sent **alone**, with a value different from the reported
+   one. With an access or write time in the same request it is accepted, when
+   the driver can set times, because `Chtimes` refreshes the change time.
+3. **An access or write time** on a share whose driver cannot set times (no
+   `Chtimes`): any real value, equal to the current one or not.
+
+Not decided by the policy: 0, -1 and -2 are never unstorable; -1 on a driver
+with `Chtimes` but no `TimesReader` is always `STATUS_NOT_SUPPORTED` in every
+mode (a missing capability; no share served here is of that kind); and a
+request on a **read-only** share (`read_only`, a device, a chosen partition, a
+person who may not write) gets `STATUS_MEDIA_WRITE_PROTECTED` before any of it.
+
+| Share | CreationTime | ChangeTime alone | Access or write time |
+|---|---|---|---|
+| directory (osfs) | unstorable unless equal to the reported birth time | unstorable unless equal | stored (a ChangeTime sent with it is accepted) |
+| image: FAT, exFAT, NTFS, ext4, HFS+ | unstorable unless equal | unstorable unless equal, also with an access or write time | always unstorable |
+| other image types | always unstorable | always unstorable | always unstorable |
+
+An image's access and write times are always unstorable because the lock put in
+front of every image driver (`lockedfs.go`) does not carry `Chtimes`, ext4's
+included. Windows Explorer and `robocopy /COPY:T` send a CreationTime; Linux
+`touch -d` and `cp -p` send only access and write times (the kernel client adds
+a ChangeTime of "now"): a directory stores those, an image does not.
+
 ## SFTP answers requests concurrently
 
 Since `go-filesystems/sftp` v0.9.0 a session answers up to 64 requests at once

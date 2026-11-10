@@ -42,7 +42,151 @@ type lockedFS struct {
 
 // lockFS wraps a driver so that every server shares one lock. It returns
 // something that answers exactly the capabilities the driver answered.
+//
+// MetadataSetter (Chmod, Chown, Chtimes) is the fifth axis, carried since smb
+// v0.10.0: its SET_INFO calls Chtimes, so a wrapper that hid it made every
+// image drop a client's access and write times, even a driver that can set them.
 func lockFS(fsys filesystem.Filesystem) filesystem.Filesystem {
+	res := lockFSTimes(fsys)
+	ms, ok := fsys.(filesystem.MetadataSetter)
+	if !ok {
+		return res
+	}
+	mu := res.(interface{ lock() *sync.Mutex }).lock()
+	m := lockedMeta{mu, ms}
+	switch b := res.(type) {
+	case lockedFullT:
+		return lockedFullTM{b, m}
+	case lockedOpenTruncT:
+		return lockedOpenTruncTM{b, m}
+	case lockedOpenLabelT:
+		return lockedOpenLabelTM{b, m}
+	case lockedOpenT:
+		return lockedOpenTM{b, m}
+	case lockedTruncLabelT:
+		return lockedTruncLabelTM{b, m}
+	case lockedTruncT:
+		return lockedTruncTM{b, m}
+	case lockedLabelledT:
+		return lockedLabelledTM{b, m}
+	case lockedPlainT:
+		return lockedPlainTM{b, m}
+	case lockedFull:
+		return lockedFullM{b, m}
+	case lockedOpenTrunc:
+		return lockedOpenTruncM{b, m}
+	case lockedOpenLabel:
+		return lockedOpenLabelM{b, m}
+	case lockedOpen:
+		return lockedOpenM{b, m}
+	case lockedTruncLabel:
+		return lockedTruncLabelM{b, m}
+	case lockedTrunc:
+		return lockedTruncM{b, m}
+	case lockedLabelled:
+		return lockedLabelledM{b, m}
+	case lockedFS:
+		return lockedPlainM{b, m}
+	}
+	return res
+}
+
+// lock is the one mutex of the image, reached through whichever shape wraps it.
+func (l lockedFS) lock() *sync.Mutex { return l.mu }
+
+// lockedMeta serialises Chmod, Chown and Chtimes with every other call on the
+// image. They write, and the lock is one mutex, so that is the exclusive one.
+type lockedMeta struct {
+	mu *sync.Mutex
+	up filesystem.MetadataSetter
+}
+
+func (m lockedMeta) Chmod(p string, perm os.FileMode) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.up.Chmod(p, perm)
+}
+
+func (m lockedMeta) Chown(p string, uid, gid uint32) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.up.Chown(p, uid, gid)
+}
+
+func (m lockedMeta) Chtimes(p string, atime, mtime time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.up.Chtimes(p, atime, mtime)
+}
+
+// The sixteen shapes above, with MetadataSetter.
+type lockedFullTM struct {
+	lockedFullT
+	lockedMeta
+}
+type lockedOpenTruncTM struct {
+	lockedOpenTruncT
+	lockedMeta
+}
+type lockedOpenLabelTM struct {
+	lockedOpenLabelT
+	lockedMeta
+}
+type lockedOpenTM struct {
+	lockedOpenT
+	lockedMeta
+}
+type lockedTruncLabelTM struct {
+	lockedTruncLabelT
+	lockedMeta
+}
+type lockedTruncTM struct {
+	lockedTruncT
+	lockedMeta
+}
+type lockedLabelledTM struct {
+	lockedLabelledT
+	lockedMeta
+}
+type lockedPlainTM struct {
+	lockedPlainT
+	lockedMeta
+}
+type lockedFullM struct {
+	lockedFull
+	lockedMeta
+}
+type lockedOpenTruncM struct {
+	lockedOpenTrunc
+	lockedMeta
+}
+type lockedOpenLabelM struct {
+	lockedOpenLabel
+	lockedMeta
+}
+type lockedOpenM struct {
+	lockedOpen
+	lockedMeta
+}
+type lockedTruncLabelM struct {
+	lockedTruncLabel
+	lockedMeta
+}
+type lockedTruncM struct {
+	lockedTrunc
+	lockedMeta
+}
+type lockedLabelledM struct {
+	lockedLabelled
+	lockedMeta
+}
+type lockedPlainM struct {
+	lockedFS
+	lockedMeta
+}
+
+// lockFSTimes is lockFS without MetadataSetter.
+func lockFSTimes(fsys filesystem.Filesystem) filesystem.Filesystem {
 	locked := lockFSCaps(fsys)
 	tr, ok := fsys.(filesystem.TimesReader)
 	if !ok {
@@ -328,7 +472,8 @@ type lockedLabelled struct {
 	lockedLabel
 }
 
-// Chtimes and the rest of MetadataSetter are deliberately NOT carried: no
-// server here calls them, and a wrapper that claims a capability it has not
-// been asked to serialise is a promise nobody checked. See interface#14.
-var _ = time.Time{}
+// MetadataSetter (Chmod, Chown, Chtimes) is carried, and only when the driver
+// has it: see lockFS and lockedMeta. It was NOT carried until smb v0.10.0, on the
+// ground that no server here called it -- which stopped being true when smb's
+// SET_INFO began to apply a client's access and write times through Chtimes.
+// See interface#14.

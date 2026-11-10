@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 
 	"github.com/go-filesystems/smb"
@@ -17,6 +18,15 @@ import (
 func serveSMB(s *server, p *protocol, ln net.Listener) error {
 	srv := smb.New()
 	srv.SetName(s.name)
+	// What SMB logs -- the unstorable_times = "log" lines -- goes where every
+	// other line of this server goes, not to slog.Default().
+	srv.Logger = slog.New(slog.NewTextHandler(s.out, &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				return slog.Attr{} // the server's lines carry no timestamp; the supervisor adds one
+			}
+			return a
+		}}))
 	for name := range s.people() {
 		// Only the people NTLMv2 can be computed for. The KEY is what goes in,
 		// not the password: it is the same value either way, and it is what a
@@ -60,9 +70,24 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 		} else if sh.size > 0 {
 			opts = append(opts, smb.WithCapacity(sh.size, sh.size))
 		}
+		if sh.block.UnstorableTimes != "" {
+			opts = append(opts, smb.UnstorableTimes(timePolicy(sh.block.UnstorableTimes)))
+		}
 		if err := srv.Share(sh.name, sh.fsys, opts...); err != nil {
 			return err
 		}
 	}
 	return srv.Serve(ln)
+}
+
+// timePolicy is the smb policy a validated unstorable_times names; "" and
+// "ignore" are the default.
+func timePolicy(word string) smb.TimePolicy {
+	switch word {
+	case "refuse":
+		return smb.TimesRefuse
+	case "log":
+		return smb.TimesLog
+	}
+	return smb.TimesIgnore
 }

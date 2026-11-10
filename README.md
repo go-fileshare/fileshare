@@ -1623,7 +1623,8 @@ time, one day for the access time, 10 ms for creation).
 A client that **sets** a time over SMB (SET_INFO `FileBasicInformation`, what
 `touch`, `robocopy /COPY:T` and Explorer's copies do) is obeyed since
 `go-filesystems/smb` v0.10.0 (go-filesystems/smb#45): the access and write
-times are applied through the driver's `Chtimes`, on a directory share (0 keeps
+times are applied through the driver's `Chtimes`, on a directory share and, since
+v0.42.0, on an image whose driver has one (before that, every image dropped them) (0 keeps
 a time, -1 freezes it and -2 resumes, per handle). A time that cannot be stored
 (the creation time, a change time sent alone, or any time on a driver without
 `Chtimes`) is **ignored**: the request succeeds and the field is dropped, as
@@ -1662,22 +1663,28 @@ unstorable field is enough for `refuse` to refuse the whole request and for
    `Chtimes`): any real value, equal to the current one or not.
 
 Not decided by the policy: 0, -1 and -2 are never unstorable; -1 on a driver
-with `Chtimes` but no `TimesReader` is always `STATUS_NOT_SUPPORTED` in every
-mode (a missing capability; no share served here is of that kind); and a
-request on a **read-only** share (`read_only`, a device, a chosen partition, a
-person who may not write) gets `STATUS_MEDIA_WRITE_PROTECTED` before any of it.
+with `Chtimes` but no `TimesReader` (ufs, btrfs, xfs, zfs images) is always
+`STATUS_NOT_SUPPORTED` in every mode, because the value to freeze cannot be
+read (a missing capability, not a dropped field); and a request on a
+**read-only** share (`read_only`, a device, a chosen partition, a person who
+may not write) gets `STATUS_MEDIA_WRITE_PROTECTED` before any of it.
+
+What a share can store depends on its driver, at the versions this release pins:
 
 | Share | CreationTime | ChangeTime alone | Access or write time |
 |---|---|---|---|
 | directory (osfs) | unstorable unless equal to the reported birth time | unstorable unless equal | stored (a ChangeTime sent with it is accepted) |
-| image: FAT, exFAT, NTFS, ext4, HFS+ | unstorable unless equal | unstorable unless equal, also with an access or write time | always unstorable |
-| other image types | always unstorable | always unstorable | always unstorable |
+| image, driver with `Chtimes`: ext4, ufs, btrfs, xfs, zfs | unstorable unless equal to the reported one (only ext4 reports any: for the others, always) | the same | stored (a ChangeTime sent with it is accepted) |
+| image, driver without `Chtimes`: FAT, exFAT, NTFS, HFS+, APFS, ISO 9660, SquashFS | the same (FAT, exFAT, NTFS and HFS+ report one; the others never) | the same, **also** with an access or write time | **always unstorable** |
 
-An image's access and write times are always unstorable because the lock put in
-front of every image driver (`lockedfs.go`) does not carry `Chtimes`, ext4's
-included. Windows Explorer and `robocopy /COPY:T` send a CreationTime; Linux
-`touch -d` and `cp -p` send only access and write times (the kernel client adds
-a ChangeTime of "now"): a directory stores those, an image does not.
+The drivers with `Chtimes` are osfs (`osfs.go:383`), ext4 (`metadata.go:93`),
+ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`) and zfs
+(`metadata.go:94`); fat32, exFAT, NTFS, HFS+, APFS, ISO 9660 and SquashFS have
+none. `lockFS` carries `Chtimes` (and `Chmod`, `Chown`) exactly when the driver
+has it, under the image's one lock. Windows Explorer and `robocopy /COPY:T` send
+a CreationTime; Linux `touch -d` and `cp -p` send only access and write times
+(the kernel client adds a ChangeTime of "now"): a directory and a driver with
+`Chtimes` store those, a driver without it does not.
 
 ## SFTP answers requests concurrently
 

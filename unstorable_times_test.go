@@ -6,14 +6,14 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	ext4 "github.com/go-filesystems/ext4"
+	filesystem "github.com/go-filesystems/interface"
 	"github.com/go-filesystems/smb"
-	ufs "github.com/go-filesystems/ufs"
 )
 
 // unstorable_times: what SMB does with a time a client sets that the storage
@@ -58,27 +58,11 @@ func TestUnstorableTimesInTheConfiguration(t *testing.T) {
 
 // The three policies end to end, with a go-smb2 client. go-smb2 can set only
 // the access and write times, and a host directory CAN store those, so the
-// share is an image of a driver with no Chtimes (ufs): its times are the ones
-// the storage cannot keep, which is what the policy is about.
+// share is an image of a driver with no Chtimes (fat32 v0.12.0): its times are
+// the ones the storage cannot keep, which is what the policy is about.
 func TestUnstorableTimesEndToEnd(t *testing.T) {
 	needUsers(t)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "ufs.img")
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Truncate(16 << 20); err != nil {
-		t.Fatal(err)
-	}
-	u, err := ufs.Mkfs(file, 16<<20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := u.WriteFile("/a.txt", []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	file.Close()
+	path := image(t, t.TempDir(), "fat.img", map[string]string{"/a.txt": "hello"})
 
 	when := time.Date(2020, 5, 17, 10, 30, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -113,6 +97,50 @@ func TestUnstorableTimesEndToEnd(t *testing.T) {
 			}
 			if tc.lines == 1 && (!strings.Contains(got[0], `share="\"attic\""`) || !strings.Contains(got[0], `path="\"/a.txt\""`)) {
 				t.Errorf("the line does not name the share and the path: %s", got[0])
+			}
+		})
+	}
+}
+
+// A writable image whose driver CAN set and report times (ext4 v0.5.0
+// metadata.go:93 and times.go:41): the access and write times a client sets are
+// applied, in every mode, and read back over SMB. Before lockFS carried
+// MetadataSetter they were dropped.
+func TestSMBAppliesTheTimesAClientSetsOnAnImage(t *testing.T) {
+	needUsers(t)
+	path := filepath.Join(t.TempDir(), "ext4.img")
+	e, err := ext4.Format(path, 64<<20, ext4.FormatConfig{Label: "TEST"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.(filesystem.MetadataSetter); !ok {
+		t.Skip("ext4 lost MetadataSetter: pick another driver for this control")
+	}
+	if err := e.WriteFile("/a.txt", []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	want := time.Date(2020, 5, 17, 10, 30, 0, 0, time.UTC)
+	for _, setting := range []string{"", `unstorable_times = "refuse"`, `unstorable_times = "log"`} {
+		t.Run(setting, func(t *testing.T) {
+			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+				fmt.Sprintf("share \"attic\" {\n  image = %q\n  %s\n}\n", hclPath(path), setting)))
+			share := mountSMB(t, r, "alice", "hunter2", "attic")
+			if err := share.Chtimes("a.txt", want, want); err != nil {
+				t.Fatalf("Chtimes: %v", err)
+			}
+			fi, err := share.Stat("a.txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !fi.ModTime().Equal(want) {
+				t.Errorf("LastWriteTime %v after Chtimes, want %v", fi.ModTime(), want)
+			}
+			if strings.Contains(r.out.String(), "SET_INFO times not stored") {
+				t.Errorf("a time the driver stored was logged as unstorable:\n%s", r.out.String())
 			}
 		})
 	}

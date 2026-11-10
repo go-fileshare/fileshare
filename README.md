@@ -1618,9 +1618,17 @@ has no change time, and the root of an image has none at all):
 | WebDAV | `creationdate` is the birth time; an unrecorded time is absent |
 
 A time is reported at the resolution of the format (FAT: 2 s for the write
-time, one day for the access time, 10 ms for creation). Limitation: a client
-that **sets** a time over SMB (SET_INFO) is not obeyed, the time stays as it
-was (go-filesystems/smb#45).
+time, one day for the access time, 10 ms for creation).
+
+A client that **sets** a time over SMB (SET_INFO `FileBasicInformation`, what
+`touch`, `robocopy /COPY:T` and Explorer's copies do) is obeyed since
+`go-filesystems/smb` v0.10.0 (go-filesystems/smb#45): the access and write
+times are applied through the driver's `Chtimes`, on a directory share (0 keeps
+a time, -1 freezes it and -2 resumes, per handle). A time that cannot be stored
+(the creation time, a change time sent alone, or any time on a driver without
+`Chtimes`) is **ignored**: the request succeeds and the field is dropped, as
+Samba does. That is the smb option `UnstorableTimes` at its default
+(`TimesIgnore`); fileshare does not expose the option, so every share uses it.
 
 ## SFTP answers requests concurrently
 

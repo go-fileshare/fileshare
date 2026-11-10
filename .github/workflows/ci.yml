@@ -409,7 +409,7 @@ jobs:
           grep -q -- '--- PASS: TestAsRoot' as-root.log
       - name: Run (FreeBSD)
         if: ${{ matrix.vm == 'freebsd' }}
-        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1.6.0
         with:
           run: |
             set -e
@@ -450,7 +450,7 @@ jobs:
         run: sudo sh hack/identity-e2e.sh "$PWD/fileshare-e2e"
       - name: Run (FreeBSD)
         if: ${{ matrix.vm == 'freebsd' }}
-        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        uses: vmactions/freebsd-vm@811efaaac0668df8bfb8308c3ec997b5ab50037b # v1.6.0
         with:
           prepare: pkg install -y curl
           run: sh "$GITHUB_WORKSPACE/hack/identity-e2e.sh" "$GITHUB_WORKSPACE/fileshare-e2e"

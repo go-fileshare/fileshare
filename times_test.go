@@ -230,6 +230,53 @@ func TestSMBServesTheRecordedTimes(t *testing.T) {
 	}
 }
 
+// The other direction (go-filesystems/smb v0.10.0, smb#45): the access and write
+// times an SMB client sets on a host-directory share are applied, through the
+// driver's Chtimes, and read back over the same protocol and from the host file.
+// The share uses the default UnstorableTimes policy (TimesIgnore); fileshare
+// does not configure it.
+func TestSMBAppliesTheTimesAClientSets(t *testing.T) {
+	needUsers(t)
+	f := newTimesFixture(t)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb", f.shares()))
+	share := mountSMB(t, r, "alice", "hunter2", "host")
+
+	wantM := f.hostM.Add(-48 * time.Hour).Truncate(100 * time.Nanosecond)
+	wantA := f.hostA.Add(-72*time.Hour + 250*time.Millisecond).Truncate(100 * time.Nanosecond)
+	if err := share.Chtimes("a.txt", wantA, wantM); err != nil {
+		t.Fatalf("SMB Chtimes: %v", err)
+	}
+
+	fi, err := share.Stat("a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := fi.Sys().(*smb2.FileStat)
+	if !agree(fi.ModTime(), wantM, 100*time.Nanosecond) {
+		t.Errorf("SMB LastWriteTime %v after Chtimes, want %v (it was %v)", fi.ModTime(), wantM, f.hostM)
+	}
+	if !agree(st.LastAccessTime, wantA, 100*time.Nanosecond) {
+		t.Errorf("SMB LastAccessTime %v after Chtimes, want %v (it was %v)", st.LastAccessTime, wantA, f.hostA)
+	}
+
+	// The host file itself carries them: not a cache in the server.
+	host, err := osfs.Open(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Close()
+	ft, err := host.Times("/a.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := ft.Mtime.Get(); !agree(m, wantM, 100*time.Nanosecond) {
+		t.Errorf("host mtime %v, the client set %v", m, wantM)
+	}
+	if a, ok := ft.Atime.Get(); ok && !agree(a, wantA, ft.Atime.Resolution(), 100*time.Nanosecond) {
+		t.Errorf("host atime %v, the client set %v", a, wantA)
+	}
+}
+
 func TestNFSServesTheRecordedTimes(t *testing.T) {
 	f := newTimesFixture(t)
 	r := start(t, f.shares()+"serve \"nfs\" { addr = \"127.0.0.1:0\" }\n")

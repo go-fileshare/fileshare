@@ -1627,8 +1627,26 @@ times are applied through the driver's `Chtimes`, on a directory share (0 keeps
 a time, -1 freezes it and -2 resumes, per handle). A time that cannot be stored
 (the creation time, a change time sent alone, or any time on a driver without
 `Chtimes`) is **ignored**: the request succeeds and the field is dropped, as
-Samba does. That is the smb option `UnstorableTimes` at its default
-(`TimesIgnore`); fileshare does not expose the option, so every share uses it.
+Samba does. That is the smb option `UnstorableTimes`, which a share sets since
+v0.42.0 with `unstorable_times`:
+
+```hcl
+share "attic" {
+  directory        = "/srv/attic"
+  unstorable_times = "refuse"   # "ignore" (the default), "refuse" or "log"
+}
+```
+
+| `unstorable_times` | a client sets a time that cannot be stored |
+|--------------------|--------------------------------------------|
+| `ignore` (absent)  | success, the field is dropped, as Samba does: Explorer and `robocopy /COPY:T` keep working |
+| `refuse`           | `STATUS_NOT_SUPPORTED`, and nothing in that request is applied, so a backup tool never believes a time was kept |
+| `log`              | as `ignore`, plus one line per request naming the share, the path and the fields, written where the server writes its own lines |
+
+Any other word is refused when the configuration is read, naming the share. It
+is a setting of SMB: a share whose `protocols` leave SMB out cannot set it.
+There is no server-wide default; say it on each share. (A share made through the
+admin API is on `ignore`.)
 
 ## SFTP answers requests concurrently
 

@@ -373,6 +373,14 @@ type shareBlock struct {
 	// and `fileshare serve` started as root; see identity.go and
 	// docs/identity.md.
 	Identity string `hcl:"identity,optional"`
+	// UnstorableTimes is what SMB does with a time a client sets that the
+	// storage cannot keep (a creation time, a change time on its own, a time on
+	// a driver without Chtimes): "ignore" answers success and drops it, as
+	// Samba does -- the default, so Explorer and robocopy /COPY:T keep working;
+	// "refuse" answers STATUS_NOT_SUPPORTED and applies nothing of the request;
+	// "log" ignores it and writes one line naming the share and the path where
+	// the server writes its own. Only SMB has such a request; since v0.42.0.
+	UnstorableTimes string `hcl:"unstorable_times,optional"`
 
 	// vol is what the provisioner said of the volume an admin API share is
 	// made from, when it is served: see capacity.go.
@@ -389,6 +397,28 @@ type shareBlock struct {
 	// volume is the volume an admin API share was made from, "parent/name",
 	// for a person reading `check`; Directory is where it was found.
 	volume string
+}
+
+// unstorableTimesValues are the words unstorable_times takes, in the order
+// the error and the docs list them. The first is the default.
+var unstorableTimesValues = []string{"ignore", "refuse", "log"}
+
+// checkUnstorableTimes refuses a value that is not one of the three, and a
+// setting on a share that does not go over SMB: a policy for a protocol the
+// share is kept from reads as one that is in force.
+func checkUnstorableTimes(s shareBlock) error {
+	if s.UnstorableTimes == "" {
+		return nil
+	}
+	if !slices.Contains(unstorableTimesValues, s.UnstorableTimes) {
+		return fmt.Errorf("share %q: unstorable_times = %q is not one of %s",
+			s.Name, s.UnstorableTimes, strings.Join(unstorableTimesValues, ", "))
+	}
+	if len(s.Protocols) > 0 && !slices.Contains(s.Protocols, "smb") {
+		return fmt.Errorf("share %q sets unstorable_times, which is for SMB, and protocols = [%s] leaves SMB out",
+			s.Name, strings.Join(s.Protocols, ", "))
+	}
+	return nil
 }
 
 // A serveBlock turns one protocol on. The label is the protocol's name.
@@ -530,6 +560,9 @@ func (c *config) check() error {
 			}
 		}
 		if err := c.checkShareIdentity(s); err != nil {
+			return err
+		}
+		if err := checkUnstorableTimes(s); err != nil {
 			return err
 		}
 		if s.ReadOnly && len(s.Writers) > 0 {

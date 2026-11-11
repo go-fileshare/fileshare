@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	exfat "github.com/go-filesystems/exfat"
 	ext4 "github.com/go-filesystems/ext4"
 	fat32 "github.com/go-filesystems/fat32"
 	filesystem "github.com/go-filesystems/interface"
+	ntfs "github.com/go-filesystems/ntfs"
 	ufs "github.com/go-filesystems/ufs"
 )
 
@@ -59,17 +61,36 @@ func TestLockFSCarriesMetadataSetterOnlyWhenTheDriverHasIt(t *testing.T) {
 	if _, ok := lockFS(plainFS{}).(filesystem.MetadataSetter); ok {
 		t.Error("lockFS invented MetadataSetter for a driver without it")
 	}
-	// A real driver without it: fat32 v0.12.0 has no Chtimes.
+	// A real driver without it: ntfs v0.5.0 has no Chtimes (fat32 had none
+	// until v0.13.0, and carries it now).
+	nt, err := ntfs.Format(filepath.Join(t.TempDir(), "ntfs.img"), 64<<20, ntfs.FormatConfig{Label: "TEST"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nt.Close()
+	if _, ok := nt.(filesystem.MetadataSetter); ok {
+		t.Skip("ntfs gained MetadataSetter: pick another driver for this control")
+	}
+	if _, ok := lockFS(nt).(filesystem.MetadataSetter); ok {
+		t.Error("lockFS invented MetadataSetter for ntfs")
+	}
+
+	// And the two that gained it carry it through the wrapper.
 	fat, err := fat32.Format(filepath.Join(t.TempDir(), "fat.img"), 64<<20, fat32.FormatConfig{Label: "TEST"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer fat.Close()
-	if _, ok := fat.(filesystem.MetadataSetter); ok {
-		t.Skip("fat32 gained MetadataSetter: pick another driver for this control")
+	if _, ok := lockFS(fat).(filesystem.MetadataSetter); !ok {
+		t.Error("lockFS hid MetadataSetter from fat32 v0.13.0")
 	}
-	if _, ok := lockFS(fat).(filesystem.MetadataSetter); ok {
-		t.Error("lockFS invented MetadataSetter for fat32")
+	ex, err := exfat.Format(filepath.Join(t.TempDir(), "exfat.img"), 64<<20, exfat.FormatConfig{Label: "TEST"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ex.Close()
+	if _, ok := lockFS(ex).(filesystem.MetadataSetter); !ok {
+		t.Error("lockFS hid MetadataSetter from exfat v0.6.0")
 	}
 }
 

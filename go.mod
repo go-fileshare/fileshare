@@ -21,10 +21,10 @@ require (
 	github.com/go-filesystems/apfs v0.6.0
 	github.com/go-filesystems/btrfs v0.5.0
 	github.com/go-filesystems/detect v0.5.1
-	github.com/go-filesystems/exfat v0.5.0
+	github.com/go-filesystems/exfat v0.6.0
 	github.com/go-filesystems/ext4 v0.5.0
-	github.com/go-filesystems/fat32 v0.12.0
-	github.com/go-filesystems/hfsplus v0.7.0
+	github.com/go-filesystems/fat32 v0.13.0
+	github.com/go-filesystems/hfsplus v0.8.0
 	github.com/go-filesystems/interface v0.6.0
 	github.com/go-filesystems/iso9660 v0.5.0
 	github.com/go-filesystems/nfs v0.13.0

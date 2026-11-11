@@ -1675,12 +1675,21 @@ What a share can store depends on its driver, at the versions this release pins:
 |---|---|---|---|
 | directory (osfs) | unstorable unless equal to the reported birth time | unstorable unless equal | stored (a ChangeTime sent with it is accepted) |
 | image, driver with `Chtimes`: ext4, ufs, btrfs, xfs, zfs | unstorable unless equal to the reported one (only ext4 reports any: for the others, always) | the same | stored (a ChangeTime sent with it is accepted) |
-| image, driver without `Chtimes`: FAT, exFAT, NTFS, HFS+, APFS, ISO 9660, SquashFS | the same (FAT, exFAT, NTFS and HFS+ report one; the others never) | the same, **also** with an access or write time | **always unstorable** |
+| image, FAT or exFAT (since v0.43.0) | unstorable unless equal to the reported one (both report one) | the same | stored at the format's resolution: FAT write time 2 s (rounded down) and access time the date only; exFAT write time 10 ms and access time 2 s (a ChangeTime sent with it is accepted) |
+| image, driver without `Chtimes`: NTFS, HFS+, APFS, ISO 9660, SquashFS | the same (NTFS and HFS+ report one; the others never) | the same, **also** with an access or write time | **always unstorable** |
 
 The drivers with `Chtimes` are osfs (`osfs.go:383`), ext4 (`metadata.go:93`),
-ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`) and zfs
-(`metadata.go:94`); fat32, exFAT, NTFS, HFS+, APFS, ISO 9660 and SquashFS have
-none. `lockFS` carries `Chtimes` (and `Chmod`, `Chown`) exactly when the driver
+ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`), zfs
+(`metadata.go:94`) and, since v0.43.0, fat32 v0.13.0 and exFAT v0.6.0
+(`filesystem.MetadataSetter` in full: their `Chmod` and `Chown` return
+`ErrNotSupported`, since FAT has no mode bits or owners); NTFS, HFS+ at the
+pinned v0.7.0, APFS, ISO 9660 and SquashFS have none. hfsplus v0.8.0 (pinned
+since v0.43.0) implements `Chtimes`, `Chmod` and `Chown`, but an HFS+ image share
+is opened through `hfsplus.OpenReader`, whose volume is read-only, so a time set
+over SMB is still not stored there. And what the hfsplus driver writes into an
+`hdiutil`-created journaled image is not seen by macOS (Refs
+go-filesystems/hfsplus#29). `lockFS` carries `Chtimes` (and `Chmod`,
+`Chown`) exactly when the driver
 has it, under the image's one lock. Windows Explorer and `robocopy /COPY:T` send
 a CreationTime; Linux `touch -d` and `cp -p` send only access and write times
 (the kernel client adds a ChangeTime of "now"): a directory and a driver with

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	apfs "github.com/go-filesystems/apfs"
 	ext4 "github.com/go-filesystems/ext4"
 	filesystem "github.com/go-filesystems/interface"
 	"github.com/go-filesystems/smb"
@@ -58,11 +59,29 @@ func TestUnstorableTimesInTheConfiguration(t *testing.T) {
 
 // The three policies end to end, with a go-smb2 client. go-smb2 can set only
 // the access and write times, and a host directory CAN store those, so the
-// share is an image of a driver with no Chtimes (fat32 v0.12.0): its times are
-// the ones the storage cannot keep, which is what the policy is about.
+// share is a writable apfs image (apfs v0.6.0 has no Chtimes; fat32 had none
+// until v0.13.0, and ntfs images are not found by detect): its times are the
+// ones the storage cannot keep, which is what the policy is about. apfs cannot
+// be sniffed, so the share names it.
 func TestUnstorableTimesEndToEnd(t *testing.T) {
 	needUsers(t)
-	path := image(t, t.TempDir(), "fat.img", map[string]string{"/a.txt": "hello"})
+	if !withAPFS {
+		t.Skip("built with -tags nopartitioned: no apfs to serve")
+	}
+	path := filepath.Join(t.TempDir(), "apfs.img")
+	n, err := apfs.Format(path, 512<<20, apfs.FormatConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := n.(filesystem.MetadataSetter); ok {
+		t.Skip("apfs gained MetadataSetter: pick another driver for this control")
+	}
+	if err := n.WriteFile("/a.txt", []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := n.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	when := time.Date(2020, 5, 17, 10, 30, 0, 0, time.UTC)
 	for _, tc := range []struct {
@@ -77,7 +96,7 @@ func TestUnstorableTimesEndToEnd(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-				fmt.Sprintf("share \"attic\" {\n  image = %q\n  %s\n}\n", hclPath(path), tc.setting)))
+				fmt.Sprintf("share \"attic\" {\n  image = %q\n  filesystem = \"apfs\"\n  %s\n}\n", hclPath(path), tc.setting)))
 			share := mountSMB(t, r, "alice", "hunter2", "attic")
 			err := share.Chtimes("a.txt", when, when)
 			switch {

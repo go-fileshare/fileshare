@@ -62,6 +62,10 @@ func TestSMBStoresTheTimesAClientSetsOnFATAndExFAT(t *testing.T) {
 		{"exfat", exfatImage,
 			time.Date(2020, 5, 17, 10, 30, 31, 0, time.Local),
 			time.Date(2020, 5, 18, 13, 45, 6, 0, time.Local)},
+		// Not HFS+: hfsplus v0.8.0 has Chtimes (go-filesystems/hfsplus#28), but
+		// detect.Open reaches it through hfsplus.OpenReader, whose Volume is
+		// read-only (writable() needs the in-memory image of OpenWritable), so
+		// Chtimes answers ErrReadOnly on a served share. See the README.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := tc.image(t)
@@ -71,7 +75,7 @@ func TestSMBStoresTheTimesAClientSetsOnFATAndExFAT(t *testing.T) {
 						fmt.Sprintf("share \"attic\" {\n  image = %q\n  %s\n}\n", hclPath(path), setting)))
 					share := mountSMB(t, r, "alice", "hunter2", "attic")
 					if err := share.Chtimes("a.txt", atime, mtime); err != nil {
-						t.Fatalf("Chtimes: %v", err)
+						t.Fatalf("Chtimes: %v\n%s", err, r.out.String())
 					}
 					fi, err := share.Stat("a.txt")
 					if err != nil {

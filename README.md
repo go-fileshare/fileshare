@@ -1683,10 +1683,12 @@ ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`), zfs
 (`metadata.go:94`) and, since v0.43.0, fat32 v0.13.0 and exFAT v0.6.0
 (`filesystem.MetadataSetter` in full: their `Chmod` and `Chown` return
 `ErrNotSupported`, since FAT has no mode bits or owners); NTFS, HFS+ at the
-pinned v0.7.0, APFS, ISO 9660 and SquashFS have none. hfsplus v0.8.0 implements
-`Chtimes`, `Chmod` and `Chown`; it is not pinned yet, and an HFS+ image written
-by this program is still not seen by macOS inside an `hdiutil`-created journaled
-image (Refs go-filesystems/hfsplus#29). `lockFS` carries `Chtimes` (and `Chmod`,
+pinned v0.7.0, APFS, ISO 9660 and SquashFS have none. hfsplus v0.8.0 (pinned
+since v0.43.0) implements `Chtimes`, `Chmod` and `Chown`, but an HFS+ image share
+is opened through `hfsplus.OpenReader`, whose volume is read-only, so a time set
+over SMB is still not stored there. And what the hfsplus driver writes into an
+`hdiutil`-created journaled image is not seen by macOS (Refs
+go-filesystems/hfsplus#29). `lockFS` carries `Chtimes` (and `Chmod`,
 `Chown`) exactly when the driver
 has it, under the image's one lock. Windows Explorer and `robocopy /COPY:T` send
 a CreationTime; Linux `touch -d` and `cp -p` send only access and write times

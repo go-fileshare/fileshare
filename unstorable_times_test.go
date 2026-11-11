@@ -65,6 +65,9 @@ func TestUnstorableTimesInTheConfiguration(t *testing.T) {
 // be sniffed, so the share names it.
 func TestUnstorableTimesEndToEnd(t *testing.T) {
 	needUsers(t)
+	if !withAPFS {
+		t.Skip("built with -tags nopartitioned: no apfs to serve")
+	}
 	path := filepath.Join(t.TempDir(), "apfs.img")
 	n, err := apfs.Format(path, 512<<20, apfs.FormatConfig{})
 	if err != nil {

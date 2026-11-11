@@ -54,7 +54,7 @@ require (
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
-	github.com/lestrrat-go/jwx/v3 v3.4.0
+	github.com/lestrrat-go/jwx/v4 v4.6.0
 	github.com/openpubkey/openpubkey v0.30.0
 	github.com/pkg/sftp v1.13.12
 	github.com/spf13/cobra v1.10.2
@@ -121,7 +121,9 @@ require (
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc/v3 v3.0.6 // indirect
+	github.com/lestrrat-go/jwx/v3 v3.4.0 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
+	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect

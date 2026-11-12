@@ -21,7 +21,12 @@ import (
 func fatImageFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fat.img")
-	if _, err := fat32.Format(path, 64<<20, fat32.FormatConfig{Label: "MNTTEST"}); err != nil {
+	v, err := fat32.Format(path, 64<<20, fat32.FormatConfig{Label: "MNTTEST"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Format leaves the image open: Windows will not delete an open file.
+	if err := v.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return path

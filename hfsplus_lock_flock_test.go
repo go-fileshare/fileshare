@@ -28,7 +28,7 @@ func TestHFSPlusImageLockedElsewhereOpensReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	sh := r.srv.shareByName("attic")
 	if !sh.readOnly {
 		t.Error("a share on a locked image is not read-only")
@@ -43,13 +43,13 @@ func TestHFSPlusImageLockedElsewhereOpensReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	r2 := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	if r2.srv.shareByName("attic").readOnly {
 		t.Errorf("a share on an unlocked image is read-only:\n%s", r2.out.String())
 	}
 	// Two writable shares of one image in two servers exclude each other too.
 	r3 := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	if !r3.srv.shareByName("attic").readOnly {
 		t.Error("a second writer was let in while the first holds the lock")
 	}

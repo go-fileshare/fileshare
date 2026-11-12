@@ -91,7 +91,7 @@ func TestSMBWritesAndStoresTimesOnAnHFSPlusImage(t *testing.T) {
 	needUsers(t)
 	path := hfsImage(t)
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	share := mountSMB(t, r, "alice", "hunter2", "attic")
 
 	if err := share.WriteFile("new.txt", []byte("written over smb"), 0o644); err != nil {
@@ -144,7 +144,7 @@ func TestHFSPlusJournaledImageFallsBackToReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	share := mountSMB(t, r, "alice", "hunter2", "attic")
 
 	if b, err := share.ReadFile("a.txt"); err != nil || string(b) != "hello" {
@@ -178,7 +178,7 @@ func TestHFSPlusEmptyJournalStaysWritable(t *testing.T) {
 	path := hfsImage(t)
 	hfsJournaled(t, path, 0x4400, 0x4400)
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	share := mountSMB(t, r, "alice", "hunter2", "attic")
 	if err := share.WriteFile("new.txt", []byte("x"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v\n%s", err, r.out.String())
@@ -248,7 +248,7 @@ func TestHFSPlusJournaledFallbackKeepsItsAbilities(t *testing.T) {
 	path := hfsImage(t)
 	hfsJournaled(t, path, 0x4400, 0x8800)
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
 	fsys := driverOf(t, r, "attic")
 	wantAbilities(t, fsys)
 	if err := fsys.WriteFile("/new.txt", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
@@ -261,10 +261,11 @@ func TestHFSPlusJournaledFallbackKeepsItsAbilities(t *testing.T) {
 
 // An image over hfsplus_writable_max opens read-only, readable, marked
 // read-only, and says so once, naming the share, the size and the cap. The
-// default is 256 MiB, so a small cap is set to bring the 8 MiB test image over.
+// cap is set small to bring the 8 MiB test image over it. "0" is a cap too, and
+// says so in its own words: see TestHFSPlusDefaultIsReadOnly for the default.
 func TestHFSPlusImageOverTheCapIsReadOnly(t *testing.T) {
 	needUsers(t)
-	for _, max := range []string{"1M", "0"} {
+	for _, max := range []string{"1M"} {
 		t.Run(max, func(t *testing.T) {
 			path := hfsImage(t)
 			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
@@ -289,6 +290,54 @@ func TestHFSPlusImageOverTheCapIsReadOnly(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Errorf("log lacks %q:\n%s", want, out)
 				}
+			}
+		})
+	}
+}
+
+// Since v0.45.1 hfsplus_writable_max defaults to 0: hfsplus v0.9.0 is not
+// crash-safe (go-filesystems/hfsplus#34), so an HFS+ image is written only when
+// a share sets a size. A share that says nothing, or says "0", serves the image
+// read-only and logs the default's reason exactly once; the driver itself
+// refuses the write, and range reads and times survive.
+func TestHFSPlusDefaultIsReadOnly(t *testing.T) {
+	needUsers(t)
+	for name, setting := range map[string]string{"absent": "", "zero": "  hfsplus_writable_max = \"0\"\n"} {
+		t.Run(name, func(t *testing.T) {
+			path := hfsImage(t)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+				fmt.Sprintf("share \"attic\" {\n  image = %q\n%s}\n", hclPath(path), setting)))
+			share := mountSMB(t, r, "alice", "hunter2", "attic")
+			if b, err := share.ReadFile("a.txt"); err != nil || string(b) != "hello" {
+				t.Fatalf("read: %q, %v", b, err)
+			}
+			if err := share.WriteFile("new.txt", []byte("x"), 0o644); err == nil {
+				t.Error("a write into an HFS+ image with the default setting succeeded")
+			}
+			sh := r.srv.shareByName("attic")
+			if !sh.readOnly || !sh.forcedReadOnly {
+				t.Errorf("readOnly=%v forced=%v, want both", sh.readOnly, sh.forcedReadOnly)
+			}
+			if err := sh.fsys.WriteFile("/new.txt", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
+				t.Errorf("the driver answered %v to a write, want ErrReadOnly", err)
+			}
+			wantAbilities(t, sh.fsys)
+			out := r.out.String()
+			if n := strings.Count(out, "not crash-safe"); n != 1 {
+				t.Errorf("default reason logged %d times, want once:\n%s", n, out)
+			}
+			for _, want := range []string{"hfsplus_writable_max is 0, the default", "so attic is read-only"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("log lacks %q:\n%s", want, out)
+				}
+			}
+			after, _ := os.ReadFile(path)
+			if !bytes.Equal(before, after) {
+				t.Error("the image changed")
 			}
 		})
 	}

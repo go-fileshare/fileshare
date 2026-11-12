@@ -1742,8 +1742,9 @@ on it).
 overwritten by the next flush. A writable open takes an exclusive advisory
 `flock` on the image (Linux, macOS and the BSDs); if another process holds it
 (a second fileshare on the same image, anything that takes the lock) the share
-opens read-only and says so. The lock is advisory: it does not stop a macOS
-mount, which does not take it, and on other platforms there is no lock at all.
+opens read-only and says so. The lock is advisory: the OS does not take it when
+it mounts an image, which is why the next section exists, and on other
+platforms there is no lock at all.
 
 A share configured `read_only = true`, a device and a partition are still opened
 through `hfsplus.OpenReader` and never try the writable open.
@@ -1751,6 +1752,68 @@ through `hfsplus.OpenReader` and never try the writable open.
 **Do not write an image that is mounted**, here or anywhere else: neither the
 server nor macOS knows about the other's changes (hfsplus README). Serve an
 image that nothing else has open. Follow-ups: go-filesystems/hfsplus#32.
+
+## A writable image the OS has mounted is served read-only
+
+Since v0.45.0 (Closes #126), before **any** writable image share (FAT32, exFAT,
+ext4, UFS, btrfs, XFS, ZFS, HFS+, whatever the driver) is opened for writing,
+the server asks the OS whether it has that image attached or mounted. If it
+has, the share opens **read-only**, is marked read-only, and the server writes
+one line naming the image, the OS's device and mount, and the share:
+
+```text
+/srv/disk.img is in use by the OS (/dev/loop3, mounted at /mnt/disk), and a second writer would corrupt it, so disk is read-only
+```
+
+The image is matched by device and inode, never by comparing path strings, so a
+symbolic link or a hard link to the mounted file is caught too.
+
+| OS | How it is asked |
+| --- | --- |
+| Linux | `/sys/block/loop*/loop/backing_file` of each loop device (loop(4): what `mount -o loop`, `losetup` and udisks make), compared by device and inode with the image; the mount point is read from `/proc/self/mountinfo` (proc(5)). An attached loop device counts even when nothing is mounted on it. |
+| macOS | `hdiutil info -plist` (hdiutil(1)), the `image-path` of each attached image, parsed as XML, bounded by a 15 s timeout. An image attached with `-nomount` counts. |
+| FreeBSD, other BSDs, Windows | **Cannot be detected.** The share is writable, as before. |
+
+**When the check itself fails** (no `/sys/block` in a container, `hdiutil`
+missing or timing out, output that is not a property list), nobody knows whether
+the image is mounted. A share setting decides:
+
+```hcl
+share "disk" {
+  image               = "/srv/disk.img"
+  image_mount_unknown = "read_only"   # the default; "write" serves it writable anyway
+}
+```
+
+The default is `read_only`: a read-only share is a visible state with a log line
+that names its cause, and a person can fix it; a writable share under a mount
+corrupts both sides' data, and nobody sees it until later. `write` is for a host
+where the check cannot work (a container that has no sysfs) and nobody mounts
+images. An image the OS is known to have mounted is read-only whatever this says.
+
+A backing path the check cannot read (permission denied, a symbolic-link loop)
+is "could not be judged", not "another image": it goes to the same setting. Only
+a path that is not there is skipped, since it cannot be this image. On Linux a
+loop device whose backing file was deleted is matched through the kernel's own
+record (`LOOP_GET_STATUS64`, loop(4)) when the process may open `/dev/loopN`
+(usually the `disk` group), and is otherwise not matched.
+
+**What the check cannot see**
+
+- **A mount made after the share opened the image.** The check runs when an
+  image is opened: at start, for a share created through the admin API, and when
+  a reload rebuilds the shares (a change of people or lists) and finds the image
+  mounted since, in which case that share gets a read-only open of its own. A
+  reload that changes nothing does not look again, and nothing watches for a
+  later `hdiutil attach` or `mount -o loop`. Stop the share, or restart the
+  server, before mounting an image it serves writable.
+- **Mounts that go through no loop device or `hdiutil`:** `qemu-nbd -c` (an nbd
+  device: the kernel does not record the backing file), FUSE mounts (`fuse2fs`,
+  `guestmount`), and a virtual machine or other program that has the image open.
+- A Linux loop device attached in another mount namespace, or whose backing file
+  was deleted when `/dev/loopN` cannot be opened.
+- A share that was made read-only because of a mount stays read-only on a
+  reload even if the mount has gone; restart it to open it for writing again.
 
 ## SFTP answers requests concurrently
 

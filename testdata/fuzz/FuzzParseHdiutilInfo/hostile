@@ -1,0 +1,2 @@
+go test fuzz v1
+string("<plist><dict><key>images</key><array><dict><key>x</key><dict><key>y</key><array><array><array/></array></array></dict></dict><string/><key/></array></dict><key>k</key></plist><!ENTITY x \"y\">&x;")

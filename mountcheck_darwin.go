@@ -9,36 +9,40 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
 
-// platformMountedBy asks hdiutil, which is bounded by ctx. Any failure is an
-// error (the answer is "unknown"), never "not mounted".
-func platformMountedBy(ctx context.Context, fi os.FileInfo) (string, error) {
+// platformMatcher runs hdiutil ONCE (bounded by ctx and a WaitDelay) and
+// answers for every image of the load from its list. Any failure is an error
+// (the answer is "unknown"), never "not mounted".
+func platformMatcher(ctx context.Context) (mountMatcher, error) {
 	cmd := exec.CommandContext(ctx, "/usr/bin/hdiutil", "info", "-plist")
 	cmd.Stdin = nil
+	// Without it a hung child that holds the pipe open outlives the context.
+	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("hdiutil info: %w", err)
+		return nil, fmt.Errorf("hdiutil info: %w", err)
 	}
 	const max = 32 << 20
 	buf, rerr := io.ReadAll(io.LimitReader(out, max+1))
 	if len(buf) > max {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return "", fmt.Errorf("hdiutil info: more than %d bytes of output", max)
+		return nil, fmt.Errorf("hdiutil info: more than %d bytes of output", max)
 	}
 	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("hdiutil info: %w", err)
+		return nil, fmt.Errorf("hdiutil info: %w", err)
 	}
 	if rerr != nil {
-		return "", rerr
+		return nil, rerr
 	}
 	imgs, err := parseHdiutilInfo(bytes.NewReader(buf))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return attachedHolder(fi, imgs), nil
+	return func(fi os.FileInfo) (string, error) { return attachedHolder(fi, imgs) }, nil
 }

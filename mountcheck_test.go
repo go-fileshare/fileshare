@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	fat32 "github.com/go-filesystems/fat32"
@@ -216,12 +217,100 @@ func TestHdiutilInfoMatchesByInodeNotByPath(t *testing.T) {
 		t.Fatalf("parsed %+v", imgs)
 	}
 	fi, _ := os.Stat(img)
-	if got, want := attachedHolder(fi, imgs), "attached as /dev/disk4s1, /dev/disk4, mounted at /Volumes/A & B"; got != want {
-		t.Errorf("attachedHolder = %q, want %q", got, want)
+	if got, err := attachedHolder(fi, imgs); err != nil || got != "attached as /dev/disk4s1, /dev/disk4, mounted at /Volumes/A & B" {
+		t.Errorf("attachedHolder = %q, %v", got, err)
 	}
 	ofi, _ := os.Stat(other)
-	if got := attachedHolder(ofi, imgs); got != "" {
-		t.Errorf("a different file matched: %q", got)
+	if got, err := attachedHolder(ofi, imgs); err != nil || got != "" {
+		t.Errorf("a different file matched: %q, %v", got, err)
+	}
+}
+
+// Only a path that is NOT THERE is "not this image". Any other error on a path
+// means the entry was not judged, and goes to the policy.
+func TestAStatErrorIsNotAnAnswer(t *testing.T) {
+	dir := t.TempDir()
+	img := filepath.Join(dir, "disk.img")
+	if err := os.WriteFile(img, make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(img)
+	// ELOOP: a symbolic link to itself. Not permission-dependent, so it runs
+	// everywhere symbolic links do (and as root).
+	loop := filepath.Join(dir, "loop")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	gone := filepath.Join(dir, "gone.img")
+
+	t.Run("plist", func(t *testing.T) {
+		_, err := attachedHolder(fi, []attachedImage{{Path: loop}})
+		if err == nil {
+			t.Error("ELOOP on an image-path was taken as 'not this image'")
+		}
+		if got, err := attachedHolder(fi, []attachedImage{{Path: gone}}); err != nil || got != "" {
+			t.Errorf("a path that is not there: %q, %v; want a skip", got, err)
+		}
+		// A match elsewhere in the list still wins over an entry not judged.
+		got, err := attachedHolder(fi, []attachedImage{{Path: loop}, {Path: img, Devs: []string{"/dev/disk9"}}})
+		if err != nil || !strings.Contains(got, "/dev/disk9") {
+			t.Errorf("match after an unjudged entry: %q, %v", got, err)
+		}
+	})
+	t.Run("loop", func(t *testing.T) {
+		if got, err := loopHolder(fi, fakeSys(t, map[string]string{"loop3": loop}), "/nonexistent"); err == nil {
+			t.Errorf("ELOOP on a backing file was taken as 'not this image': %q", got)
+		}
+		for name, p := range map[string]string{"enoent": gone, "deleted": img + " (deleted)"} {
+			if got, err := loopHolder(fi, fakeSys(t, map[string]string{"loop3": p}), "/nonexistent"); err != nil || got != "" {
+				t.Errorf("%s: %q, %v; want a skip", name, got, err)
+			}
+		}
+		got, err := loopHolder(fi, fakeSys(t, map[string]string{"loop2": loop, "loop3": img}), "/nonexistent")
+		if err != nil || got != "/dev/loop3, attached" {
+			t.Errorf("match after an unjudged device: %q, %v", got, err)
+		}
+	})
+	t.Run("policy", func(t *testing.T) {
+		_, err := attachedHolder(fi, []attachedImage{{Path: loop}})
+		if _, ro := mountVerdict(shareBlock{Name: "a"}, "", err); !ro {
+			t.Error("the default policy served an unjudged image writable")
+		}
+		if _, ro := mountVerdict(shareBlock{Name: "a", ImageMountUnknown: "write"}, "", err); ro {
+			t.Error("image_mount_unknown = write was not honoured")
+		}
+	})
+}
+
+// A permission error specifically (EACCES), where the platform lets a test
+// make one: not as root, not on Windows.
+func TestAnUnreadableBackingPathGoesToThePolicy(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("cannot make a path the test may not stat")
+	}
+	dir := t.TempDir()
+	img := filepath.Join(dir, "disk.img")
+	if err := os.WriteFile(img, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(img)
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "x.img"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	p := filepath.Join(locked, "x.img")
+	if _, err := loopHolder(fi, fakeSys(t, map[string]string{"loop3": p}), "/nonexistent"); err == nil {
+		t.Error("EACCES on a backing file was taken as 'not this image'")
+	}
+	if _, err := attachedHolder(fi, []attachedImage{{Path: p}}); err == nil {
+		t.Error("EACCES on an image-path was taken as 'not this image'")
 	}
 }
 
@@ -296,11 +385,94 @@ func TestBadImageMountUnknownIsRefusedAtLoad(t *testing.T) {
 
 // ---- the share, with the OS standing in -----------------------------------
 
-func withOS(t *testing.T, where string, err error) {
+// fakeOS is the OS as a test sets it: what it says of every image, and how many
+// times it was looked at (once per load).
+type fakeOS struct {
+	mu    sync.Mutex
+	where string
+	err   error
+	looks int
+}
+
+func (f *fakeOS) set(where string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.where, f.err = where, err
+}
+
+func withOS(t *testing.T, where string, err error) *fakeOS {
 	t.Helper()
-	old := imageMountedBy
-	imageMountedBy = func(context.Context, os.FileInfo) (string, error) { return where, err }
-	t.Cleanup(func() { imageMountedBy = old })
+	f := &fakeOS{where: where, err: err}
+	old := newMountMatcher
+	newMountMatcher = func(context.Context) (mountMatcher, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.looks++
+		if f.err != nil {
+			return nil, f.err
+		}
+		w := f.where
+		return func(os.FileInfo) (string, error) { return w, nil }, nil
+	}
+	t.Cleanup(func() { newMountMatcher = old })
+	return f
+}
+
+// A reload that rebuilds the shares (here: openShares over the current ones,
+// which is what reload does when people or lists changed) asks again about an
+// image that is already open for writing: mounted since, it gets a read-only
+// open of its own; not mounted, it adopts the open driver as before. And all the
+// shares of one load share one look at the OS.
+func TestReloadAsksAgainAboutAnOpenWritableImage(t *testing.T) {
+	needUsers(t)
+	osf := withOS(t, "", nil)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		"share \"attic\" {\n  image = \""+hclPath(fatImageFile(t))+"\"\n}\nshare \"attic2\" {\n  image = \""+hclPath(fatImageFile(t))+"\"\n}\n"))
+	cur := r.srv.currentShares()
+	if cur[0].readOnly {
+		t.Fatalf("control: read-only before any mount\n%s", r.out.String())
+	}
+	blocks := func() []shareBlock {
+		var bs []shareBlock
+		for _, sh := range r.srv.currentShares() {
+			bs = append(bs, sh.block)
+		}
+		return bs
+	}
+
+	// Not mounted: adopted, the same driver, no new line.
+	again, err := r.srv.openShares(blocks(), cur)
+	if err != nil || again[0].readOnly || again[0].fsys != cur[0].fsys {
+		t.Fatalf("unmounted reload: err=%v readOnly=%v\n%s", err, again[0].readOnly, r.out.String())
+	}
+
+	// Mounted since: read-only, on a driver of its own, one line each.
+	before := r.out.String()
+	looks := osf.looks
+	osf.set("/dev/disk4, attached", nil)
+	again, err = r.srv.openShares(blocks(), cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, sh := range again {
+			sh.close()
+		}
+	})
+	for _, sh := range again {
+		if !sh.readOnly || !sh.forcedReadOnly || sh.askedWrite != true {
+			t.Errorf("%s: readOnly=%v forced=%v asked=%v", sh.name, sh.readOnly, sh.forcedReadOnly, sh.askedWrite)
+		}
+	}
+	if again[0].fsys == cur[0].fsys {
+		t.Error("the writable driver was adopted under a mount")
+	}
+	if n := strings.Count(strings.TrimPrefix(r.out.String(), before), "/dev/disk4"); n != 2 {
+		t.Errorf("want one line per share (2), got %d:\n%s", n, r.out.String())
+	}
+	if osf.looks-looks != 1 {
+		t.Errorf("the OS was looked at %d times in one load, want 1", osf.looks-looks)
+	}
 }
 
 // A writable image of ANY driver (here HFS+ and FAT32) that the OS has mounted
@@ -383,7 +555,11 @@ func TestPlatformAnswersForAnUnattachedImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	fi, _ := os.Stat(img)
-	where, err := platformMountedBy(context.Background(), fi)
+	var where string
+	m, err := platformMatcher(context.Background())
+	if err == nil {
+		where, err = m(fi)
+	}
 	switch runtime.GOOS {
 	case "linux", "darwin":
 		if err != nil {

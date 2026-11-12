@@ -36,6 +36,9 @@ import (
 
 // A server is everything the configuration asked for, opened and ready.
 type server struct {
+	// mountScan is the one look at the OS's mounts that the load in progress
+	// shares between its shares; see mountcheck.go.
+	mountScan atomic.Pointer[mountScan]
 	// workers are the people's workers, for the shares served as them; nil
 	// unless this process is a front a launcher started (identity.go).
 	workers *workerPool
@@ -339,6 +342,7 @@ func (s *server) openShares(blocks []shareBlock, previous []*share) ([]*share, e
 func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 	expand func([]string) ([]string, error)) (_ []*share, err error) {
 	var opened []*share
+	s.mountScan.Store(&mountScan{})
 	defer func() {
 		if err != nil {
 			for _, sh := range opened {
@@ -397,6 +401,27 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 				// second driver on an image the first is still serving.
 				return nil, fmt.Errorf("share %q: %s was opened read-only, so it cannot become writable "+
 					"while it is served; delete the share and create it again", b.Name, b.source())
+			}
+			// ⛔ An image opened for writing may have been mounted by the OS
+			// since: adopting its driver would keep writing under the mount.
+			// Asked again, here; if it is mounted this share gets a read-only
+			// open of its own, and the old driver goes with the old share.
+			if b.Image != "" && !prev.openedReadOnly && !prev.forcedReadOnly && prev.askedWrite &&
+				s.mountGuardAdopted(b) {
+				bm := b
+				bm.ReadOnly = true
+				sh.readOnly = true
+				sh.writers = nil
+				if err := s.openImage(sh, bm); err != nil {
+					return nil, err
+				}
+				// The share asked to write: a later reload without the mount
+				// must not be refused as "was opened read-only".
+				sh.askedWrite = true
+				sh.forcedReadOnly = true
+				opened = append(opened, sh)
+				out = append(out, sh)
+				continue
 			}
 			sh.adopt(prev)
 			out = append(out, sh)
@@ -464,6 +489,13 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 		}
 		if err != nil {
 			return fmt.Errorf("opening %s: %w", b.Image, err)
+		}
+		// Opened again by NAME: it must be the file that was asked about.
+		// A swap in between would put the verdict on one file and the share
+		// on another.
+		if nfi, err := f.Stat(); err != nil || !os.SameFile(info, nfi) {
+			f.Close()
+			return fmt.Errorf("opening %s: the image changed while it was being opened", b.Image)
 		}
 		sh.readOnly = true
 		sh.writers = nil

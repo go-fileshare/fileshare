@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 )
@@ -186,13 +187,27 @@ func parseHdiutilInfo(r io.Reader) ([]attachedImage, error) {
 
 // attachedHolder says which attached image is the file fi, matching by device
 // and inode (os.SameFile) and never by path string, and describes it.
-func attachedHolder(fi os.FileInfo, imgs []attachedImage) string {
+//
+// A path that is not there (ENOENT) cannot be this image and is skipped. Any
+// other stat error (EACCES, ELOOP, ...) means that entry could not be judged:
+// if nothing else matches, it is returned, so image_mount_unknown decides.
+func attachedHolder(fi os.FileInfo, imgs []attachedImage) (string, error) {
+	var unjudged error
 	for _, a := range imgs {
 		if a.Path == "" {
 			continue
 		}
 		afi, err := os.Stat(a.Path)
-		if err != nil || !os.SameFile(fi, afi) {
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			if unjudged == nil {
+				unjudged = err
+			}
+			continue
+		}
+		if !os.SameFile(fi, afi) {
 			continue
 		}
 		d := "attached"
@@ -202,7 +217,10 @@ func attachedHolder(fi os.FileInfo, imgs []attachedImage) string {
 		if len(a.Mounts) > 0 {
 			d += ", mounted at " + strings.Join(a.Mounts, ", ")
 		}
-		return d
+		return d, nil
 	}
-	return ""
+	if unjudged != nil {
+		return "", fmt.Errorf("could not judge an attached image's path: %w", unjudged)
+	}
+	return "", nil
 }

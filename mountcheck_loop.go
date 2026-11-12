@@ -90,14 +90,20 @@ func isOctal(c byte) bool { return c >= '0' && c <= '7' }
 // mounted, from the sysfs block directory (/sys/block) and a mountinfo file.
 // "" and nil is nobody; an error is a check that could not be made.
 //
-// A loop device whose backing path cannot be statted (the file was deleted
-// while attached, or the loop was set up in another mount namespace) is
-// skipped: it cannot be the image this share opened by path.
+// A loop device whose backing file is DELETED (sysfs says "(deleted)", or the
+// path is not there: ENOENT) is skipped by path; when /dev/loopN can be opened,
+// the kernel's own record is asked instead (loop(4), LOOP_GET_STATUS64:
+// lo_device and lo_inode, no path), see loopStatusMatches. Any OTHER error on
+// a backing path (EACCES, ELOOP, ...) means this loop device could not be
+// judged: if no device matches, that error is returned, so the policy
+// (image_mount_unknown) decides, and the share is not served writable on the
+// strength of a check that did not look.
 func loopHolder(fi os.FileInfo, sysBlock, mountinfo string) (string, error) {
 	ents, err := os.ReadDir(sysBlock)
 	if err != nil {
 		return "", fmt.Errorf("listing loop devices: %w", err)
 	}
+	var unjudged error
 	for _, e := range ents {
 		name := e.Name()
 		if !strings.HasPrefix(name, "loop") {
@@ -110,16 +116,35 @@ func loopHolder(fi os.FileInfo, sysBlock, mountinfo string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("reading the backing file of %s: %w", name, err)
 		}
-		bfi, err := os.Stat(strings.TrimSuffix(string(raw), "\n"))
-		if err != nil || !os.SameFile(fi, bfi) {
+		path := strings.TrimSuffix(string(raw), "\n")
+		dev := "/dev/" + name
+		deleted := strings.HasSuffix(path, " (deleted)")
+		var bfi os.FileInfo
+		if !deleted {
+			bfi, err = os.Stat(path)
+		}
+		switch {
+		case deleted || errors.Is(err, fs.ErrNotExist):
+			// Not reachable by path: ask the kernel's record, if we may.
+			if !loopStatusMatches(fi, dev) {
+				continue
+			}
+		case err != nil:
+			if unjudged == nil {
+				unjudged = fmt.Errorf("%s: %w", name, err)
+			}
+			continue
+		case !os.SameFile(fi, bfi):
 			continue
 		}
-		dev := "/dev/" + name
 		mounts := mountsOf(dev, mountinfo)
 		if len(mounts) == 0 {
 			return dev + ", attached", nil
 		}
 		return dev + ", mounted at " + strings.Join(mounts, ", "), nil
+	}
+	if unjudged != nil {
+		return "", fmt.Errorf("could not judge a loop device's backing file: %w", unjudged)
 	}
 	return "", nil
 }

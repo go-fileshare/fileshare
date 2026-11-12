@@ -1791,12 +1791,29 @@ corrupts both sides' data, and nobody sees it until later. `write` is for a host
 where the check cannot work (a container that has no sysfs) and nobody mounts
 images. An image the OS is known to have mounted is read-only whatever this says.
 
-**What the check cannot see: a mount made after the share opened the image.**
-The check runs once, when the image is opened (at start, on reload, on a share
-created through the admin API); nothing watches for a later `hdiutil attach` or
-`mount -o loop`. A Linux loop device whose backing file was deleted while
-attached, or was attached in another mount namespace, cannot be matched either.
-Do not mount an image a share serves writable; stop or reload the share first.
+A backing path the check cannot read (permission denied, a symbolic-link loop)
+is "could not be judged", not "another image": it goes to the same setting. Only
+a path that is not there is skipped, since it cannot be this image. On Linux a
+loop device whose backing file was deleted is matched through the kernel's own
+record (`LOOP_GET_STATUS64`, loop(4)) when the process may open `/dev/loopN`
+(usually the `disk` group), and is otherwise not matched.
+
+**What the check cannot see**
+
+- **A mount made after the share opened the image.** The check runs when an
+  image is opened: at start, for a share created through the admin API, and when
+  a reload rebuilds the shares (a change of people or lists) and finds the image
+  mounted since, in which case that share gets a read-only open of its own. A
+  reload that changes nothing does not look again, and nothing watches for a
+  later `hdiutil attach` or `mount -o loop`. Stop the share, or restart the
+  server, before mounting an image it serves writable.
+- **Mounts that go through no loop device or `hdiutil`:** `qemu-nbd -c` (an nbd
+  device: the kernel does not record the backing file), FUSE mounts (`fuse2fs`,
+  `guestmount`), and a virtual machine or other program that has the image open.
+- A Linux loop device attached in another mount namespace, or whose backing file
+  was deleted when `/dev/loopN` cannot be opened.
+- A share that was made read-only because of a mount stays read-only on a
+  reload even if the mount has gone; restart it to open it for writing again.
 
 ## SFTP answers requests concurrently
 

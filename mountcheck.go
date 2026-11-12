@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,13 +41,38 @@ var errMountUnsupported = errors.New("this platform cannot tell whether the OS h
 // mountCheckTimeout bounds the one external command (hdiutil) a check runs.
 const mountCheckTimeout = 15 * time.Second
 
-// imageMountedBy answers who in the OS has the image fi is the file of: a
+// A mountMatcher answers who in the OS has the image fi is the file of: a
 // non-empty description (a device, a mount point) when somebody does, "" and a
-// nil error when nobody does, errMountUnsupported when the platform cannot be
-// asked, any other error when it could and it failed. A variable so a test can
-// stand in for the OS.
-var imageMountedBy = func(ctx context.Context, fi os.FileInfo) (string, error) {
-	return platformMountedBy(ctx, fi)
+// nil error when nobody does, any error when it could not tell. It answers from
+// one look at the OS, taken when the matcher was made.
+type mountMatcher func(fi os.FileInfo) (string, error)
+
+// newMountMatcher looks at the OS once and returns the matcher, or
+// errMountUnsupported when the platform cannot be asked, any other error when it
+// could and it failed. A variable so a test can stand in for the OS.
+var newMountMatcher = func(ctx context.Context) (mountMatcher, error) {
+	return platformMatcher(ctx)
+}
+
+// mountScan is one look at the OS, shared by every share of one load: macOS
+// answers it with one `hdiutil info`, not one per share. A load makes a new one
+// (server.openSharesExpanding), so a later reload sees a later mount.
+type mountScan struct {
+	once  sync.Once
+	match mountMatcher
+	err   error
+}
+
+func (m *mountScan) holder(fi os.FileInfo) (string, error) {
+	m.once.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), mountCheckTimeout)
+		defer cancel()
+		m.match, m.err = newMountMatcher(ctx)
+	})
+	if m.err != nil {
+		return "", m.err
+	}
+	return m.match(fi)
 }
 
 // imageMountUnknownValues are the words image_mount_unknown takes. The first is
@@ -85,12 +111,51 @@ func mountVerdict(b shareBlock, where string, err error) (line string, readOnly 
 // mountGuard asks the OS, applies the policy, and writes the one log line.
 // It reports whether the image must be opened read-only.
 func (s *server) mountGuard(b shareBlock, fi os.FileInfo) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), mountCheckTimeout)
-	defer cancel()
-	where, err := imageMountedBy(ctx, fi)
+	scan := s.mountScan.Load()
+	if scan == nil { // not inside a load: a look of its own
+		scan = &mountScan{}
+	}
+	where, err := scan.holder(fi)
+	return s.sayMountVerdict(b, where, err)
+}
+
+func (s *server) sayMountVerdict(b shareBlock, where string, err error) bool {
 	line, ro := mountVerdict(b, where, err)
 	if line != "" {
 		fmt.Fprintf(s.out, "%s %s\n", b.Image, line)
 	}
 	return ro
+}
+
+// mountGuardAdopted is the check for a share that is about to adopt the driver
+// of an image already open for writing (a reload): the image may have been
+// mounted since it was opened. It reports whether the share must be given a
+// read-only open of its own instead. A device is never written, so never asked.
+func (s *server) mountGuardAdopted(b shareBlock) bool {
+	fi, err := statImage(b)
+	if err != nil {
+		return s.sayMountVerdict(b, "", fmt.Errorf("stat: %w", err))
+	}
+	if isDevice(fi) {
+		return false
+	}
+	return s.mountGuard(b, fi)
+}
+
+// statImage stats the image the way it is opened: through its source root when
+// the share is confined.
+func statImage(b shareBlock) (os.FileInfo, error) {
+	if len(b.confine) == 0 {
+		return os.Stat(b.Image)
+	}
+	root, rel, err := rootOf(b.confine, b.Image)
+	if err != nil {
+		return nil, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return r.Stat(rel)
 }

@@ -22,16 +22,16 @@ const hfsplusHardMax = 64 << 30
 
 // defaultHFSPlusWritableMax is hfsplus_writable_max when a share does not say.
 //
-// Why 256 MiB: a writable HFS+ volume is the WHOLE image held in memory, and
-// hfsplus v0.9.0 writes the whole image back on every operation (measured: 16
-// MiB written for a 1-byte write plus a Chtimes on an 8 MiB image). So the size
-// is both the memory a share costs and the I/O of every create, write, rename
-// or Chtimes a client makes. 256 MiB is the size where one operation is still a
-// fraction of a second on an SSD and a server with a dozen such shares still
-// fits in a few GiB; it is a default, not a limit of the format. Raise it per
-// share knowing both costs. go-filesystems/hfsplus#33 is the real fix (writing
-// only what changed); the default can grow when that lands.
-const defaultHFSPlusWritableMax = 256 << 20
+// Why 0 (no HFS+ image is written unless a share asks): hfsplus v0.9.0 is not
+// crash-safe. It holds the WHOLE image in memory, writes the whole image back
+// on every operation (measured: 16 MiB written for a 1-byte write plus a Chtimes
+// on an 8 MiB image), and never marks the volume as in use while it does. A
+// crash or power loss in the middle of that write leaves a torn image that
+// still says it was cleanly unmounted, so nothing checks it at the next mount.
+// Writing is opt-in per share until go-filesystems/hfsplus#34 (in-place writes
+// that keep a crash visible) is released; a share that sets a size accepts that
+// risk and both costs. v0.44.0 and v0.45.0 defaulted to 256 MiB.
+const defaultHFSPlusWritableMax = 0
 
 // parseImageSize reads a hfsplus_writable_max: a number of bytes, or one with a
 // K, M, G or T suffix (powers of 1024, an optional "B" or "iB" after it). "0"
@@ -111,6 +111,9 @@ func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
 	}
 	limit := min(o.max, hfsplusHardMax)
 	switch {
+	case o.max == 0:
+		o.fallback = "hfsplus_writable_max is 0, the default: hfsplus v0.9.0 is not crash-safe (a crash mid-write can leave a torn image marked clean), so HFS+ images are written only when a share sets a size"
+		return hfsplus.OpenReader(r, size)
 	case size <= 0:
 		o.fallback = "its size is not known, so it cannot be held in memory for writing"
 		return hfsplus.OpenReader(r, size)

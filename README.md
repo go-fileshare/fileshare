@@ -1676,24 +1676,55 @@ What a share can store depends on its driver, at the versions this release pins:
 | directory (osfs) | unstorable unless equal to the reported birth time | unstorable unless equal | stored (a ChangeTime sent with it is accepted) |
 | image, driver with `Chtimes`: ext4, ufs, btrfs, xfs, zfs | unstorable unless equal to the reported one (only ext4 reports any: for the others, always) | the same | stored (a ChangeTime sent with it is accepted) |
 | image, FAT or exFAT (since v0.43.0) | unstorable unless equal to the reported one (both report one) | the same | stored at the format's resolution: FAT write time 2 s (rounded down) and access time the date only; exFAT write time 10 ms and access time 2 s (a ChangeTime sent with it is accepted) |
-| image, driver without `Chtimes`: NTFS, HFS+, APFS, ISO 9660, SquashFS | the same (NTFS and HFS+ report one; the others never) | the same, **also** with an access or write time | **always unstorable** |
+| image, HFS+ (since v0.44.0, writable volume) | unstorable unless equal to the reported one (it reports one) | the same | stored to the second (a ChangeTime sent with it is accepted); see "HFS+ image shares are writable" below for the volumes that stay read-only |
+| image, driver without `Chtimes`: NTFS, APFS, ISO 9660, SquashFS | the same (NTFS reports one; the others never) | the same, **also** with an access or write time | **always unstorable** |
 
 The drivers with `Chtimes` are osfs (`osfs.go:383`), ext4 (`metadata.go:93`),
 ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`), zfs
 (`metadata.go:94`) and, since v0.43.0, fat32 v0.13.0 and exFAT v0.6.0
 (`filesystem.MetadataSetter` in full: their `Chmod` and `Chown` return
-`ErrNotSupported`, since FAT has no mode bits or owners); NTFS, HFS+ at the
-pinned v0.7.0, APFS, ISO 9660 and SquashFS have none. hfsplus v0.8.0 (pinned
-since v0.43.0) implements `Chtimes`, `Chmod` and `Chown`, but an HFS+ image share
-is opened through `hfsplus.OpenReader`, whose volume is read-only, so a time set
-over SMB is still not stored there. And what the hfsplus driver writes into an
-`hdiutil`-created journaled image is not seen by macOS (Refs
-go-filesystems/hfsplus#29). `lockFS` carries `Chtimes` (and `Chmod`,
+`ErrNotSupported`, since FAT has no mode bits or owners); NTFS, APFS, ISO 9660
+and SquashFS have none. hfsplus implements `Chtimes`, `Chmod` and `Chown`
+(v0.8.0), and since v0.44.0 (hfsplus v0.9.0) an HFS+ image share is opened
+writable, so a time set over SMB is stored there (see the next section).
+`lockFS` carries `Chtimes` (and `Chmod`,
 `Chown`) exactly when the driver
 has it, under the image's one lock. Windows Explorer and `robocopy /COPY:T` send
 a CreationTime; Linux `touch -d` and `cp -p` send only access and write times
 (the kernel client adds a ChangeTime of "now"): a directory and a driver with
 `Chtimes` store those, a driver without it does not.
+
+## HFS+ image shares are writable
+
+Since v0.44.0 (hfsplus v0.9.0, go-filesystems/hfsplus#31) a share whose image
+holds HFS+ is **opened for writing**, like FAT, exFAT and ext4: files can be
+created, changed and deleted, and a client's `Chtimes`, `Chmod` and `Chown` are
+stored. Before, it was opened through `hfsplus.OpenReader`, whose volume is
+read-only, so every write failed and a time set over SMB was dropped. The image
+is read into memory when the share opens and every change is written back to
+the file, so an HFS+ image share needs memory for the whole image (an image
+larger than 64 GiB opens read-only).
+
+A **journaled** volume (what `hdiutil create -fs "Journaled HFS+"` and macOS
+make) is written only when its journal is empty, which is what a clean unmount
+leaves: macOS then has nothing to replay at the next mount. A journal with
+transactions in it, or one that cannot be verified, would be replayed over what
+this server writes, so hfsplus refuses it (`ErrJournaled`) and **the share opens
+read-only instead**. The server does not stop; it writes one line when it opens
+the share, naming the image and the share:
+
+```text
+/srv/mac.img is an HFS+ volume whose journal holds transactions, so mac is read-only: hfsplus: journaled volume with a journal that is not empty: transactions pending (start 17408, end 34816)
+```
+
+To make such a share writable, get the journal replayed first (mount the image
+on a Mac and eject it cleanly, or run `fsck_hfs` on it). A share configured
+`read_only = true` is still opened through `hfsplus.OpenReader` and never tries
+the writable open.
+
+**Do not write an image that is mounted**, here or anywhere else: neither the
+server nor macOS knows about the other's changes (hfsplus README). Serve an
+image that nothing else has open. Follow-ups: go-filesystems/hfsplus#32.
 
 ## SFTP answers requests concurrently
 

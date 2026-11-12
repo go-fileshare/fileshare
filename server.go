@@ -28,7 +28,6 @@ import (
 	filesystem_exfat "github.com/go-filesystems/exfat"
 	filesystem_ext4 "github.com/go-filesystems/ext4"
 	filesystem_fat32 "github.com/go-filesystems/fat32"
-	"github.com/go-filesystems/hfsplus"
 	filesystem_iso9660 "github.com/go-filesystems/iso9660"
 	filesystem_ntfs "github.com/go-filesystems/ntfs"
 	filesystem_squashfs "github.com/go-filesystems/squashfs"
@@ -177,7 +176,9 @@ func registerDrivers() {
 	detect.Register(detect.NTFS, filesystem_ntfs.OpenReader)
 	detect.Register(detect.ISO9660, filesystem_iso9660.OpenReader)
 	detect.Register(detect.SquashFS, filesystem_squashfs.OpenReader)
-	detect.Register(detect.HFSPlus, hfsplus.OpenReader)
+	// Not hfsplus.OpenReader: that is read-only whatever the reader is. See
+	// openHFSPlus.
+	detect.Register(detect.HFSPlus, openHFSPlus)
 	detect.Register(detect.UFS, filesystem_ufs.OpenReader)
 }
 
@@ -473,10 +474,28 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 		}
 		sh.forcedReadOnly = true
 	}
+	if ro {
+		// Opened read-only, so no driver is offered the means to write: an
+		// HFS+ volume would otherwise be loaded writable on a descriptor that
+		// refuses every write.
+		r = readOnlyReader{r}
+	}
 	fsys, kind, took, err := openShareImage(b, f, r, size, ro)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("%s: %w", b.Image, err)
+	}
+	if jv, ok := fsys.(journaledReadOnly); ok {
+		// Not what was asked for, so it is said out loud, once: the share
+		// works, and it will not take a write, because macOS would replay the
+		// journal over whatever was written.
+		if !sh.readOnly {
+			fmt.Fprintf(out, "%s is an HFS+ volume whose journal holds transactions, so %s is read-only: %v\n",
+				b.Image, b.Name, jv.why)
+			sh.readOnly = true
+			sh.writers = nil
+		}
+		sh.forcedReadOnly = true
 	}
 	sh.openedReadOnly = ro
 	sh.askedWrite = !b.ReadOnly

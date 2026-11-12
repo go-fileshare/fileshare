@@ -485,7 +485,7 @@ func TestMountedImageIsServedReadOnly(t *testing.T) {
 			path := mk(t)
 			withOS(t, "/dev/disk4s1, mounted at /Volumes/X", nil)
 			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-				"share \"attic\" {\n  image = \""+hclPath(path)+"\"\n}\n"))
+				"share \"attic\" {\n  image = \""+hclPath(path)+"\"\n  hfsplus_writable_max = \"8M\"\n}\n"))
 			sh := r.srv.shareByName("attic")
 			if !sh.readOnly || !sh.forcedReadOnly {
 				t.Errorf("readOnly=%v forced=%v, want both", sh.readOnly, sh.forcedReadOnly)
@@ -515,9 +515,11 @@ func TestMountCheckFailureFollowsImageMountUnknown(t *testing.T) {
 		t.Run("setting="+c.setting, func(t *testing.T) {
 			path := hfsImage(t)
 			withOS(t, "", errors.New("hdiutil: exploded"))
-			extra := ""
+			// HFS+ is written only when the share opts in (default 0): without
+			// this the "write" case would be read-only for that reason, not this.
+			extra := "  hfsplus_writable_max = \"8M\"\n"
 			if c.setting != "" {
-				extra = "  image_mount_unknown = \"" + c.setting + "\"\n"
+				extra += "  image_mount_unknown = \"" + c.setting + "\"\n"
 			}
 			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
 				"share \"attic\" {\n  image = \""+hclPath(path)+"\"\n"+extra+"}\n"))
@@ -537,7 +539,7 @@ func TestUnmountedImageAndUnsupportedPlatformStayWritableAndSilent(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			withOS(t, "", err)
 			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
-				"share \"attic\" {\n  image = \""+hclPath(hfsImage(t))+"\"\n}\n"))
+				"share \"attic\" {\n  image = \""+hclPath(hfsImage(t))+"\"\n  hfsplus_writable_max = \"8M\"\n}\n"))
 			if r.srv.shareByName("attic").readOnly {
 				t.Errorf("read-only\n%s", r.out.String())
 			}

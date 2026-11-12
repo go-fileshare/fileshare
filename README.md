@@ -1676,7 +1676,7 @@ What a share can store depends on its driver, at the versions this release pins:
 | directory (osfs) | unstorable unless equal to the reported birth time | unstorable unless equal | stored (a ChangeTime sent with it is accepted) |
 | image, driver with `Chtimes`: ext4, ufs, btrfs, xfs, zfs | unstorable unless equal to the reported one (only ext4 reports any: for the others, always) | the same | stored (a ChangeTime sent with it is accepted) |
 | image, FAT or exFAT (since v0.43.0) | unstorable unless equal to the reported one (both report one) | the same | stored at the format's resolution: FAT write time 2 s (rounded down) and access time the date only; exFAT write time 10 ms and access time 2 s (a ChangeTime sent with it is accepted) |
-| image, HFS+ (since v0.44.0, writable volume) | unstorable unless equal to the reported one (it reports one) | the same | stored to the second (a ChangeTime sent with it is accepted); see "HFS+ image shares are writable" below for the volumes that stay read-only |
+| image, HFS+ (since v0.44.0; opt-in since v0.45.1: `hfsplus_writable_max`) | unstorable unless equal to the reported one (it reports one) | the same | stored to the second (a ChangeTime sent with it is accepted) when the share is writable; with the default setting the share is read-only: see "HFS+ image shares" below |
 | image, driver without `Chtimes`: NTFS, APFS, ISO 9660, SquashFS | the same (NTFS reports one; the others never) | the same, **also** with an access or write time | **always unstorable** |
 
 The drivers with `Chtimes` are osfs (`osfs.go:383`), ext4 (`metadata.go:93`),
@@ -1685,8 +1685,9 @@ ufs (`metadata.go:63`), btrfs (`fs.go:382`), xfs (`fs.go:521`), zfs
 (`filesystem.MetadataSetter` in full: their `Chmod` and `Chown` return
 `ErrNotSupported`, since FAT has no mode bits or owners); NTFS, APFS, ISO 9660
 and SquashFS have none. hfsplus implements `Chtimes`, `Chmod` and `Chown`
-(v0.8.0), and since v0.44.0 (hfsplus v0.9.0) an HFS+ image share is opened
-writable, so a time set over SMB is stored there (see the next section).
+(v0.8.0), and since v0.44.0 (hfsplus v0.9.0) an HFS+ image share can be opened
+writable, so a time set over SMB is stored there; since v0.45.1 only when the
+share sets `hfsplus_writable_max` (see the next section).
 `lockFS` carries `Chtimes` (and `Chmod`,
 `Chown`) exactly when the driver
 has it, under the image's one lock. Windows Explorer and `robocopy /COPY:T` send
@@ -1694,34 +1695,47 @@ a CreationTime; Linux `touch -d` and `cp -p` send only access and write times
 (the kernel client adds a ChangeTime of "now"): a directory and a driver with
 `Chtimes` store those, a driver without it does not.
 
-## HFS+ image shares are writable
+## HFS+ image shares: read-only unless a share opts in to writing
 
 Since v0.44.0 (hfsplus v0.9.0, go-filesystems/hfsplus#31) a share whose image
-holds HFS+ is **opened for writing**, like FAT, exFAT and ext4: files can be
+holds HFS+ can be **opened for writing**, like FAT, exFAT and ext4: files can be
 created, changed and deleted, and a client's `Chtimes`, `Chmod` and `Chown` are
 stored. Before, it was opened through `hfsplus.OpenReader`, whose volume is
 read-only, so every write failed and a time set over SMB was dropped.
 
-**What a writable HFS+ image costs.** hfsplus v0.9.0 holds the whole image in
-memory and writes the whole image back on every operation (a create, a write, a
-rename, a `Chtimes`: measured, 16 MiB written for a 1-byte write plus a `Chtimes`
-on an 8 MiB image). Memory per share is the image size, and so is the I/O of
-each change. Refs go-filesystems/hfsplus#33 is the real fix (write only what
-changed). Until then a share opens an HFS+ image for writing only up to a cap:
+**Since v0.45.1 that is off by default.** hfsplus v0.9.0 is not crash-safe: it
+rewrites the whole image on every operation and never marks the volume as in use
+while it does, so a crash or power loss in the middle of a write leaves a torn
+image that still says it was cleanly unmounted, and nothing checks it at the next
+mount. On a journaled volume the fix needs more than writing in place. v0.44.0
+and v0.45.0 wrote by default (up to 256 MiB). The fix is Refs
+go-filesystems/hfsplus#34 (in-place writes that keep a crash visible); the
+default can come back when it is released. Until then an HFS+ share is served
+**read-only** (through `hfsplus.OpenReader`, with range reads and times as
+before, marked read-only) unless it sets `hfsplus_writable_max`:
 
 ```hcl
 share "mac" {
   image                = "/srv/mac.img"
-  hfsplus_writable_max = "256M"   # the default; "0" never writes; a number of bytes, or K, M, G, T
+  hfsplus_writable_max = "256M"   # opt in: the largest image to write; default "0" = never; a number of bytes, or K, M, G, T
 }
 ```
 
-256 MiB is the size at which one operation is still a fraction of a second on an
-SSD and a dozen such shares still fit in a few GiB; raise it per share knowing
-both costs (hfsplus's own ceiling, 64 GiB, applies whatever is set). Above the
-cap, or when the size is unknown, the share opens **read-only** through
-`hfsplus.OpenReader`, with range reads and times as before, is marked read-only,
-and the server writes one line naming the image, the size and the cap:
+Setting a size accepts the risk above and these costs: hfsplus v0.9.0 holds the
+whole image in memory and writes it back whole on every operation (a create, a
+write, a rename, a `Chtimes`: measured, 16 MiB written for a 1-byte write plus a
+`Chtimes` on an 8 MiB image), so memory per share is the image size, and so is
+the I/O of each change (Refs go-filesystems/hfsplus#33). Pick the size knowing
+both; hfsplus's own ceiling, 64 GiB, applies whatever is set. Back up the image
+first. An image above the size, or of unknown size, is served read-only too.
+Each of these opens writes one line naming the image and the reason, for
+instance with no setting:
+
+```text
+/srv/mac.img is an HFS+ volume and hfsplus_writable_max is 0, the default: hfsplus v0.9.0 is not crash-safe (a crash mid-write can leave a torn image marked clean), so HFS+ images are written only when a share sets a size, so mac is read-only
+```
+
+and over the size:
 
 ```text
 /srv/mac.img is an HFS+ volume and it is 1073741824 bytes, over hfsplus_writable_max (268435456 bytes): a writable HFS+ image is held in memory and rewritten whole on every change, so mac is read-only

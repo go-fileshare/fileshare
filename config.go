@@ -381,6 +381,12 @@ type shareBlock struct {
 	// "log" ignores it and writes one line naming the share and the path where
 	// the server writes its own. Only SMB has such a request; since v0.42.0.
 	UnstorableTimes string `hcl:"unstorable_times,optional"`
+	// HFSPlusWritableMax is the largest HFS+ image a share opens for writing:
+	// "256M" when absent, a number of bytes or one with a K, M, G or T suffix,
+	// "0" for never. A writable HFS+ volume is the whole image in memory and is
+	// rewritten whole by every change (go-filesystems/hfsplus#33), so a larger
+	// image opens read-only, with one log line saying so. Since v0.44.0.
+	HFSPlusWritableMax string `hcl:"hfsplus_writable_max,optional"`
 
 	// vol is what the provisioner said of the volume an admin API share is
 	// made from, when it is served: see capacity.go.
@@ -564,6 +570,11 @@ func (c *config) check() error {
 		}
 		if err := checkUnstorableTimes(s); err != nil {
 			return err
+		}
+		if s.HFSPlusWritableMax != "" {
+			if _, err := parseImageSize(s.HFSPlusWritableMax); err != nil {
+				return fmt.Errorf("share %q: hfsplus_writable_max: %w", s.Name, err)
+			}
 		}
 		if s.ReadOnly && len(s.Writers) > 0 {
 			return fmt.Errorf("share %q is read_only and also lists writers: read_only wins, so say one or the other", s.Name)

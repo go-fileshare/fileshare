@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/cloudsoda/go-smb2"
 	"github.com/go-filesystems/hfsplus"
+	filesystem "github.com/go-filesystems/interface"
 )
 
 // hfsImage is an 8 MiB HFS+ image holding /a.txt.
@@ -186,12 +188,35 @@ func TestHFSPlusEmptyJournalStaysWritable(t *testing.T) {
 	}
 }
 
-// A share configured read_only keeps hfsplus.OpenReader's behaviour: no fallback
-// message (nothing was refused, nothing was tried), no write, image untouched.
+// A share's driver, as the protocols reach it (behind lockFS), and whether it
+// still has the range reads and the times a read-only HFS+ volume has.
+func driverOf(t *testing.T, r *running, name string) filesystem.Filesystem {
+	t.Helper()
+	sh := r.srv.shareByName(name)
+	if sh == nil || sh.fsys == nil {
+		t.Fatalf("no share %q", name)
+	}
+	return sh.fsys
+}
+
+func wantAbilities(t *testing.T, fsys filesystem.Filesystem) {
+	t.Helper()
+	if _, ok := fsys.(filesystem.Opener); !ok {
+		t.Error("the share lost filesystem.Opener (range reads)")
+	}
+	if _, ok := fsys.(filesystem.TimesReader); !ok {
+		t.Error("the share lost filesystem.TimesReader")
+	}
+}
+
+// A share configured read_only keeps hfsplus.OpenReader's behaviour. The
+// assertion is on the DRIVER, not the protocol (which refuses a write by itself
+// on a read_only share): the volume must answer ErrReadOnly, so a writable open
+// that merely sits behind a refusing protocol layer fails this. The image is
+// not journaled, so a wrongly writable open would succeed silently.
 func TestHFSPlusReadOnlyShareStaysReadOnly(t *testing.T) {
 	needUsers(t)
 	path := hfsImage(t)
-	hfsJournaled(t, path, 0x4400, 0x8800) // would log, were it opened for writing
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -202,11 +227,13 @@ func TestHFSPlusReadOnlyShareStaysReadOnly(t *testing.T) {
 	if b, err := share.ReadFile("a.txt"); err != nil || string(b) != "hello" {
 		t.Fatalf("read: %q, %v", b, err)
 	}
-	if err := share.WriteFile("new.txt", []byte("x"), 0o644); err == nil {
-		t.Error("a write into a read_only share succeeded")
+	fsys := driverOf(t, r, "attic")
+	if err := fsys.WriteFile("/new.txt", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
+		t.Errorf("the driver of a read_only share answered %v to a write, want ErrReadOnly", err)
 	}
-	if strings.Contains(r.out.String(), "journal") {
-		t.Errorf("a read_only share tried the writable open:\n%s", r.out.String())
+	wantAbilities(t, fsys)
+	if out := r.out.String(); strings.Contains(out, "HFS+") {
+		t.Errorf("a read_only share logged a fallback:\n%s", out)
 	}
 	after, _ := os.ReadFile(path)
 	if !bytes.Equal(before, after) {
@@ -214,11 +241,97 @@ func TestHFSPlusReadOnlyShareStaysReadOnly(t *testing.T) {
 	}
 }
 
-// openHFSPlus decides writable-or-not from the reader it is handed: the reader
-// of a read-only open (readOnlyReader) gets hfsplus.OpenReader's volume, a
-// read-write file gets a volume that writes, and a journaled one comes back as
-// journaledReadOnly carrying ErrJournaled.
-func TestOpenHFSPlusChoosesByReader(t *testing.T) {
+// The journaled fallback serves what a read-only open always served: range
+// reads and times survive lockFS.
+func TestHFSPlusJournaledFallbackKeepsItsAbilities(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	hfsJournaled(t, path, 0x4400, 0x8800)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n}\n", hclPath(path))))
+	fsys := driverOf(t, r, "attic")
+	wantAbilities(t, fsys)
+	if err := fsys.WriteFile("/new.txt", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
+		t.Errorf("the fallback driver answered %v to a write, want ErrReadOnly", err)
+	}
+	if !r.srv.shareByName("attic").readOnly {
+		t.Error("the fallback share is not marked read-only")
+	}
+}
+
+// An image over hfsplus_writable_max opens read-only, readable, marked
+// read-only, and says so once, naming the share, the size and the cap. The
+// default is 256 MiB, so a small cap is set to bring the 8 MiB test image over.
+func TestHFSPlusImageOverTheCapIsReadOnly(t *testing.T) {
+	needUsers(t)
+	for _, max := range []string{"1M", "0"} {
+		t.Run(max, func(t *testing.T) {
+			path := hfsImage(t)
+			r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+				fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = %q\n}\n", hclPath(path), max)))
+			share := mountSMB(t, r, "alice", "hunter2", "attic")
+			if b, err := share.ReadFile("a.txt"); err != nil || string(b) != "hello" {
+				t.Fatalf("read: %q, %v", b, err)
+			}
+			if err := share.WriteFile("new.txt", []byte("x"), 0o644); err == nil {
+				t.Error("a write into an image over the cap succeeded")
+			}
+			sh := r.srv.shareByName("attic")
+			if !sh.readOnly {
+				t.Error("the share is not marked read-only")
+			}
+			wantAbilities(t, sh.fsys)
+			out := r.out.String()
+			if n := strings.Count(out, "hfsplus_writable_max"); n != 1 {
+				t.Errorf("cap logged %d times, want once:\n%s", n, out)
+			}
+			for _, want := range []string{"attic", "8388608 bytes", "so attic is read-only"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("log lacks %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
+// At or under the cap the same image is written.
+func TestHFSPlusImageUnderTheCapIsWritable(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	share := mountSMB(t, r, "alice", "hunter2", "attic")
+	if err := share.WriteFile("new.txt", []byte("x"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v\n%s", err, r.out.String())
+	}
+}
+
+func TestParseImageSize(t *testing.T) {
+	for in, want := range map[string]int64{"0": 0, "512": 512, "256M": 256 << 20, "1G": 1 << 30,
+		"2GiB": 2 << 30, "4K": 4096, " 8MB ": 8 << 20, "1T": 1 << 40} {
+		if got, err := parseImageSize(in); err != nil || got != want {
+			t.Errorf("%q = %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "M", "-1", "1.5G", "ten", "9999999999T", "1X"} {
+		if got, err := parseImageSize(in); err == nil {
+			t.Errorf("%q accepted as %d", in, got)
+		}
+	}
+}
+
+func TestBadHFSPlusWritableMaxIsRefusedAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	p := write(t, dir, "bad.hcl", onlyProtocol(t, dir, "smb",
+		"share \"a\" {\n  directory = \"/tmp\"\n  hfsplus_writable_max = \"lots\"\n}\n"))
+	if _, err := loadConfig([]string{p}); err == nil || !strings.Contains(err.Error(), "hfsplus_writable_max") {
+		t.Errorf("loadConfig = %v, want a refusal naming hfsplus_writable_max", err)
+	}
+}
+
+// openHFSPlus decides from what openImage registered for the reader, and
+// checks every condition before reading the image into memory.
+func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 	path := hfsImage(t)
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -226,23 +339,54 @@ func TestOpenHFSPlusChoosesByReader(t *testing.T) {
 	}
 	defer f.Close()
 	st, _ := f.Stat()
+	reg := func(o *hfsplusOpen) {
+		hfsplusOpens.Store(io.ReaderAt(f), o)
+		t.Cleanup(func() { hfsplusOpens.Delete(io.ReaderAt(f)) })
+	}
 
-	ro, err := openHFSPlus(readOnlyReader{f}, st.Size())
+	// No entry: read-only, whatever the reader could do.
+	ro, err := openHFSPlus(f, st.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ro.WriteFile("/x", []byte("x"), 0o644); err == nil {
-		t.Error("a volume opened over a readOnlyReader took a write")
+	if err := ro.WriteFile("/x", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
+		t.Errorf("a volume with no registration answered %v to a write, want ErrReadOnly", err)
 	}
 
+	// Size unknown, and over the cap: read-only with a reason, without reading.
+	for name, tc := range map[string]struct {
+		size int64
+		max  int64
+		want string
+	}{"unknown size": {0, 1 << 30, "size is not known"}, "negative size": {-1, 1 << 30, "size is not known"},
+		"over the cap": {st.Size(), 1 << 20, "hfsplus_writable_max"},
+		"over 64 GiB":  {hfsplusHardMax + 1, 1 << 62, "hfsplus_writable_max"}} {
+		o := &hfsplusOpen{max: tc.max, file: f}
+		reg(o)
+		// OpenReader refuses a size that is not the file's: the point is the
+		// reason, set before any allocation.
+		_, _ = openHFSPlus(f, tc.size)
+		if !strings.Contains(o.fallback, tc.want) {
+			t.Errorf("%s: fallback %q, want it to say %q", name, o.fallback, tc.want)
+		}
+	}
+
+	// Registered, in range: writable.
+	o := &hfsplusOpen{max: 1 << 30, file: f}
+	reg(o)
 	rw, err := openHFSPlus(f, st.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := rw.WriteFile("/x", []byte("x"), 0o644); err != nil {
-		t.Errorf("a volume opened over a read-write file refused a write: %v", err)
+		t.Errorf("a registered volume refused a write: %v (fallback %q)", err, o.fallback)
+	}
+	if o.fallback != "" {
+		t.Errorf("a writable open set a fallback: %q", o.fallback)
 	}
 
+	// Journaled: read-only, ErrJournaled named. f held the image lock.
+	f.Close()
 	hfsJournaled(t, path, 1, 2)
 	g, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -250,15 +394,15 @@ func TestOpenHFSPlusChoosesByReader(t *testing.T) {
 	}
 	defer g.Close()
 	gst, _ := g.Stat()
+	jo := &hfsplusOpen{max: 1 << 30, file: g}
+	hfsplusOpens.Store(io.ReaderAt(g), jo)
+	defer hfsplusOpens.Delete(io.ReaderAt(g))
 	jv, err := openHFSPlus(g, gst.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
-	j, ok := jv.(journaledReadOnly)
-	if !ok || !errors.Is(j.why, hfsplus.ErrJournaled) {
-		t.Fatalf("got %T, want journaledReadOnly carrying ErrJournaled", jv)
+	if !strings.Contains(jo.fallback, hfsplus.ErrJournaled.Error()) {
+		t.Errorf("fallback %q does not name ErrJournaled", jo.fallback)
 	}
-	if _, err := j.ReadFile("/a.txt"); err != nil {
-		t.Errorf("a journaled volume must stay readable: %v", err)
-	}
+	wantAbilities(t, lockFS(jv))
 }

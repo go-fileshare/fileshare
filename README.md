@@ -1700,27 +1700,53 @@ Since v0.44.0 (hfsplus v0.9.0, go-filesystems/hfsplus#31) a share whose image
 holds HFS+ is **opened for writing**, like FAT, exFAT and ext4: files can be
 created, changed and deleted, and a client's `Chtimes`, `Chmod` and `Chown` are
 stored. Before, it was opened through `hfsplus.OpenReader`, whose volume is
-read-only, so every write failed and a time set over SMB was dropped. The image
-is read into memory when the share opens and every change is written back to
-the file, so an HFS+ image share needs memory for the whole image (an image
-larger than 64 GiB opens read-only).
+read-only, so every write failed and a time set over SMB was dropped.
+
+**What a writable HFS+ image costs.** hfsplus v0.9.0 holds the whole image in
+memory and writes the whole image back on every operation (a create, a write, a
+rename, a `Chtimes`: measured, 16 MiB written for a 1-byte write plus a `Chtimes`
+on an 8 MiB image). Memory per share is the image size, and so is the I/O of
+each change. Refs go-filesystems/hfsplus#33 is the real fix (write only what
+changed). Until then a share opens an HFS+ image for writing only up to a cap:
+
+```hcl
+share "mac" {
+  image                = "/srv/mac.img"
+  hfsplus_writable_max = "256M"   # the default; "0" never writes; a number of bytes, or K, M, G, T
+}
+```
+
+256 MiB is the size at which one operation is still a fraction of a second on an
+SSD and a dozen such shares still fit in a few GiB; raise it per share knowing
+both costs (hfsplus's own ceiling, 64 GiB, applies whatever is set). Above the
+cap, or when the size is unknown, the share opens **read-only** through
+`hfsplus.OpenReader`, with range reads and times as before, is marked read-only,
+and the server writes one line naming the image, the size and the cap:
+
+```text
+/srv/mac.img is an HFS+ volume and it is 1073741824 bytes, over hfsplus_writable_max (268435456 bytes): a writable HFS+ image is held in memory and rewritten whole on every change, so mac is read-only
+```
 
 A **journaled** volume (what `hdiutil create -fs "Journaled HFS+"` and macOS
 make) is written only when its journal is empty, which is what a clean unmount
 leaves: macOS then has nothing to replay at the next mount. A journal with
 transactions in it, or one that cannot be verified, would be replayed over what
 this server writes, so hfsplus refuses it (`ErrJournaled`) and **the share opens
-read-only instead**. The server does not stop; it writes one line when it opens
-the share, naming the image and the share:
+read-only instead**, again with one line. (hfsplus has no journal check that
+works without the image in memory, so this one case reads the image, up to the
+cap, before it falls back.) To make such a share writable, get the journal
+replayed first (mount the image on a Mac and eject it cleanly, or run `fsck_hfs`
+on it).
 
-```text
-/srv/mac.img is an HFS+ volume whose journal holds transactions, so mac is read-only: hfsplus: journaled volume with a journal that is not empty: transactions pending (start 17408, end 34816)
-```
+**Another writer.** Because the image is flushed whole, a second writer would be
+overwritten by the next flush. A writable open takes an exclusive advisory
+`flock` on the image (Linux, macOS and the BSDs); if another process holds it
+(a second fileshare on the same image, anything that takes the lock) the share
+opens read-only and says so. The lock is advisory: it does not stop a macOS
+mount, which does not take it, and on other platforms there is no lock at all.
 
-To make such a share writable, get the journal replayed first (mount the image
-on a Mac and eject it cleanly, or run `fsck_hfs` on it). A share configured
-`read_only = true` is still opened through `hfsplus.OpenReader` and never tries
-the writable open.
+A share configured `read_only = true`, a device and a partition are still opened
+through `hfsplus.OpenReader` and never try the writable open.
 
 **Do not write an image that is mounted**, here or anywhere else: neither the
 server nor macOS knows about the other's changes (hfsplus README). Serve an

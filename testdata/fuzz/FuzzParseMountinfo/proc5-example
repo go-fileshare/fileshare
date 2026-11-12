@@ -1,0 +1,2 @@
+go test fuzz v1
+string("36 35 98:0 /mnt1 /mnt2 rw,noatime master:1 - ext3 /dev/root rw,errors=continue\n")

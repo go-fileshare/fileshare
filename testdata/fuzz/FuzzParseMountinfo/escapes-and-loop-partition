@@ -1,0 +1,2 @@
+go test fuzz v1
+string("40 36 7:1 / /mnt/a\\040b\\134c\\011d rw shared:2 master:3 - vfat /dev/loop1p2 rw\n41 36 0:5 / /\\7 rw - tmpfs none rw\n")

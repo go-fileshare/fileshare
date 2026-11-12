@@ -387,6 +387,13 @@ type shareBlock struct {
 	// rewritten whole by every change (go-filesystems/hfsplus#33), so a larger
 	// image opens read-only, with one log line saying so. Since v0.44.0.
 	HFSPlusWritableMax string `hcl:"hfsplus_writable_max,optional"`
+	// ImageMountUnknown is what a writable image share does when fileshare
+	// could not find out whether the OS has the image attached or mounted:
+	// "read_only" (the default) serves it read-only, "write" serves it writable
+	// anyway. An image the OS DOES have mounted is always served read-only. A
+	// platform that has no way to ask (see mountcheck_other.go) is not a
+	// failure: the share is writable there. Since v0.45.0.
+	ImageMountUnknown string `hcl:"image_mount_unknown,optional"`
 
 	// vol is what the provisioner said of the volume an admin API share is
 	// made from, when it is served: see capacity.go.
@@ -569,6 +576,9 @@ func (c *config) check() error {
 			return err
 		}
 		if err := checkUnstorableTimes(s); err != nil {
+			return err
+		}
+		if err := checkImageMountUnknown(s); err != nil {
 			return err
 		}
 		if s.HFSPlusWritableMax != "" {

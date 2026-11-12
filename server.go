@@ -450,6 +450,25 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 		f.Close()
 		return err
 	}
+	// ⛔ An image the OS has attached or mounted is not written: the flock
+	// below keeps out other fileshares, the OS takes no lock when it mounts.
+	// Asked for EVERY writable image, whatever its driver; see mountcheck.go.
+	// The file is opened again read-only rather than kept, so no descriptor
+	// that could write outlives the decision.
+	if !ro && !isDevice(info) && s.mountGuard(b, info) {
+		f.Close()
+		if len(b.confine) > 0 {
+			f, ro, err = openConfinedImage(b.confine, b.Image, true)
+		} else {
+			f, ro, err = openImageFile(b.Image, true)
+		}
+		if err != nil {
+			return fmt.Errorf("opening %s: %w", b.Image, err)
+		}
+		sh.readOnly = true
+		sh.writers = nil
+		sh.forcedReadOnly = true
+	}
 	// A device has no length in its inode, so it is asked. Doing this
 	// through Stat alone handed every driver a zero-length image.
 	size, err := imageLength(f, info)

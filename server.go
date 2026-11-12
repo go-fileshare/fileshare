@@ -28,7 +28,6 @@ import (
 	filesystem_exfat "github.com/go-filesystems/exfat"
 	filesystem_ext4 "github.com/go-filesystems/ext4"
 	filesystem_fat32 "github.com/go-filesystems/fat32"
-	"github.com/go-filesystems/hfsplus"
 	filesystem_iso9660 "github.com/go-filesystems/iso9660"
 	filesystem_ntfs "github.com/go-filesystems/ntfs"
 	filesystem_squashfs "github.com/go-filesystems/squashfs"
@@ -177,7 +176,9 @@ func registerDrivers() {
 	detect.Register(detect.NTFS, filesystem_ntfs.OpenReader)
 	detect.Register(detect.ISO9660, filesystem_iso9660.OpenReader)
 	detect.Register(detect.SquashFS, filesystem_squashfs.OpenReader)
-	detect.Register(detect.HFSPlus, hfsplus.OpenReader)
+	// Not hfsplus.OpenReader: that is read-only whatever the reader is. See
+	// openHFSPlus.
+	detect.Register(detect.HFSPlus, openHFSPlus)
 	detect.Register(detect.UFS, filesystem_ufs.OpenReader)
 }
 
@@ -473,10 +474,29 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 		}
 		sh.forcedReadOnly = true
 	}
+	// An HFS+ volume is opened for writing only when the share asks, here:
+	// the file was opened read-write and is the whole image (not a device, not
+	// a view of a partition). Without an entry the opener uses OpenReader.
+	var hfs *hfsplusOpen
+	if !ro && !isDevice(info) {
+		hfs = &hfsplusOpen{max: hfsplusWritableMax(b), file: f}
+		hfsplusOpens.Store(io.ReaderAt(f), hfs)
+		defer hfsplusOpens.Delete(io.ReaderAt(f))
+	}
 	fsys, kind, took, err := openShareImage(b, f, r, size, ro)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("%s: %w", b.Image, err)
+	}
+	if hfs != nil && hfs.fallback != "" {
+		// Not what was asked for, so it is said out loud, once: the share
+		// works, and it will not take a write.
+		if !sh.readOnly {
+			fmt.Fprintf(out, "%s is an HFS+ volume and %s, so %s is read-only\n", b.Image, hfs.fallback, b.Name)
+			sh.readOnly = true
+			sh.writers = nil
+		}
+		sh.forcedReadOnly = true
 	}
 	sh.openedReadOnly = ro
 	sh.askedWrite = !b.ReadOnly

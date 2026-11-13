@@ -453,6 +453,11 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 	if err := rw.WriteFile("/x", []byte("x"), 0o644); err != nil {
 		t.Errorf("a registered volume refused a write: %v (fallback %q)", err, o.fallback)
 	}
+	// The writable volume holds its own descriptor on the image (Windows will
+	// not delete an open file); closing it also ends the test's use of f.
+	if c, ok := rw.(io.Closer); !ok || c.Close() != nil {
+		t.Error("the writable volume did not close")
+	}
 	if o.fallback != "" {
 		t.Errorf("a writable open set a fallback: %q", o.fallback)
 	}

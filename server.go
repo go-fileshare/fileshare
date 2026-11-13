@@ -391,7 +391,13 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 		// configuration on one image share its driver too.
 		// Never for a share served as its people: a driver this process
 		// opened is this process's view of the tree, not theirs.
-		if prev := sameImage(append(slices.Clone(previous), out...), sh.opened); prev != nil && !sh.system {
+		prev := sameImage(append(slices.Clone(previous), out...), sh.opened)
+		// An HFS+ image whose opt-in changed whether it is written is opened
+		// again, not adopted: the open driver is the old answer (#129).
+		if prev != nil && hfsplusReopens(prev, b) {
+			prev = nil
+		}
+		if prev != nil && !sh.system {
 			// Refused only when the open never tried to write: a driver that
 			// fell back to read-only by itself stays read-only, served as it
 			// was, rather than blocking every change to every other share.

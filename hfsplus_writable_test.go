@@ -410,7 +410,7 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 		want string
 	}{"unknown size": {0, 1 << 30, "size is not known"}, "negative size": {-1, 1 << 30, "size is not known"},
 		"over the cap": {st.Size(), 1 << 20, "hfsplus_writable_max"}} {
-		o := &hfsplusOpen{max: tc.max, file: f, path: path}
+		o := &hfsplusOpen{max: tc.max, file: f}
 		reg(o)
 		// OpenReader refuses a size that is not the file's: the point is the
 		// reason, set before any allocation.
@@ -420,31 +420,24 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 		}
 	}
 
-	// A name that leads to another file than the one held is never written by
-	// name: read-only with a reason, and the other file is untouched.
-	other := hfsImage(t)
-	otherBefore, err := os.ReadFile(other)
+	// A size that does not match the volume (ErrVolumeSize) is a read-only
+	// fallback with a reason, and the image is untouched.
+	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mo := &hfsplusOpen{max: 1 << 30, file: f, path: other}
-	reg(mo)
-	mv, err := openHFSPlus(f, st.Size())
-	if err != nil {
-		t.Fatal(err)
+	so := &hfsplusOpen{max: 1 << 40, file: f}
+	reg(so)
+	_, serr := openHFSPlus(f, st.Size()/2) // smaller than the volume: it would write past the end
+	if !strings.Contains(so.fallback, "size does not match the volume") {
+		t.Errorf("fallback %q (err %v), want the size mismatch said", so.fallback, serr)
 	}
-	if !strings.Contains(mo.fallback, "no longer leads to the file the share holds") {
-		t.Errorf("fallback %q, want the name refused", mo.fallback)
-	}
-	if err := mv.WriteFile("/x", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
-		t.Errorf("a volume opened under a foreign name answered %v to a write, want ErrReadOnly", err)
-	}
-	if after, _ := os.ReadFile(other); !bytes.Equal(otherBefore, after) {
-		t.Error("the file the name led to was changed")
+	if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+		t.Error("the image changed although the size did not match")
 	}
 
 	// Registered, in range: writable.
-	o := &hfsplusOpen{max: 1 << 30, file: f, path: path}
+	o := &hfsplusOpen{max: 1 << 30, file: f}
 	reg(o)
 	rw, err := openHFSPlus(f, st.Size())
 	if err != nil {
@@ -453,8 +446,8 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 	if err := rw.WriteFile("/x", []byte("x"), 0o644); err != nil {
 		t.Errorf("a registered volume refused a write: %v (fallback %q)", err, o.fallback)
 	}
-	// The writable volume holds its own descriptor on the image (Windows will
-	// not delete an open file); closing it also ends the test's use of f.
+	// Closing the volume does not close f (the share closes its file); f is
+	// closed by this test.
 	if c, ok := rw.(io.Closer); !ok || c.Close() != nil {
 		t.Error("the writable volume did not close")
 	}
@@ -471,7 +464,7 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 	}
 	defer g.Close()
 	gst, _ := g.Stat()
-	jo := &hfsplusOpen{max: 1 << 30, file: g, path: path}
+	jo := &hfsplusOpen{max: 1 << 30, file: g}
 	hfsplusOpens.Store(io.ReaderAt(g), jo)
 	defer hfsplusOpens.Delete(io.ReaderAt(g))
 	jv, err := openHFSPlus(g, gst.Size())

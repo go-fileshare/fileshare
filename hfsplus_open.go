@@ -78,8 +78,7 @@ func hfsplusWritableMax(b shareBlock) int64 {
 // any other caller) is opened through hfsplus.OpenReader, never for writing.
 type hfsplusOpen struct {
 	max  int64    // hfsplus_writable_max
-	file *os.File // the image the share holds: what the image lock is taken on
-	path string   // the image's name, for hfsplus.OpenFileWritable; checked to be file
+	file *os.File // the image the share holds: what the volume reads and writes, and what the image lock is taken on
 	// fallback is set by the opener when the volume was opened read-only
 	// although the share could have been written: the reason, for the log.
 	fallback string
@@ -89,18 +88,18 @@ var hfsplusOpens sync.Map // io.ReaderAt -> *hfsplusOpen
 
 // openHFSPlus is the opener registered for HFS+. hfsplus.OpenReader is
 // read-only whatever the reader is; a writable volume is opened with
-// hfsplus.OpenFileWritable, which writes in place (no copy of the image, only
-// the sectors a commit changes). It takes a path: hfsplus does not export an
-// open over a descriptor, so the image is opened again by name, and refused
-// (read-only fallback) unless that name is the very file the share holds, before
-// and after the open, so a confined or swapped image is never written by name.
+// hfsplus.OpenWritableAt, which writes in place (no copy of the image, only the
+// sectors a commit changes) on the share's OWN descriptor, the one already
+// confined and locked: the image is never opened again by name. The volume does
+// not close the file; the share does.
 //
 // It opens for writing only when all of these hold: the share asked for a
 // writable open (an entry in hfsplusOpens), the reader can write, the size is
-// known and at or below the cap, an exclusive lock on the image is free, and the
-// name is the held file. A journal with transactions, or one that cannot be
-// verified, comes back as ErrJournaled (macOS would replay it over what is
-// written); hfsplus reads only the journal to say so.
+// known and at or below the cap, and an exclusive lock on the image is free. A
+// journal with transactions, or one that cannot be verified, comes back as
+// ErrJournaled (macOS would replay it over what is written; hfsplus reads only
+// the journal to say so), and a size that does not match the volume as
+// ErrVolumeSize.
 //
 // Every fallback is OpenReader's volume, with the reason in o.fallback.
 func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
@@ -125,43 +124,23 @@ func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
 	case size > o.max:
 		o.fallback = fmt.Sprintf("it is %d bytes, over hfsplus_writable_max (%d bytes)", size, o.max)
 		return hfsplus.OpenReader(r, size)
-	case o.path == "" || !isHeldFile(o.file, o.path):
-		o.fallback = "its name no longer leads to the file the share holds, so it is not opened again by name for writing"
-		return hfsplus.OpenReader(r, size)
 	}
 	if err := lockImage(o.file); err != nil {
 		o.fallback = fmt.Sprintf("another process holds the image open for writing (%v)", err)
 		return hfsplus.OpenReader(r, size)
 	}
-	vol, err := hfsplus.OpenFileWritable(o.path)
-	if err == nil && !isHeldFile(o.file, o.path) {
-		// Swapped between the check and the open: nothing was written.
-		_ = vol.Close()
-		err = errNameMoved
-	}
+	vol, err := hfsplus.OpenWritableAt(o.file, size)
 	if err == nil {
 		return vol, nil
 	}
 	unlockImage(o.file)
-	if errors.Is(err, errNameMoved) {
-		o.fallback = "its name changed while it was being opened, so it is not written"
-		return hfsplus.OpenReader(r, size)
-	}
-	if !errors.Is(err, hfsplus.ErrJournaled) {
+	switch {
+	case errors.Is(err, hfsplus.ErrJournaled):
+		o.fallback = fmt.Sprintf("its journal holds transactions (%v)", err)
+	case errors.Is(err, hfsplus.ErrVolumeSize):
+		o.fallback = fmt.Sprintf("its size does not match the volume (%v), so it is not written", err)
+	default:
 		return nil, err
 	}
-	o.fallback = fmt.Sprintf("its journal holds transactions (%v)", err)
 	return hfsplus.OpenReader(r, size)
-}
-
-var errNameMoved = errors.New("the image's name leads to another file")
-
-// isHeldFile is whether path names the same file as f.
-func isHeldFile(f *os.File, path string) bool {
-	a, err := f.Stat()
-	if err != nil {
-		return false
-	}
-	b, err := os.Stat(path)
-	return err == nil && os.SameFile(a, b)
 }

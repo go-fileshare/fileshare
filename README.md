@@ -1760,9 +1760,10 @@ journal replayed first (mount the image on a Mac and eject it cleanly, or run
 cleared; after a crash it stays cleared, so it mounts non-journaled until
 `diskutil enableJournal`.
 
-The image is opened a second time by its name for writing (hfsplus takes a path),
-and only if that name is still the very file the share holds; otherwise the share
-opens read-only and says so.
+The volume is written through the share's own file descriptor (hfsplus v0.11.0,
+`OpenWritableAt`): the file that is already confined and locked, never the image's
+name opened again. A size that does not match the volume (`ErrVolumeSize`) opens
+the share read-only, with one line.
 
 **Another writer.** A second writer on the same image would corrupt it, as with
 any filesystem. A writable open takes an exclusive advisory

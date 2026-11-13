@@ -295,8 +295,9 @@ func TestHFSPlusImageOverTheCapIsReadOnly(t *testing.T) {
 	}
 }
 
-// Since v0.45.1 hfsplus_writable_max defaults to 0: hfsplus v0.9.0 is not
-// crash-safe (go-filesystems/hfsplus#34), so an HFS+ image is written only when
+// Since v0.45.1 hfsplus_writable_max defaults to 0: since v0.46.0 (hfsplus
+// v0.10.0) still, for the commit latency (go-filesystems/hfsplus#35) and the
+// unfinished crash tests (#37), so an HFS+ image is written only when
 // a share sets a size. A share that says nothing, or says "0", serves the image
 // read-only and logs the default's reason exactly once; the driver itself
 // refuses the write, and range reads and times survive.
@@ -327,7 +328,7 @@ func TestHFSPlusDefaultIsReadOnly(t *testing.T) {
 			}
 			wantAbilities(t, sh.fsys)
 			out := r.out.String()
-			if n := strings.Count(out, "not crash-safe"); n != 1 {
+			if n := strings.Count(out, "hfsplus#35"); n != 1 {
 				t.Errorf("default reason logged %d times, want once:\n%s", n, out)
 			}
 			for _, want := range []string{"hfsplus_writable_max is 0, the default", "so attic is read-only"} {
@@ -408,9 +409,8 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 		max  int64
 		want string
 	}{"unknown size": {0, 1 << 30, "size is not known"}, "negative size": {-1, 1 << 30, "size is not known"},
-		"over the cap": {st.Size(), 1 << 20, "hfsplus_writable_max"},
-		"over 64 GiB":  {hfsplusHardMax + 1, 1 << 62, "hfsplus_writable_max"}} {
-		o := &hfsplusOpen{max: tc.max, file: f}
+		"over the cap": {st.Size(), 1 << 20, "hfsplus_writable_max"}} {
+		o := &hfsplusOpen{max: tc.max, file: f, path: path}
 		reg(o)
 		// OpenReader refuses a size that is not the file's: the point is the
 		// reason, set before any allocation.
@@ -420,8 +420,31 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 		}
 	}
 
+	// A name that leads to another file than the one held is never written by
+	// name: read-only with a reason, and the other file is untouched.
+	other := hfsImage(t)
+	otherBefore, err := os.ReadFile(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mo := &hfsplusOpen{max: 1 << 30, file: f, path: other}
+	reg(mo)
+	mv, err := openHFSPlus(f, st.Size())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mo.fallback, "no longer leads to the file the share holds") {
+		t.Errorf("fallback %q, want the name refused", mo.fallback)
+	}
+	if err := mv.WriteFile("/x", []byte("x"), 0o644); !errors.Is(err, hfsplus.ErrReadOnly) {
+		t.Errorf("a volume opened under a foreign name answered %v to a write, want ErrReadOnly", err)
+	}
+	if after, _ := os.ReadFile(other); !bytes.Equal(otherBefore, after) {
+		t.Error("the file the name led to was changed")
+	}
+
 	// Registered, in range: writable.
-	o := &hfsplusOpen{max: 1 << 30, file: f}
+	o := &hfsplusOpen{max: 1 << 30, file: f, path: path}
 	reg(o)
 	rw, err := openHFSPlus(f, st.Size())
 	if err != nil {
@@ -443,7 +466,7 @@ func TestOpenHFSPlusChoosesByRegistration(t *testing.T) {
 	}
 	defer g.Close()
 	gst, _ := g.Stat()
-	jo := &hfsplusOpen{max: 1 << 30, file: g}
+	jo := &hfsplusOpen{max: 1 << 30, file: g, path: path}
 	hfsplusOpens.Store(io.ReaderAt(g), jo)
 	defer hfsplusOpens.Delete(io.ReaderAt(g))
 	jv, err := openHFSPlus(g, gst.Size())

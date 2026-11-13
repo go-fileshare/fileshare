@@ -530,7 +530,7 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 	// a view of a partition). Without an entry the opener uses OpenReader.
 	var hfs *hfsplusOpen
 	if !ro && !isDevice(info) {
-		hfs = &hfsplusOpen{max: hfsplusWritableMax(b), file: f}
+		hfs = &hfsplusOpen{max: hfsplusWritableMax(b), file: f, path: b.Image}
 		hfsplusOpens.Store(io.ReaderAt(f), hfs)
 		defer hfsplusOpens.Delete(io.ReaderAt(f))
 	}

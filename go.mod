@@ -20,11 +20,11 @@ require (
 	github.com/go-authn/sshcert v0.1.10
 	github.com/go-filesystems/apfs v0.6.0
 	github.com/go-filesystems/btrfs v0.5.0
-	github.com/go-filesystems/detect v0.5.1
+	github.com/go-filesystems/detect v0.6.0
 	github.com/go-filesystems/exfat v0.6.0
 	github.com/go-filesystems/ext4 v0.5.0
 	github.com/go-filesystems/fat32 v0.13.0
-	github.com/go-filesystems/hfsplus v0.9.0
+	github.com/go-filesystems/hfsplus v0.11.0
 	github.com/go-filesystems/interface v0.6.0
 	github.com/go-filesystems/iso9660 v0.5.0
 	github.com/go-filesystems/nfs v0.13.0
@@ -52,7 +52,7 @@ require (
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/lestrrat-go/jwx/v3 v3.4.0
 	github.com/openpubkey/openpubkey v0.30.0
@@ -60,7 +60,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/stealthrocket/net v0.2.1
-	golang.org/x/crypto v0.58.1-0.20261109165751-4e10f38b063d
+	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sys v0.50.0
 	google.golang.org/grpc v1.85.0

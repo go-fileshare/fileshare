@@ -16,21 +16,24 @@ import (
 	filesystem "github.com/go-filesystems/interface"
 )
 
-// hfsplusHardMax is the ceiling hfsplus applies to the in-memory image of a
-// writable volume (hfsplus v0.9.0, maxImageBytes). No setting goes above it.
-const hfsplusHardMax = 64 << 30
-
 // defaultHFSPlusWritableMax is hfsplus_writable_max when a share does not say.
 //
-// Why 0 (no HFS+ image is written unless a share asks): hfsplus v0.9.0 is not
-// crash-safe. It holds the WHOLE image in memory, writes the whole image back
-// on every operation (measured: 16 MiB written for a 1-byte write plus a Chtimes
-// on an 8 MiB image), and never marks the volume as in use while it does. A
-// crash or power loss in the middle of that write leaves a torn image that
-// still says it was cleanly unmounted, so nothing checks it at the next mount.
-// Writing is opt-in per share until go-filesystems/hfsplus#34 (in-place writes
-// that keep a crash visible) is released; a share that sets a size accepts that
-// risk and both costs. v0.44.0 and v0.45.0 defaulted to 256 MiB.
+// Why 0 (no HFS+ image is written unless a share asks): hfsplus v0.10.0 writes
+// in place, only the sectors a commit changes, with no copy of the image in
+// memory, and marks the volume as in use for the length of each commit (the
+// unmounted and journaled bits are cleared in the first header write and
+// restored at the end), so a crash is visible to fsck_hfs. It is still opt-in
+// per share for three reasons that remain open in hfsplus: a durable small write
+// costs 3 fsyncs, about 3x slower than macOS (go-filesystems/hfsplus#35); the
+// crash tests are not finished (go-filesystems/hfsplus#37); and after a crash a
+// journaled volume mounts without its journal until `diskutil enableJournal`.
+// A share that sets a size accepts those. v0.44.0 and v0.45.0 defaulted to
+// 256 MiB; v0.45.1 to 0 because hfsplus v0.9.0 held the whole image in memory
+// and was not crash-safe (go-filesystems/hfsplus#33, #34).
+//
+// The setting stays a size, not an on/off: memory no longer scales with the
+// image, but a share that set "256M" has said how large an image it is willing
+// to have written, and v0.46.0 must not write a larger one it never opted in.
 const defaultHFSPlusWritableMax = 0
 
 // parseImageSize reads a hfsplus_writable_max: a number of bytes, or one with a
@@ -75,7 +78,7 @@ func hfsplusWritableMax(b shareBlock) int64 {
 // any other caller) is opened through hfsplus.OpenReader, never for writing.
 type hfsplusOpen struct {
 	max  int64    // hfsplus_writable_max
-	file *os.File // what the volume writes to, and what the image lock is taken on
+	file *os.File // the image the share holds: what the volume reads and writes, and what the image lock is taken on
 	// fallback is set by the opener when the volume was opened read-only
 	// although the share could have been written: the reason, for the log.
 	fallback string
@@ -85,18 +88,18 @@ var hfsplusOpens sync.Map // io.ReaderAt -> *hfsplusOpen
 
 // openHFSPlus is the opener registered for HFS+. hfsplus.OpenReader is
 // read-only whatever the reader is; a writable volume is opened with
-// hfsplus.OpenWritable on the whole image in memory, which is what
-// OpenFileWritable does after opening its own path. This takes the descriptor
-// the share already holds, so a confined image is not re-opened by name.
+// hfsplus.OpenWritableAt, which writes in place (no copy of the image, only the
+// sectors a commit changes) on the share's OWN descriptor, the one already
+// confined and locked: the image is never opened again by name. The volume does
+// not close the file; the share does.
 //
-// It opens for writing only when all of these hold, each checked BEFORE the
-// image is read into memory: the share asked for a writable open (an entry in
-// hfsplusOpens), the reader can write, the size is known and at or below the
-// cap (and hfsplus's own 64 GiB ceiling), and an exclusive lock on the image is
-// free. A journal with transactions, or one that cannot be verified, comes back
-// from OpenWritable as ErrJournaled: macOS would replay it over what is
-// written. hfsplus does not export a journal check that works without the whole
-// image, so this one case allocates (at most the cap) before falling back.
+// It opens for writing only when all of these hold: the share asked for a
+// writable open (an entry in hfsplusOpens), the reader can write, the size is
+// known and at or below the cap, and an exclusive lock on the image is free. A
+// journal with transactions, or one that cannot be verified, comes back as
+// ErrJournaled (macOS would replay it over what is written; hfsplus reads only
+// the journal to say so), and a size that does not match the volume as
+// ErrVolumeSize.
 //
 // Every fallback is OpenReader's volume, with the reason in o.fallback.
 func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
@@ -105,39 +108,39 @@ func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
 		return hfsplus.OpenReader(r, size)
 	}
 	o := v.(*hfsplusOpen)
-	wa, ok := r.(io.WriterAt)
-	if !ok {
+	if _, ok := r.(io.WriterAt); !ok {
 		return hfsplus.OpenReader(r, size)
 	}
-	limit := min(o.max, hfsplusHardMax)
 	switch {
 	case o.max == 0:
-		o.fallback = "hfsplus_writable_max is 0, the default: hfsplus v0.9.0 is not crash-safe (a crash mid-write can leave a torn image marked clean), so HFS+ images are written only when a share sets a size"
+		o.fallback = "hfsplus_writable_max is 0, the default: HFS+ images are written only when a share sets a size, " +
+			"because a durable small write is about 3x slower than on macOS (go-filesystems/hfsplus#35), " +
+			"the crash tests are not finished (go-filesystems/hfsplus#37), and after a crash a journaled volume " +
+			"mounts without its journal until diskutil enableJournal"
 		return hfsplus.OpenReader(r, size)
 	case size <= 0:
-		o.fallback = "its size is not known, so it cannot be held in memory for writing"
+		o.fallback = "its size is not known, so it cannot be written in place"
 		return hfsplus.OpenReader(r, size)
-	case size > limit:
-		o.fallback = fmt.Sprintf("it is %d bytes, over hfsplus_writable_max (%d bytes): a writable HFS+ image is held in memory and rewritten whole on every change", size, limit)
+	case size > o.max:
+		o.fallback = fmt.Sprintf("it is %d bytes, over hfsplus_writable_max (%d bytes)", size, o.max)
 		return hfsplus.OpenReader(r, size)
 	}
 	if err := lockImage(o.file); err != nil {
 		o.fallback = fmt.Sprintf("another process holds the image open for writing (%v)", err)
 		return hfsplus.OpenReader(r, size)
 	}
-	img := make([]byte, size)
-	if _, err := io.ReadFull(io.NewSectionReader(r, 0, size), img); err != nil {
-		unlockImage(o.file)
-		return nil, fmt.Errorf("hfsplus: read image: %w", err)
-	}
-	vol, err := hfsplus.OpenWritable(img, wa)
+	vol, err := hfsplus.OpenWritableAt(o.file, size)
 	if err == nil {
 		return vol, nil
 	}
 	unlockImage(o.file)
-	if !errors.Is(err, hfsplus.ErrJournaled) {
+	switch {
+	case errors.Is(err, hfsplus.ErrJournaled):
+		o.fallback = fmt.Sprintf("its journal holds transactions (%v)", err)
+	case errors.Is(err, hfsplus.ErrVolumeSize):
+		o.fallback = fmt.Sprintf("its size does not match the volume (%v), so it is not written", err)
+	default:
 		return nil, err
 	}
-	o.fallback = fmt.Sprintf("its journal holds transactions (%v)", err)
 	return hfsplus.OpenReader(r, size)
 }

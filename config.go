@@ -383,11 +383,15 @@ type shareBlock struct {
 	UnstorableTimes string `hcl:"unstorable_times,optional"`
 	// HFSPlusWritableMax is the largest HFS+ image a share opens for writing:
 	// a number of bytes or one with a K, M, G or T suffix; "0", the default
-	// since v0.45.1, for never (v0.44.0 and v0.45.0 defaulted to "256M"). A
-	// writable HFS+ volume is the whole image in memory, rewritten whole by every
-	// change (go-filesystems/hfsplus#33), and a crash mid-write can leave a torn
-	// image marked clean (go-filesystems/hfsplus#34), so writing is opt-in; an
-	// image over the size opens read-only, with one log line saying so.
+	// since v0.45.1, for never (v0.44.0 and v0.45.0 defaulted to "256M"). Since
+	// v0.46.0 (hfsplus v0.10.0) a writable HFS+ volume is written in place, with
+	// no copy of the image in memory, so the size no longer bounds memory: it is
+	// the opt-in, and an image over it opens read-only, with one log line saying
+	// so. Writing stays opt-in because a durable small write is about 3x slower
+	// than on macOS (go-filesystems/hfsplus#35), the crash tests are not finished
+	// (go-filesystems/hfsplus#37), and after a crash a journaled volume mounts
+	// without its journal until `diskutil enableJournal`. A reload that changes
+	// whether the image is written reopens it (go-fileshare/fileshare#129).
 	HFSPlusWritableMax string `hcl:"hfsplus_writable_max,optional"`
 	// ImageMountUnknown is what a writable image share does when fileshare
 	// could not find out whether the OS has the image attached or mounted:

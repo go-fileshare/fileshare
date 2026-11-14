@@ -1703,16 +1703,26 @@ created, changed and deleted, and a client's `Chtimes`, `Chmod` and `Chown` are
 stored. Before, it was opened through `hfsplus.OpenReader`, whose volume is
 read-only, so every write failed and a time set over SMB was dropped.
 
-**Since v0.45.1 that is off by default.** hfsplus v0.9.0 is not crash-safe: it
-rewrites the whole image on every operation and never marks the volume as in use
-while it does, so a crash or power loss in the middle of a write leaves a torn
-image that still says it was cleanly unmounted, and nothing checks it at the next
-mount. On a journaled volume the fix needs more than writing in place. v0.44.0
-and v0.45.0 wrote by default (up to 256 MiB). The fix is Refs
-go-filesystems/hfsplus#34 (in-place writes that keep a crash visible); the
-default can come back when it is released. Until then an HFS+ share is served
-**read-only** (through `hfsplus.OpenReader`, with range reads and times as
-before, marked read-only) unless it sets `hfsplus_writable_max`:
+**Since v0.45.1 that is off by default, and it still is.** hfsplus v0.9.0 was not
+crash-safe (it held the whole image in memory, rewrote it whole on every
+operation and never marked the volume as in use), so v0.45.1 turned writing off
+after v0.44.0 and v0.45.0 had written by default (up to 256 MiB). **Since
+v0.46.0 (hfsplus v0.10.0, go-filesystems/hfsplus#34)** a writable HFS+ volume is
+written **in place**: no copy of the image in memory (an 8 MiB read cache), only
+the sectors a commit changes, no 64 GiB ceiling, and each commit marks the volume
+as in use (the unmounted and journaled bits are cleared in the first header write
+and restored at the end), so a crash is visible to `fsck_hfs -q`, journaled
+volumes included. After a failed write the volume refuses further writes
+(`ErrVolumeFailed`) until the share is reopened.
+
+It stays **opt-in**, for what hfsplus has not finished: a durable small write
+costs 3 fsyncs per commit and is about 3x slower than on macOS (Refs
+go-filesystems/hfsplus#35), the crash tests are not hardened (Refs
+go-filesystems/hfsplus#37), and after a crash a journaled volume mounts without
+its journal until `diskutil enableJournal`. The default can come back when
+those are fixed. Until then an HFS+ share is served **read-only** (through
+`hfsplus.OpenReader`, with range reads and times as before, marked read-only)
+unless it sets `hfsplus_writable_max`:
 
 ```hcl
 share "mac" {
@@ -1721,24 +1731,22 @@ share "mac" {
 }
 ```
 
-Setting a size accepts the risk above and these costs: hfsplus v0.9.0 holds the
-whole image in memory and writes it back whole on every operation (a create, a
-write, a rename, a `Chtimes`: measured, 16 MiB written for a 1-byte write plus a
-`Chtimes` on an 8 MiB image), so memory per share is the image size, and so is
-the I/O of each change (Refs go-filesystems/hfsplus#33). Pick the size knowing
-both; hfsplus's own ceiling, 64 GiB, applies whatever is set. Back up the image
-first. An image above the size, or of unknown size, is served read-only too.
-Each of these opens writes one line naming the image and the reason, for
-instance with no setting:
+Setting a size accepts the costs above. Since v0.46.0 the size no longer bounds
+memory (nothing scales with the image); it stays a size so that a configuration
+written for v0.44.0 to v0.45.1 means what it did (a share that said "256M" does
+not start writing a 2 TiB image), and a large value such as "1T" is the plain
+opt-in. Back up the image first. An image above the size, or of unknown size, is
+served read-only too. Each of these opens writes one line naming the image and
+the reason, for instance with no setting:
 
 ```text
-/srv/mac.img is an HFS+ volume and hfsplus_writable_max is 0, the default: hfsplus v0.9.0 is not crash-safe (a crash mid-write can leave a torn image marked clean), so HFS+ images are written only when a share sets a size, so mac is read-only
+/srv/mac.img is an HFS+ volume and hfsplus_writable_max is 0, the default: HFS+ images are written only when a share sets a size, because a durable small write is about 3x slower than on macOS (go-filesystems/hfsplus#35), the crash tests are not finished (go-filesystems/hfsplus#37), and after a crash a journaled volume mounts without its journal until diskutil enableJournal, so mac is read-only
 ```
 
 and over the size:
 
 ```text
-/srv/mac.img is an HFS+ volume and it is 1073741824 bytes, over hfsplus_writable_max (268435456 bytes): a writable HFS+ image is held in memory and rewritten whole on every change, so mac is read-only
+/srv/mac.img is an HFS+ volume and it is 1073741824 bytes, over hfsplus_writable_max (268435456 bytes), so mac is read-only
 ```
 
 A **journaled** volume (what `hdiutil create -fs "Journaled HFS+"` and macOS
@@ -1746,14 +1754,19 @@ make) is written only when its journal is empty, which is what a clean unmount
 leaves: macOS then has nothing to replay at the next mount. A journal with
 transactions in it, or one that cannot be verified, would be replayed over what
 this server writes, so hfsplus refuses it (`ErrJournaled`) and **the share opens
-read-only instead**, again with one line. (hfsplus has no journal check that
-works without the image in memory, so this one case reads the image, up to the
-cap, before it falls back.) To make such a share writable, get the journal
-replayed first (mount the image on a Mac and eject it cleanly, or run `fsck_hfs`
-on it).
+read-only instead**, again with one line. To make such a share writable, get the
+journal replayed first (mount the image on a Mac and eject it cleanly, or run
+`fsck_hfs` on it). While a journaled volume is being written its journaled bit is
+cleared; after a crash it stays cleared, so it mounts non-journaled until
+`diskutil enableJournal`.
 
-**Another writer.** Because the image is flushed whole, a second writer would be
-overwritten by the next flush. A writable open takes an exclusive advisory
+The volume is written through the share's own file descriptor (hfsplus v0.11.0,
+`OpenWritableAt`): the file that is already confined and locked, never the image's
+name opened again. A size that does not match the volume (`ErrVolumeSize`) opens
+the share read-only, with one line.
+
+**Another writer.** A second writer on the same image would corrupt it, as with
+any filesystem. A writable open takes an exclusive advisory
 `flock` on the image (Linux, macOS and the BSDs); if another process holds it
 (a second fileshare on the same image, anything that takes the lock) the share
 opens read-only and says so. The lock is advisory: the OS does not take it when

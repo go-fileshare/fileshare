@@ -396,8 +396,9 @@ type shareBlock struct {
 	// HFSPlusDurability is when a change to a writable HFS+ image is on the
 	// medium (hfsplus v0.12.0): "strict" (the default: three write barriers per
 	// commit), "mounted" (what a mounted volume does, one or two), or "lazy"
-	// (none per commit; on the medium only at close or when a reload changes the level: fileshare
-	// issues no sync of its own, so a client's flush does not make it durable). It applies only
+	// (none per commit; on the medium when a client's flush syncs the volume
+	// (SMB FLUSH, NFS COMMIT, SFTP fsync@openssh.com; WebDAV and S3 have none),
+	// at close, or when a reload changes the level). It applies only
 	// to an HFS+ image opened for writing and is ignored otherwise. "lazy" is
 	// data-writeback (stale bytes of a deleted file can show after a crash) and
 	// must not be used for a share other clients mount at the same time. A reload that

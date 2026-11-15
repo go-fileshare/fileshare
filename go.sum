@@ -97,8 +97,8 @@ github.com/go-filesystems/interface v0.6.0 h1:+7nA5FHgs/B03rZ9p81bkm0+6ew9fEntTF
 github.com/go-filesystems/interface v0.6.0/go.mod h1:u9v8mvapNV8djzObwCECdyd2g6JBU6HNTR4EAqxOn6U=
 github.com/go-filesystems/iso9660 v0.5.0 h1:ITxuZUhQb6DOMaoBZEdcp6QNH/fCFCeh689zhGKLqbI=
 github.com/go-filesystems/iso9660 v0.5.0/go.mod h1:ecBRCPj42NiwtcqmxH7q5s/LVVbUFCF6Pe5Jw64q0pE=
-github.com/go-filesystems/nfs v0.13.0 h1:eA1JN+vD7yz6I6f/p7u0BtzHPRRF7u0lNETgn0b38BY=
-github.com/go-filesystems/nfs v0.13.0/go.mod h1:jjigKd5MSyxO5VePt2PmvPP0yy9n8JJA2PYqLPkM+y8=
+github.com/go-filesystems/nfs v0.13.1-0.20261115120228-318250cbaf5c h1:QN0S+Eh8GiwpF18McsYGbT0y+LgvD1MYent47e/thEA=
+github.com/go-filesystems/nfs v0.13.1-0.20261115120228-318250cbaf5c/go.mod h1:A2A3GDeO2TpcA5r3W3Y2YilNossE3z8Eg4usTZJ5g2k=
 github.com/go-filesystems/ntfs v0.5.0 h1:KlH3iJ97X3Gf9mfiMxhQa1mLa0HMe92Aobv5dURig6s=
 github.com/go-filesystems/ntfs v0.5.0/go.mod h1:0F7kbDgKShxCL/AiB1LzcXhNNGPISCgBgdBBN4/B5j0=
 github.com/go-filesystems/osfs v0.4.0 h1:w6K/TWMXBzamaFzBUz4d8P7O5VKvQrztqu3fNPrt3XY=
@@ -107,10 +107,10 @@ github.com/go-filesystems/remote v0.2.0 h1:nV86ahXoDY9pf+1lLRMs87b2wMLJFDd9mPxfH
 github.com/go-filesystems/remote v0.2.0/go.mod h1:+CJ0ecdrm12FY4bPcdy8IfYcAAm55Ness24QUFyD6WA=
 github.com/go-filesystems/s3 v0.5.0 h1:1OpOPGMk2VVazoDM5NIZhuNWshdafSsJOy43EdsNA9w=
 github.com/go-filesystems/s3 v0.5.0/go.mod h1:XBz0ilvQiEOyhab7X0Sxe+9Rf/JySPvts1DPEcdPwTg=
-github.com/go-filesystems/sftp v0.12.0 h1:9m7PymYFtu2JssrINATwAlEmLVowZ9xP5Vn8Holzac4=
-github.com/go-filesystems/sftp v0.12.0/go.mod h1:hnY4W6REV4Znz6ieqhytIrZ4ZsZIiQQEdEOlqiKlvcc=
-github.com/go-filesystems/smb v0.10.0 h1:dTMurTv9Dwl4n1CG1IzgD+lMt58taP1tp698xzrPpPw=
-github.com/go-filesystems/smb v0.10.0/go.mod h1:8HOMQppu9RjqrjdIm6ZH3V7vWgqbkh9iSkhiWOKcHO8=
+github.com/go-filesystems/sftp v0.12.1-0.20261115120326-b6f7570302e7 h1:SYNsOLWll7tRMiD5/x9nKKgeD5gGsZEIxGw9GeT3PpA=
+github.com/go-filesystems/sftp v0.12.1-0.20261115120326-b6f7570302e7/go.mod h1:hnY4W6REV4Znz6ieqhytIrZ4ZsZIiQQEdEOlqiKlvcc=
+github.com/go-filesystems/smb v0.10.1-0.20261115120040-73d245840593 h1:JdNfrwPRlpSKlQ/Yw7uquJoIgALWOYxBunF3RZ5pioM=
+github.com/go-filesystems/smb v0.10.1-0.20261115120040-73d245840593/go.mod h1:8HOMQppu9RjqrjdIm6ZH3V7vWgqbkh9iSkhiWOKcHO8=
 github.com/go-filesystems/squashfs v0.6.0 h1:Rv92z2QlGhGaBkwS+fFzAkPurzIbxQmrYew2qWM6VzI=
 github.com/go-filesystems/squashfs v0.6.0/go.mod h1:karBzt232JOTX6y+Igr1q8jSqj2QWXCiyXYgY7+Zcuk=
 github.com/go-filesystems/ssh v0.1.0 h1:5OWoXhNJiQN105ikw3YZ18BTE48cyWzNqyXiGUiATwQ=

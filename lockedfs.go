@@ -301,6 +301,19 @@ func lockFSCaps(fsys filesystem.Filesystem) filesystem.Filesystem {
 // a server's own lock.
 func (l lockedFS) Close() error { l.mu.Lock(); defer l.mu.Unlock(); return l.fsys.Close() }
 
+// Sync is what a client's flush reaches (SMB FLUSH, NFS COMMIT, SFTP
+// fsync@openssh.com): the driver's own Sync, under the image's lock, when it has
+// one (hfsplus's Volume.Sync makes the work of the mounted and lazy durability
+// levels durable). A driver without one has nothing held back to sync: nil.
+func (l lockedFS) Sync() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s, ok := l.fsys.(interface{ Sync() error }); ok {
+		return s.Sync()
+	}
+	return nil
+}
+
 func (l lockedFS) ReadFile(p string) ([]byte, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

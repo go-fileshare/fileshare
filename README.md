@@ -1768,23 +1768,39 @@ share "mac" {
 |---|---|---|
 | `strict` (default) | 3 (first write, without data and with data alike, on a volume that was clean when opened); `Sync` 1 | every commit is durable when it returns, and the volume is marked clean between commits. Unchanged since v0.46.0 |
 | `mounted` | 2 for the first write, 1 without data, 2 with data; `Sync` 1 | data is written before the metadata that points at it, and the volume stays marked as in use between commits, as TN1150 describes a mounted volume: what macOS does |
-| `lazy` | 1 for the first write, 0 after; `Sync` 2 | data is written back with no order. A change is on the medium only when the volume is closed (the share is removed or the server stops) or a reload changes the level: **fileshare never syncs a volume on its own, so an SMB FLUSH, an NFS COMMIT or an SFTP fsync succeeds without making `lazy` data durable** |
+| `lazy` | 1 for the first write, 0 after; `Sync` 2 | data is written back with no order. A change is on the medium only when the volume is synced: by a client's flush (SMB FLUSH, NFS COMMIT, SFTP `fsync@openssh.com`, see below), when it is closed, or when a reload changes the level |
 
 It applies to a **writable HFS+ image only** and is ignored, with no error and
 no log line, when the share is read-only (the default `hfsplus_writable_max` of
 `0`, a size over it, `read_only`, a device, an image with a journal that holds
 transactions). An unknown value makes the configuration refuse to load, naming
 the share. `mounted` and `lazy` leave the volume marked as not cleanly unmounted
-until the volume is closed or a reload changes the level (fileshare issues no
-sync of its own), so after a crash the next mount runs `fsck_hfs`, and a
+until the volume is synced (a client's flush does that, see below), closed, or a
+reload changes the level, so after a crash the next mount runs `fsck_hfs`, and a
 journaled volume stays unjournaled until `diskutil enableJournal`. **`lazy` must
 not be used for a share that other clients mount at the same time**, nor where
 different users share the volume: nothing orders file data before the metadata
 that points at it (data-writeback), so after a crash a file may hold stale bytes
-of a deleted one, and a crash loses what was written since the volume was last settled, which
-the clients were told succeeded (a client's flush, commit or fsync does not
-change that: see the table). Writable HFS+ stays opt-in: `hfsplus_durability`
-does not turn it on.
+of a deleted one, and a crash loses what was written since the volume was last
+synced, which the clients were told succeeded unless they flushed. Writable
+HFS+ stays opt-in: `hfsplus_durability` does not turn it on.
+
+**A client's flush syncs the volume** (go-fileshare/fileshare#135), under the
+image's lock, so at `mounted` and `lazy` the acknowledgement of a flush means the
+data is on the medium and the volume is marked clean again. The paths:
+
+| Protocol | Request that syncs | Scope |
+|---|---|---|
+| SMB | FLUSH on a handle open for writing | the volume |
+| NFS | COMMIT; a WRITE that asks for DATA_SYNC or FILE_SYNC | the volume (an UNSTABLE WRITE is answered UNSTABLE, so the client sends COMMIT) |
+| SFTP | `fsync@openssh.com` on a handle open for writing | the volume |
+| WebDAV, S3 | none: they have no flush, and a PUT's response does not wait for a sync | not synced at `lazy` or `mounted` until the volume is synced by another client or closed |
+
+A failed sync is returned to the client as an I/O error (SMB
+`STATUS_UNEXPECTED_IO_ERROR`, NFS `NFS3ERR_IO`, an SFTP failure), never as a
+success. At `strict` a flush costs one barrier and finds nothing to do. A share
+whose clients never flush (a WebDAV or S3 share, or an SFTP client that does not
+send `fsync@openssh.com`) gets `lazy`'s exposure in full.
 
 A reload that changes `hfsplus_durability` changes the open volume in place (the
 driver is kept, so no second writer has to take the image lock), once the new

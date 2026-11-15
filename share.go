@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/go-filesystems/detect"
-	"github.com/go-filesystems/hfsplus"
 	filesystem "github.com/go-filesystems/interface"
 )
 
@@ -79,7 +78,7 @@ type share struct {
 	closers []io.Closer
 	// hfsVol is the HFS+ volume when it was opened for writing, so a reload can
 	// change its durability in place; nil otherwise.
-	hfsVol *hfsplus.Volume
+	hfsVol hfsplusDurable
 	// block is what the share was opened from, for a reload to expand its
 	// lists again.
 	block shareBlock

@@ -5,7 +5,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -109,8 +111,9 @@ func TestHFSPlusDurabilityIsIgnoredForAReadOnlyOpen(t *testing.T) {
 func TestReloadAppliesAChangedHFSPlusDurability(t *testing.T) {
 	needUsers(t)
 	path := hfsImage(t)
-	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+	srv, _ := runServer(t, onlyProtocol(t, t.TempDir(), "smb",
 		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	r := &running{srv: srv, out: &safeBuffer{}}
 	cur := r.srv.currentShares()
 	if got := cur[0].hfsVol.Durability(); got != hfsplus.DurabilityStrict {
 		t.Fatalf("control: durability %v, want strict", got)
@@ -136,6 +139,12 @@ func TestReloadAppliesAChangedHFSPlusDurability(t *testing.T) {
 		if next[0].fsys != cur[0].fsys || next[0].hfsVol != cur[0].hfsVol || next[0].readOnly {
 			t.Fatalf("reload to %q did not keep the writable driver (readOnly=%v)", d.setting, next[0].readOnly)
 		}
+		if got := cur[0].hfsVol.Durability(); got == d.want && prev[0].block.HFSPlusDurability != d.setting {
+			t.Errorf("opening the list for %q already moved the volume to %v", d.setting, got)
+		}
+		if _, err := r.srv.swap(next); err != nil {
+			t.Fatal(err)
+		}
 		if got := cur[0].hfsVol.Durability(); got != d.want {
 			t.Errorf("after a reload to %q durability = %v, want %v", d.setting, got, d.want)
 		}
@@ -146,5 +155,104 @@ func TestReloadAppliesAChangedHFSPlusDurability(t *testing.T) {
 	}
 	if b, err := cur[0].fsys.ReadFile("/before.txt"); err != nil || string(b) != "1" {
 		t.Errorf("a write from before the changes: %q, %v", b, err)
+	}
+}
+
+// A reload that fails after the kept share was looked at says "nothing changed",
+// so the kept share's volume must still be at the level it had (share.adopt: a
+// change that fails leaves prev exactly as it was). Opening the list moves
+// nothing; only a swap does.
+func TestRefusedReloadLeavesHFSPlusDurabilityAlone(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	cur := r.srv.currentShares()
+	a := cur[0].block
+	a.HFSPlusDurability = "lazy"
+	bad := a
+	bad.Name = "missing"
+	bad.Image = filepath.Join(t.TempDir(), "nope.img")
+	bad.HFSPlusDurability = ""
+	if _, err := r.srv.openShares([]shareBlock{a, bad}, cur); err == nil {
+		t.Fatal("control: the list with a missing image was opened")
+	}
+	if got := cur[0].hfsVol.Durability(); got != hfsplus.DurabilityStrict {
+		t.Errorf("the refused reload left the kept share's volume at %v, want strict", got)
+	}
+	// A list that opens but is not swapped in changes nothing either.
+	if _, err := r.srv.openShares([]shareBlock{a}, cur); err != nil {
+		t.Fatal(err)
+	}
+	if got := cur[0].hfsVol.Durability(); got != hfsplus.DurabilityStrict {
+		t.Errorf("opening a list moved the volume to %v, want strict until it is swapped in", got)
+	}
+}
+
+// failingVolume is a volume whose level cannot be set, as when the sync that
+// settles the old level fails.
+type failingVolume struct{ d hfsplus.Durability }
+
+func (f *failingVolume) Durability() hfsplus.Durability { return f.d }
+func (f *failingVolume) SetDurability(hfsplus.Durability) error {
+	return errors.New("sync failed")
+}
+
+// A level that cannot be set is said in the log, naming the share and the level
+// the volume stays at; the share keeps serving.
+func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	cur := r.srv.currentShares()
+	sh := &share{fsys: cur[0].fsys, hfsVol: &failingVolume{hfsplus.DurabilityStrict}, block: cur[0].block}
+	sh.block.HFSPlusDurability = "lazy"
+	r.srv.applyHFSPlusDurability([]*share{sh})
+	out := r.out.String()
+	for _, want := range []string{"share attic", `hfsplus_durability "lazy" was not applied`, "stays at strict", "sync failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+	if err := cur[0].fsys.WriteFile("/still.txt", []byte("x"), 0o644); err != nil {
+		t.Errorf("the share stopped serving: %v", err)
+	}
+}
+
+// The level is changed under the image's lock: a reload that does it while
+// clients write must not race the writers (go test -race).
+func TestHFSPlusDurabilityChangeIsSerialisedWithWriters(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	sh := r.srv.currentShares()[0]
+	stop := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			if err := sh.fsys.WriteFile(fmt.Sprintf("/w%d.txt", i%20), []byte("x"), 0o644); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+	b := sh.block
+	for i := 0; i < 300; i++ {
+		b.HFSPlusDurability = []string{"lazy", "mounted", "strict"}[i%3]
+		if err := sh.setHFSPlusDurability(b); err != nil {
+			t.Errorf("set %q: %v", b.HFSPlusDurability, err)
+		}
+	}
+	close(stop)
+	if err := <-done; err != nil {
+		t.Errorf("a write during the changes: %v", err)
 	}
 }

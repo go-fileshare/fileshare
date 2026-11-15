@@ -430,11 +430,9 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 				continue
 			}
 			sh.adopt(prev)
-			// hfsplus_durability changes the open volume in place: reopening
-			// would not get the image lock the driver still holds.
-			if err := sh.setHFSPlusDurability(b); err != nil {
-				return nil, fmt.Errorf("share %q: hfsplus_durability: %w", b.Name, err)
-			}
+			// hfsplus_durability changes the open volume in place (reopening
+			// would not get the image lock the driver still holds), but only
+			// in swap, once nothing can fail any more: see applyHFSPlusDurability.
 			out = append(out, sh)
 			continue
 		}
@@ -907,6 +905,7 @@ func (s *server) swap(next []*share) (closed uint64, err error) {
 	s.genN++
 	s.gen = s.startGeneration(s.genN, s.feeds, s.failures)
 	s.ready.Store(true)
+	s.applyHFSPlusDurability(next)
 	// Closes only what nobody serves any more: a share carried over shares
 	// its driver with its successor.
 	release(prev, next)

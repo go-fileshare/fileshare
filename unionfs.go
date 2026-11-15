@@ -113,10 +113,9 @@ func (u *unionFS) route(p string) (*unionEntry, string, bool) {
 
 func (u *unionFS) Close() error { return nil } // the shares are closed by the server
 
-// Sync is what an SFTP fsync@openssh.com reaches: every share this person may
-// write, in turn. fsync@openssh.com names a handle, but the sftp module's Sync
-// hook takes no path, so the tree cannot tell which share the handle was in; syncing all the writable ones is correct and, when nothing
-// is held back (strict, or nothing written), cheap. A read-only share has nothing
+// Sync syncs every share this person may write, in turn, for a caller that has
+// no path (SyncPath is what an SFTP fsync reaches). Syncing all the writable ones
+// is correct and, when nothing is held back (strict, or nothing written), cheap. A read-only share has nothing
 // of this person's to sync. The errors are joined, each naming its share, so one
 // failing volume is not hidden by the others succeeding.
 func (u *unionFS) Sync() error {
@@ -135,6 +134,34 @@ func (u *unionFS) Sync() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// SyncPath is what an SFTP fsync@openssh.com reaches when the sftp module can
+// give the handle's path: only the share under that path is synced, so N writable
+// shares cost one sync, and a failed share never fails an fsync on another. The
+// path is the handle's cleaned absolute path and goes through the same route as
+// open and write; a rename cannot move a handle across shares (Rename refuses
+// it), so the share under the path is the handle's. A read-only share has nothing
+// of this person's to sync (nil); a revoked session is refused; a path under no
+// share, or the root, is not a file of this tree. Sync stays for callers without
+// a path.
+func (u *unionFS) SyncPath(p string) error {
+	if u.gone() {
+		return os.ErrPermission
+	}
+	e, _, ok := u.route(p)
+	if !ok || e == nil {
+		return os.ErrNotExist
+	}
+	if e.readOnly {
+		return nil
+	}
+	if s, ok := e.fsys.(interface{ Sync() error }); ok {
+		if err := s.Sync(); err != nil {
+			return fmt.Errorf("%s: %w", e.name, err)
+		}
+	}
+	return nil
 }
 
 // gone reports whether this session may no longer be served.

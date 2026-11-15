@@ -6,7 +6,7 @@
 // same command inside go-filesystems/smb was broken for as long as it existed.
 module github.com/go-fileshare/fileshare
 
-go 1.27.3
+go 1.27.4
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
@@ -32,7 +32,7 @@ require (
 	github.com/go-filesystems/osfs v0.4.0
 	github.com/go-filesystems/remote v0.2.0
 	github.com/go-filesystems/s3 v0.5.0
-	github.com/go-filesystems/sftp v0.13.0
+	github.com/go-filesystems/sftp v0.14.1-0.20261115145910-dea7a025f40e
 	github.com/go-filesystems/smb v0.11.0
 	github.com/go-filesystems/squashfs v0.6.0
 	github.com/go-filesystems/ssh v0.1.0

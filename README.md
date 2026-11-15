@@ -1793,7 +1793,7 @@ data is on the medium and the volume is marked clean again. The paths:
 |---|---|---|
 | SMB | FLUSH on a handle open for writing | the volume |
 | NFS | COMMIT; a WRITE that asks for DATA_SYNC or FILE_SYNC | the volume (an UNSTABLE WRITE is answered UNSTABLE, so the client sends COMMIT) |
-| SFTP | `fsync@openssh.com` on a handle open for writing | every share the person may write (`fsync@openssh.com` names a handle, but the sftp module's `Sync` hook takes no path, so fileshare syncs each writable share of the person in turn; one that fails is named in the error; a per-share hook is a follow-up) |
+| SFTP | `fsync@openssh.com` on a handle open for writing | the share under the handle's path only (the sftp module passes the handle's path to `SyncPath`; N writable shares cost one sync, and a failed share B never fails an fsync on share A; a read-only share syncs nothing). A tree whose filesystem has only `Sync` (no `SyncPath`) syncs every writable share of the person in turn |
 | WebDAV, S3 | none: they have no flush, and a PUT's response does not wait for a sync | not synced at `lazy` or `mounted` until the volume is synced by another client or closed |
 
 A failed sync is returned to the client as an I/O error (SMB

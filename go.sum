@@ -107,8 +107,8 @@ github.com/go-filesystems/remote v0.2.0 h1:nV86ahXoDY9pf+1lLRMs87b2wMLJFDd9mPxfH
 github.com/go-filesystems/remote v0.2.0/go.mod h1:+CJ0ecdrm12FY4bPcdy8IfYcAAm55Ness24QUFyD6WA=
 github.com/go-filesystems/s3 v0.5.0 h1:1OpOPGMk2VVazoDM5NIZhuNWshdafSsJOy43EdsNA9w=
 github.com/go-filesystems/s3 v0.5.0/go.mod h1:XBz0ilvQiEOyhab7X0Sxe+9Rf/JySPvts1DPEcdPwTg=
-github.com/go-filesystems/sftp v0.13.0 h1:p8PpVkHBvhSOYSyOoZL7S+SgD2jeaOXmzSXcbctdATI=
-github.com/go-filesystems/sftp v0.13.0/go.mod h1:hnY4W6REV4Znz6ieqhytIrZ4ZsZIiQQEdEOlqiKlvcc=
+github.com/go-filesystems/sftp v0.14.1-0.20261115145910-dea7a025f40e h1:WiAqt6u0QjSDhqe3wcP5COcBjdfqFQh3lT2NiiSgL6Q=
+github.com/go-filesystems/sftp v0.14.1-0.20261115145910-dea7a025f40e/go.mod h1:4+63PyoY+4vdvmym1dYkY6UIZxHEsLBDin8IqN4KAho=
 github.com/go-filesystems/smb v0.11.0 h1:RPAKkzkea+NnPXhCS5iCEGazWDqN+05RMXV1jJHsa1g=
 github.com/go-filesystems/smb v0.11.0/go.mod h1:8HOMQppu9RjqrjdIm6ZH3V7vWgqbkh9iSkhiWOKcHO8=
 github.com/go-filesystems/squashfs v0.6.0 h1:Rv92z2QlGhGaBkwS+fFzAkPurzIbxQmrYew2qWM6VzI=

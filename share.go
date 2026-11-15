@@ -76,6 +76,9 @@ type share struct {
 	// closers are the driver and the file under it, owned by whichever
 	// share holds them last.
 	closers []io.Closer
+	// hfsVol is the HFS+ volume when it was opened for writing, so a reload can
+	// change its durability in place; nil otherwise.
+	hfsVol hfsplusDurable
 	// block is what the share was opened from, for a reload to expand its
 	// lists again.
 	block shareBlock
@@ -143,6 +146,7 @@ func (s *share) adopt(prev *share) {
 	s.capacity, s.concurrentPathOps = prev.capacity, prev.concurrentPathOps
 	s.openedReadOnly, s.forcedReadOnly, s.askedWrite = prev.openedReadOnly, prev.forcedReadOnly, prev.askedWrite
 	s.closers = prev.closers
+	s.hfsVol = prev.hfsVol
 	if s.openedReadOnly || s.forcedReadOnly {
 		s.readOnly = true
 		s.writers = nil

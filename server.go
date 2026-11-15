@@ -430,6 +430,9 @@ func (s *server) openSharesExpanding(blocks []shareBlock, previous []*share,
 				continue
 			}
 			sh.adopt(prev)
+			// hfsplus_durability changes the open volume in place (reopening
+			// would not get the image lock the driver still holds), but only
+			// in swap, once nothing can fail any more: see applyHFSPlusDurability.
 			out = append(out, sh)
 			continue
 		}
@@ -536,7 +539,7 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 	// a view of a partition). Without an entry the opener uses OpenReader.
 	var hfs *hfsplusOpen
 	if !ro && !isDevice(info) {
-		hfs = &hfsplusOpen{max: hfsplusWritableMax(b), file: f}
+		hfs = &hfsplusOpen{max: hfsplusWritableMax(b), file: f, durability: hfsplusDurability(b)}
 		hfsplusOpens.Store(io.ReaderAt(f), hfs)
 		defer hfsplusOpens.Delete(io.ReaderAt(f))
 	}
@@ -544,6 +547,9 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("%s: %w", b.Image, err)
+	}
+	if hfs != nil && hfs.vol != nil {
+		sh.hfsVol = hfs.vol
 	}
 	if hfs != nil && hfs.fallback != "" {
 		// Not what was asked for, so it is said out loud, once: the share
@@ -899,6 +905,7 @@ func (s *server) swap(next []*share) (closed uint64, err error) {
 	s.genN++
 	s.gen = s.startGeneration(s.genN, s.feeds, s.failures)
 	s.ready.Store(true)
+	s.applyHFSPlusDurability(next)
 	// Closes only what nobody serves any more: a share carried over shares
 	// its driver with its successor.
 	release(prev, next)

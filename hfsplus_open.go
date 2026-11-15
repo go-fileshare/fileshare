@@ -71,6 +71,75 @@ func hfsplusWritableMax(b shareBlock) int64 {
 	return n
 }
 
+// parseHFSPlusDurability reads a hfsplus_durability: strict (the default, and
+// what an empty setting means), mounted or lazy. It applies to a writable HFS+
+// image only (hfsplus v0.12.0, SetDurability). Per commit, in write barriers:
+// strict 3, mounted 1 to 2, lazy 0 (and one or two at Sync or Close). Lazy is
+// data-writeback: it must not be used for a share other clients mount at the
+// same time, because the volume is not consistent on the medium between flushes.
+func parseHFSPlusDurability(s string) (hfsplus.Durability, error) {
+	switch strings.TrimSpace(s) {
+	case "", "strict":
+		return hfsplus.DurabilityStrict, nil
+	case "mounted":
+		return hfsplus.DurabilityMounted, nil
+	case "lazy":
+		return hfsplus.DurabilityLazy, nil
+	}
+	return hfsplus.DurabilityStrict, fmt.Errorf("%q is not a durability: want strict, mounted or lazy", s)
+}
+
+// hfsplusDurability is the level a share's block asks for, validated at load.
+func hfsplusDurability(b shareBlock) hfsplus.Durability {
+	d, err := parseHFSPlusDurability(b.HFSPlusDurability)
+	if err != nil {
+		return hfsplus.DurabilityStrict
+	}
+	return d
+}
+
+// hfsplusDurable is the part of *hfsplus.Volume a reload changes.
+type hfsplusDurable interface {
+	Durability() hfsplus.Durability
+	SetDurability(hfsplus.Durability) error
+}
+
+// applyHFSPlusDurability is run by swap once the new list of shares is the one
+// being served, never while it is being opened: a reload that fails later (another
+// share that does not open, a state file that cannot be written) says "nothing
+// changed", so the volume of a share it kept must not have moved. A level that
+// cannot be set (the sync that settles the old one failed) is said in the log and
+// the volume stays at the level it had.
+func (s *server) applyHFSPlusDurability(shares []*share) {
+	for _, sh := range shares {
+		if err := sh.setHFSPlusDurability(sh.block); err != nil {
+			fmt.Fprintf(s.out, "share %s: hfsplus_durability %q was not applied, the volume stays at %s: %v\n",
+				sh.block.Name, sh.block.HFSPlusDurability, sh.hfsVol.Durability(), err)
+		}
+	}
+}
+
+// setHFSPlusDurability applies the block's hfsplus_durability to the writable
+// HFS+ volume the share holds, under the image's lock (SetDurability must not
+// run with a mutator). A share with no writable HFS+ volume ignores the setting.
+func (s *share) setHFSPlusDurability(b shareBlock) error {
+	if s.hfsVol == nil {
+		return nil
+	}
+	d := hfsplusDurability(b)
+	l, ok := s.fsys.(interface{ lock() *sync.Mutex })
+	if !ok {
+		return nil
+	}
+	mu := l.lock()
+	mu.Lock()
+	defer mu.Unlock()
+	if s.hfsVol.Durability() == d {
+		return nil
+	}
+	return s.hfsVol.SetDurability(d)
+}
+
 // hfsplusOpen is what openImage tells the HFS+ opener about the share it is
 // opening, and what the opener tells back. detect.Open's Opener takes a reader
 // and a size only, so the per-share facts travel in hfsplusOpens, keyed by the
@@ -79,6 +148,10 @@ func hfsplusWritableMax(b shareBlock) int64 {
 type hfsplusOpen struct {
 	max  int64    // hfsplus_writable_max
 	file *os.File // the image the share holds: what the volume reads and writes, and what the image lock is taken on
+	// durability is hfsplus_durability, applied to the volume when it is opened
+	// for writing; vol is that volume, nil when the open fell back to read-only.
+	durability hfsplus.Durability
+	vol        *hfsplus.Volume
 	// fallback is set by the opener when the volume was opened read-only
 	// although the share could have been written: the reason, for the log.
 	fallback string
@@ -131,6 +204,11 @@ func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
 	}
 	vol, err := hfsplus.OpenWritableAt(o.file, size)
 	if err == nil {
+		if derr := vol.SetDurability(o.durability); derr != nil {
+			unlockImage(o.file)
+			return nil, derr
+		}
+		o.vol = vol
 		return vol, nil
 	}
 	unlockImage(o.file)

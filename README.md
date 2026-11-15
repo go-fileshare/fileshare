@@ -1749,6 +1749,49 @@ and over the size:
 /srv/mac.img is an HFS+ volume and it is 1073741824 bytes, over hfsplus_writable_max (268435456 bytes), so mac is read-only
 ```
 
+### `hfsplus_durability`: when a write is on the medium
+
+hfsplus v0.12.0 (go-filesystems/hfsplus#41) lets a writable volume trade
+durability for speed per volume, and a share chooses with `hfsplus_durability`
+(Refs go-filesystems/hfsplus#35: the 3x gap against macOS is not measured again
+yet):
+
+```hcl
+share "mac" {
+  image                = "/srv/mac.img"
+  hfsplus_writable_max = "256M"
+  hfsplus_durability   = "mounted"   # strict (default) | mounted | lazy
+}
+```
+
+| value | write barriers per commit | what it means |
+|---|---|---|
+| `strict` (default) | 3 (first write, without data and with data alike, on a volume that was clean when opened); `Sync` 1 | every commit is durable when it returns, and the volume is marked clean between commits. Unchanged since v0.46.0 |
+| `mounted` | 2 for the first write, 1 without data, 2 with data; `Sync` 1 | data is written before the metadata that points at it, and the volume stays marked as in use between commits, as TN1150 describes a mounted volume: what macOS does |
+| `lazy` | 1 for the first write, 0 after; `Sync` 2 | data is written back with no order. A change is on the medium only when the volume is closed (the share is removed or the server stops) or a reload changes the level: **fileshare never syncs a volume on its own, so an SMB FLUSH, an NFS COMMIT or an SFTP fsync succeeds without making `lazy` data durable** |
+
+It applies to a **writable HFS+ image only** and is ignored, with no error and
+no log line, when the share is read-only (the default `hfsplus_writable_max` of
+`0`, a size over it, `read_only`, a device, an image with a journal that holds
+transactions). An unknown value makes the configuration refuse to load, naming
+the share. `mounted` and `lazy` leave the volume marked as not cleanly unmounted
+until the volume is closed or a reload changes the level (fileshare issues no
+sync of its own), so after a crash the next mount runs `fsck_hfs`, and a
+journaled volume stays unjournaled until `diskutil enableJournal`. **`lazy` must
+not be used for a share that other clients mount at the same time**, nor where
+different users share the volume: nothing orders file data before the metadata
+that points at it (data-writeback), so after a crash a file may hold stale bytes
+of a deleted one, and a crash loses what was written since the volume was last settled, which
+the clients were told succeeded (a client's flush, commit or fsync does not
+change that: see the table). Writable HFS+ stays opt-in: `hfsplus_durability`
+does not turn it on.
+
+A reload that changes `hfsplus_durability` changes the open volume in place (the
+driver is kept, so no second writer has to take the image lock), once the new
+list of shares is being served: a reload that is refused leaves the level as it
+was. Leaving a lazier level flushes first; if that flush fails, one log line says
+so and the volume stays at its level.
+
 A **journaled** volume (what `hdiutil create -fs "Journaled HFS+"` and macOS
 make) is written only when its journal is empty, which is what a clean unmount
 leaves: macOS then has nothing to replay at the next mount. A journal with

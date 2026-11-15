@@ -221,6 +221,61 @@ func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
 	}
 }
 
+// orderProbe is a volume that records, when its level is set, what the server
+// was serving at that moment.
+type orderProbe struct {
+	srv     *server
+	d       hfsplus.Durability
+	shares  []*share
+	genN    uint64
+	ready   bool
+	applied bool
+}
+
+func (p *orderProbe) Durability() hfsplus.Durability { return p.d }
+func (p *orderProbe) SetDurability(d hfsplus.Durability) error {
+	p.applied = true
+	p.shares = p.srv.currentShares()
+	p.genN = p.srv.genN // swap holds runMu: this goroutine may read it
+	p.ready = p.srv.ready.Load()
+	p.d = d
+	return nil
+}
+
+// swap sets the level before the new list is published: when the volume's level
+// is set, the server still serves the previous list, the new generation has not
+// started and the server is not ready.
+func TestSwapAppliesHFSPlusDurabilityBeforePublishing(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	srv, _ := runServer(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	r := &running{srv: srv, out: &safeBuffer{}}
+	prev := r.srv.currentShares()
+	genBefore := r.srv.generationNumber()
+	probe := &orderProbe{srv: r.srv, d: hfsplus.DurabilityStrict}
+	sh := &share{fsys: prev[0].fsys, hfsVol: probe, block: prev[0].block}
+	sh.block.HFSPlusDurability = "lazy"
+	if _, err := r.srv.swap([]*share{sh}); err != nil {
+		t.Fatal(err)
+	}
+	if !probe.applied {
+		t.Fatal("swap did not set the level")
+	}
+	if len(probe.shares) != 1 || probe.shares[0] != prev[0] {
+		t.Errorf("the new list was already published when the level was set")
+	}
+	if probe.genN != genBefore {
+		t.Errorf("generation %d had started when the level was set, want %d", probe.genN, genBefore)
+	}
+	if probe.ready {
+		t.Errorf("the server was ready when the level was set")
+	}
+	if got := r.srv.currentShares(); len(got) != 1 || got[0] != sh {
+		t.Errorf("the new list is not the one served after swap")
+	}
+}
+
 // lockProbe is a volume whose SetDurability records whether the image's mutex
 // was held when it ran: TryLock succeeds only if nobody held it.
 type lockProbe struct {

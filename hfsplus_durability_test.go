@@ -254,7 +254,12 @@ func TestSwapAppliesHFSPlusDurabilityBeforePublishing(t *testing.T) {
 	prev := r.srv.currentShares()
 	genBefore := r.srv.generationNumber()
 	probe := &orderProbe{srv: r.srv, d: hfsplus.DurabilityStrict}
-	sh := &share{fsys: prev[0].fsys, hfsVol: probe, block: prev[0].block}
+	// adopt carries the closers of the real image over: the list swap serves is
+	// the one srv.Close closes, and a closer left behind keeps hfs.img open,
+	// which Windows refuses to delete when t.TempDir is cleaned up.
+	sh := &share{block: prev[0].block}
+	sh.adopt(prev[0])
+	sh.hfsVol = probe
 	sh.block.HFSPlusDurability = "lazy"
 	if _, err := r.srv.swap([]*share{sh}); err != nil {
 		t.Fatal(err)

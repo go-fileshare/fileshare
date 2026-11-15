@@ -87,14 +87,8 @@ github.com/go-filesystems/ext4 v0.5.0 h1:T24QaE4r9us2AjfObyYyOJl0P1gH6XYmJKhpHhN
 github.com/go-filesystems/ext4 v0.5.0/go.mod h1:Cxs90pJQjKafdtr1f8PNdG3UEFGqDv92fRqFh0dFA94=
 github.com/go-filesystems/fat32 v0.13.0 h1:7F6w9RHJeb3Zw+1QKmxprP8L8g1jayyiSjyBpelNNMc=
 github.com/go-filesystems/fat32 v0.13.0/go.mod h1:qt1vRLxSH0Fr1G+F9BGaotGsDyvuakMXVboyUnnp6N0=
-github.com/go-filesystems/hfsplus v0.8.0 h1:U6g+5No5tXrNm3ARQVVByhqyP65//fqWtPxJesdlQEw=
-github.com/go-filesystems/hfsplus v0.8.0/go.mod h1:VXXVLi4Vl7q+I257R11i4sZrpJcHZNPJjCXYeM49lAY=
-github.com/go-filesystems/hfsplus v0.9.0 h1:zo19zyRW41TVP/pE5DUlmqYMpnURTS+h60oWShPflm8=
-github.com/go-filesystems/hfsplus v0.9.0/go.mod h1:VXXVLi4Vl7q+I257R11i4sZrpJcHZNPJjCXYeM49lAY=
-github.com/go-filesystems/hfsplus v0.10.0 h1:1YUEndupVDIcqu3DGyaHfpNOBBMHbWCWVUcxybPH++k=
-github.com/go-filesystems/hfsplus v0.10.0/go.mod h1:SOk8oy2tA8cvH9yykrNYuwU2xWsebgAfG8e5h2rzSnk=
-github.com/go-filesystems/hfsplus v0.11.0 h1:Rj0acnDLEsaeqE6GJ3AxPIMaMCJD3oLD4KY9vBlKpc4=
-github.com/go-filesystems/hfsplus v0.11.0/go.mod h1:SOk8oy2tA8cvH9yykrNYuwU2xWsebgAfG8e5h2rzSnk=
+github.com/go-filesystems/hfsplus v0.12.0 h1:vAfnVnZEWmiqztDS19BKUchkcQKygl1rMALmBqFEOhQ=
+github.com/go-filesystems/hfsplus v0.12.0/go.mod h1:SOk8oy2tA8cvH9yykrNYuwU2xWsebgAfG8e5h2rzSnk=
 github.com/go-filesystems/hostcopy v0.1.0 h1:eNOy7iGrEe7dGZQ+UhnXJraZsnT+Ht3pP3OIWy69Wq0=
 github.com/go-filesystems/hostcopy v0.1.0/go.mod h1:5HPox1vd9HgHm4tzbem2w3a/QxmM0gyxhFQmKBKMrKI=
 github.com/go-filesystems/inflight v0.2.0 h1:XN9rJkWSo51zDqx10VvQCvu8TG2t9t7v4Xv3vsvnmEM=

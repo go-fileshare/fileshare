@@ -397,8 +397,9 @@ type shareBlock struct {
 	// medium (hfsplus v0.12.0): "strict" (the default: three write barriers per
 	// commit), "mounted" (what a mounted volume does, one or two), or "lazy"
 	// (none per commit; on the medium after a sync or at close). It applies only
-	// to an HFS+ image opened for writing and is ignored otherwise. "lazy" must
-	// not be used for a share other clients mount at the same time. A reload that
+	// to an HFS+ image opened for writing and is ignored otherwise. "lazy" is
+	// data-writeback (stale bytes of a deleted file can show after a crash) and
+	// must not be used for a share other clients mount at the same time. A reload that
 	// changes it changes the open volume in place.
 	HFSPlusDurability string `hcl:"hfsplus_durability,optional"`
 	// ImageMountUnknown is what a writable image share does when fileshare

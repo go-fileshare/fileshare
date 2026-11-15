@@ -1774,11 +1774,15 @@ It applies to a **writable HFS+ image only** and is ignored, with no error and
 no log line, when the share is read-only (the default `hfsplus_writable_max` of
 `0`, a size over it, `read_only`, a device, an image with a journal that holds
 transactions). An unknown value makes the configuration refuse to load, naming
-the share. **`lazy` must not be used for a share that other clients mount at the
-same time**, nor one whose image another machine reads while the share runs: the
-medium is not consistent between flushes, and a crash can lose what was
-acknowledged. Writable HFS+ stays opt-in: `hfsplus_durability` does not turn it
-on.
+the share. `mounted` and `lazy` leave the volume marked as not cleanly unmounted
+until a sync or a close, so after a crash the next mount runs `fsck_hfs`, and a
+journaled volume stays unjournaled until `diskutil enableJournal`. **`lazy` must
+not be used for a share that other clients mount at the same time**, nor where
+different users share the volume: nothing orders file data before the metadata
+that points at it (data-writeback), so after a crash a file may hold stale bytes
+of a deleted one, and a crash loses what was written since the last sync, which
+the clients were told succeeded. Writable HFS+ stays opt-in: `hfsplus_durability`
+does not turn it on.
 
 A reload that changes `hfsplus_durability` changes the open volume in place (the
 driver is kept, so no second writer has to take the image lock) and flushes when

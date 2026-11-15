@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -41,6 +42,12 @@ type lockedFS struct {
 	// img is the image file the driver reads and writes through, when there is
 	// one: what Sync fsyncs for a driver with no Sync of its own.
 	img interface{ Sync() error }
+	// imgErr is the first error img.Sync returned, kept for as long as this
+	// wrapper lives (until the share's image is reopened). A retried fsync after
+	// an EIO can succeed because the kernel reports the error once and forgets it
+	// (fsyncgate), without the data that failed being on the medium, so it must
+	// not be answered as durable. Guarded by mu.
+	imgErr *error
 }
 
 // lockFS wraps a driver so that every server shares one lock. It returns
@@ -281,7 +288,7 @@ type lockedPlainT struct {
 }
 
 func lockFSCaps(fsys filesystem.Filesystem, img interface{ Sync() error }) filesystem.Filesystem {
-	l := lockedFS{mu: new(sync.Mutex), fsys: fsys, img: img}
+	l := lockedFS{mu: new(sync.Mutex), fsys: fsys, img: img, imgErr: new(error)}
 	// The combinations are spelled out because Go has no way to build a type
 	// whose method set depends on a value. Each one is a real driver shape:
 	// fat32 and ext4 answer all of them, iso9660 answers none.
@@ -325,7 +332,13 @@ func (l lockedFS) Sync() error {
 		return s.Sync()
 	}
 	if l.img != nil {
-		return l.img.Sync()
+		if *l.imgErr != nil {
+			return fmt.Errorf("an earlier fsync of the image failed, so its data cannot be reported durable until the share is reopened: %w", *l.imgErr)
+		}
+		if err := l.img.Sync(); err != nil {
+			*l.imgErr = err
+			return err
+		}
 	}
 	return nil
 }

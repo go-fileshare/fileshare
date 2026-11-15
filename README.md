@@ -1793,14 +1793,19 @@ data is on the medium and the volume is marked clean again. The paths:
 |---|---|---|
 | SMB | FLUSH on a handle open for writing | the volume |
 | NFS | COMMIT; a WRITE that asks for DATA_SYNC or FILE_SYNC | the volume (an UNSTABLE WRITE is answered UNSTABLE, so the client sends COMMIT) |
-| SFTP | `fsync@openssh.com` on a handle open for writing | every share the person may write (the SFTP tree is per person and sftp passes no path, so the tree syncs each writable share in turn; one that fails is named in the error) |
+| SFTP | `fsync@openssh.com` on a handle open for writing | every share the person may write (`fsync@openssh.com` names a handle, but the sftp module's `Sync` hook takes no path, so fileshare syncs each writable share of the person in turn; one that fails is named in the error; a per-share hook is a follow-up) |
 | WebDAV, S3 | none: they have no flush, and a PUT's response does not wait for a sync | not synced at `lazy` or `mounted` until the volume is synced by another client or closed |
 
 A failed sync is returned to the client as an I/O error (SMB
 `STATUS_UNEXPECTED_IO_ERROR`, NFS `NFS3ERR_IO`, an SFTP failure), never as a
-success, and it stays one: hfsplus latches the failure, so a retried flush or
-COMMIT is refused too (`ErrVolumeFailed`; go-filesystems/hfsplus#42) instead of
-being told its data is durable because the kernel forgot an fsync error. At
+success. It stays one where the sync is the volume's or the image's: hfsplus
+latches the failure (`ErrVolumeFailed`; go-filesystems/hfsplus#42), and the image
+fsync of `lockedFS.Sync` (fat32, exfat, ext4, ntfs, ufs when the flush does not go
+through a file handle's own `Sync`) latches its first error until the share is
+reopened, so a retried flush or COMMIT is refused too instead of being told its
+data is durable because the kernel forgot an fsync error. A positional file
+handle's own `Sync` on fat32, exfat and ext4 is the driver's, and is not latched
+here. At
 `strict` a flush costs one barrier and finds nothing to do. A share whose
 clients never flush (a WebDAV or S3 share, or an SFTP client that does not send
 `fsync@openssh.com`) gets `lazy`'s exposure in full.
@@ -1813,12 +1818,15 @@ ufs; hfsplus is the sixth; iso9660 and squashfs are read-only):
 |---|---|---|
 | hfsplus | `Volume.Sync` | it settles the held writes and marks the volume clean |
 | fat32, exfat, ext4 | the handle's own `Sync` (fsync of the image, plus FSInfo for fat32); for a file the driver opened without positional writes, an fsync of the image | the driver writes each change through to the file as it is made |
-| ntfs, ufs | an fsync of the image file | the driver writes each change through to the file as it is made; it holds none back in memory |
+| ntfs, ufs | an fsync of the image file | the driver writes each change through to the file as it is made (no write-back cache found in its source) |
 | a directory share | nothing (`nil`) | its files are the host's; fileshare does not fsync them |
 
-No served driver buffers writes in memory past the call that made them, so an
-fsync of the image is enough where the driver has no `Sync` of its own. A driver
-that did would have to say so and keep `Sync` nil rather than return a success.
+None of these drivers holds file data or metadata back in memory past the call
+that wrote it, so an fsync of the image is enough where the driver has no `Sync`
+of its own. One thing is held: fat32 keeps its FSInfo free-cluster count in
+memory (an advisory hint, written by the file `Sync`, and one a reader may not
+trust). A driver that held real writes would have to say so and keep `Sync` nil
+rather than return a success.
 
 A reload that changes `hfsplus_durability` changes the open volume in place (the
 driver is kept, so no second writer has to take the image lock), once the new

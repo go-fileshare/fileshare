@@ -19,6 +19,43 @@ func (c *countingImage) Sync() error { c.n++; return c.err }
 
 type syncer interface{ Sync() error }
 
+// failOnceImage is an image whose fsync fails once and then succeeds, as the
+// kernel does after an EIO (fsyncgate: the error is reported once, then
+// forgotten, though the data that failed is not on the medium).
+type failOnceImage struct{ n int }
+
+func (f *failOnceImage) Sync() error {
+	f.n++
+	if f.n == 1 {
+		return errors.New("EIO")
+	}
+	return nil
+}
+
+// The first failed image fsync is latched: every later Sync is refused with it,
+// the image is not asked again, and a retried COMMIT or FLUSH is never told its
+// data is durable. A new wrapper (the share reopened on reload) starts clean.
+func TestLockedFSImageFsyncFailureIsSticky(t *testing.T) {
+	img := &failOnceImage{}
+	s := lockFSImage(plainFS{}, img).(syncer)
+	first := s.Sync()
+	if first == nil {
+		t.Fatal("control: the first fsync did not fail")
+	}
+	for i := 0; i < 2; i++ {
+		err := s.Sync()
+		if err == nil || !strings.Contains(err.Error(), first.Error()) {
+			t.Fatalf("Sync #%d after a failed fsync = %v, want the latched EIO", i+2, err)
+		}
+	}
+	if img.n != 1 {
+		t.Errorf("the image was fsynced %d times; a latched failure is not retried", img.n)
+	}
+	if err := lockFSImage(plainFS{}, &failOnceImage{n: 1}).(syncer).Sync(); err != nil {
+		t.Errorf("a reopened share (new wrapper) did not start clean: %v", err)
+	}
+}
+
 // ownSyncFS is a driver with a Sync of its own, as hfsplus's Volume is.
 type ownSyncFS struct {
 	plainFS

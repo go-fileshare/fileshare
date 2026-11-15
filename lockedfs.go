@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -412,7 +413,7 @@ func (o lockedOpener) OpenFile(p string) (filesystem.File, error) {
 		return nil, err
 	}
 	if w, ok := f.(filesystem.WritableFile); ok {
-		return lockedWritableFile{o.l.mu, w}, nil
+		return lockedWritableFile{o.l.mu, w, o.l.imgErr}, nil
 	}
 	return lockedFile{o.l.mu, f}, nil
 }
@@ -457,6 +458,11 @@ func (f lockedFile) Size() int64  { f.mu.Lock(); defer f.mu.Unlock(); return f.u
 type lockedWritableFile struct {
 	mu *sync.Mutex
 	up filesystem.WritableFile
+	// imgErr is the image's latch (see lockedFS.imgErr), shared with the
+	// filesystem wrapper: a handle's own Sync that fails is recorded there, so a
+	// later COMMIT or Sync on the same image cannot succeed on an fsync the
+	// kernel has forgotten the error of (fsyncgate).
+	imgErr *error
 }
 
 func (f lockedWritableFile) ReadAt(p []byte, off int64) (int, error) {
@@ -474,7 +480,26 @@ func (f lockedWritableFile) Truncate(n int64) error {
 	defer f.mu.Unlock()
 	return f.up.Truncate(n)
 }
-func (f lockedWritableFile) Sync() error  { f.mu.Lock(); defer f.mu.Unlock(); return f.up.Sync() }
+
+// Sync records the first failure in the image's latch, under the image mutex, and
+// refuses once it is set: until the share is reopened, no Sync of this image
+// (this handle's, another's, or the filesystem's) reports success.
+func (f lockedWritableFile) Sync() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if *f.imgErr != nil {
+		return fmt.Errorf("an earlier fsync of the image failed, so its data cannot be reported durable until the share is reopened: %w", *f.imgErr)
+	}
+	if err := f.up.Sync(); err != nil {
+		// A Sync on a handle that was closed says nothing about the image: latching
+		// it would fail every later sync on healthy handles.
+		if !errors.Is(err, os.ErrClosed) {
+			*f.imgErr = err
+		}
+		return err
+	}
+	return nil
+}
 func (f lockedWritableFile) Close() error { f.mu.Lock(); defer f.mu.Unlock(); return f.up.Close() }
 func (f lockedWritableFile) Size() int64  { f.mu.Lock(); defer f.mu.Unlock(); return f.up.Size() }
 

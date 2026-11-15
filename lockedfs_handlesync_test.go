@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -73,3 +74,30 @@ func TestFailedHandleSyncLatchesTheImage(t *testing.T) {
 		t.Error("a Sync on another handle of the image reported success")
 	}
 }
+
+// closedFile is a handle whose Sync reports os.ErrClosed, as fat32 and ext4 do
+// after Close.
+type closedFile struct{ flakyFile }
+
+func (closedFile) Sync() error { return os.ErrClosed }
+
+// A Sync on a closed handle is returned to its caller but says nothing about
+// the image, so it must not latch: a later COMMIT on a healthy image succeeds.
+func TestClosedHandleSyncDoesNotLatchTheImage(t *testing.T) {
+	img := &countingImage{}
+	fsys := lockFSImage(closedOpenerFS{}, img)
+	f, err := fsys.(filesystem.Opener).OpenFile("/f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.(filesystem.WritableFile).Sync(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("handle Sync = %v, want os.ErrClosed returned to the caller", err)
+	}
+	if err := fsys.(syncer).Sync(); err != nil || img.n != 1 {
+		t.Errorf("COMMIT after a closed-handle Sync = %v, image fsynced %d times; want nil and 1", err, img.n)
+	}
+}
+
+type closedOpenerFS struct{ plainFS }
+
+func (closedOpenerFS) OpenFile(string) (filesystem.File, error) { return &closedFile{}, nil }

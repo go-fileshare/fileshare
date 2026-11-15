@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -490,7 +491,11 @@ func (f lockedWritableFile) Sync() error {
 		return fmt.Errorf("an earlier fsync of the image failed, so its data cannot be reported durable until the share is reopened: %w", *f.imgErr)
 	}
 	if err := f.up.Sync(); err != nil {
-		*f.imgErr = err
+		// A Sync on a handle that was closed says nothing about the image: latching
+		// it would fail every later sync on healthy handles.
+		if !errors.Is(err, os.ErrClosed) {
+			*f.imgErr = err
+		}
 		return err
 	}
 	return nil

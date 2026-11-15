@@ -33,6 +33,17 @@ func rawCopy(t *testing.T, path string) string {
 	return out
 }
 
+// volumeClean is whether the image's volume header says "cleanly unmounted"
+// (kHFSVolumeUnmountedBit, 0x100 in the attributes at 1024+4).
+func volumeClean(t *testing.T, img string) bool {
+	t.Helper()
+	b, err := os.ReadFile(img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binary.BigEndian.Uint32(b[1024+4:])&0x100 != 0
+}
+
 // At the lazy level a write is on the medium only once the volume is synced, and
 // a client's flush is what asks for that (go-fileshare/fileshare#135): an SMB
 // FLUSH reaches Volume.Sync, and the raw image, copied while the share is still
@@ -58,13 +69,7 @@ func TestSMBFlushMakesLazyHFSPlusDataDurable(t *testing.T) {
 	// header can: at the lazy level it says "not cleanly unmounted" (the
 	// kHFSVolumeUnmountedBit, 0x100 in the attributes at 1024+4) until the volume
 	// is synced, which restores the clean mark.
-	clean := func(img string) bool {
-		b, err := os.ReadFile(img)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return binary.BigEndian.Uint32(b[1024+4:])&0x100 != 0
-	}
+	clean := func(img string) bool { return volumeClean(t, img) }
 	holds := func(img string) bool {
 		f, err := os.Open(img)
 		if err != nil {

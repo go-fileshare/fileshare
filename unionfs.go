@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -111,6 +112,31 @@ func (u *unionFS) route(p string) (*unionEntry, string, bool) {
 }
 
 func (u *unionFS) Close() error { return nil } // the shares are closed by the server
+
+// Sync is what an SFTP fsync@openssh.com reaches: every share this person may
+// write, in turn. sftp calls the filesystem's Sync with no path (the handle names
+// a file, the extension reaches the tree), so the tree cannot tell which share
+// the handle was in; syncing all the writable ones is correct and, when nothing
+// is held back (strict, or nothing written), cheap. A read-only share has nothing
+// of this person's to sync. The errors are joined, each naming its share, so one
+// failing volume is not hidden by the others succeeding.
+func (u *unionFS) Sync() error {
+	if u.gone() {
+		return os.ErrPermission
+	}
+	var errs []error
+	for _, e := range u.entries {
+		if e.readOnly {
+			continue
+		}
+		if s, ok := e.fsys.(interface{ Sync() error }); ok {
+			if err := s.Sync(); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", e.name, err))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
 
 // gone reports whether this session may no longer be served.
 func (u *unionFS) gone() bool { return u.revoked != nil && u.revoked() != nil }

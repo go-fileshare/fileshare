@@ -592,7 +592,7 @@ func (s *server) openImage(sh *share, b shareBlock) error {
 	// WritableFile -- and with them the positional read and write paths,
 	// measured at ~70x the whole-file fallback. The file is closed
 	// alongside instead.
-	sh.fsys = lockFS(fsys)
+	sh.fsys = lockFSImage(fsys, f)
 	sh.kind = kind
 	// Remembered so `check` can say it: a driver that was NAMED was not
 	// checked against the image's magic the way a found one was, and a

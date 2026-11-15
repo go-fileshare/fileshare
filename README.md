@@ -1799,13 +1799,12 @@ data is on the medium and the volume is marked clean again. The paths:
 A failed sync is returned to the client as an I/O error (SMB
 `STATUS_UNEXPECTED_IO_ERROR`, NFS `NFS3ERR_IO`, an SFTP failure), never as a
 success. It stays one where the sync is the volume's or the image's: hfsplus
-latches the failure (`ErrVolumeFailed`; go-filesystems/hfsplus#42), and the image
-fsync of `lockedFS.Sync` (fat32, exfat, ext4, ntfs, ufs when the flush does not go
-through a file handle's own `Sync`) latches its first error until the share is
-reopened, so a retried flush or COMMIT is refused too instead of being told its
-data is durable because the kernel forgot an fsync error. A positional file
-handle's own `Sync` on fat32, exfat and ext4 is the driver's, and is not latched
-here. At
+latches the failure (`ErrVolumeFailed`; go-filesystems/hfsplus#42), and for the
+image drivers (fat32, exfat, ext4, ntfs, ufs) the first failed fsync of the image,
+whether from `lockedFS.Sync` or from a positional file handle's own `Sync`, is
+latched until the share is reopened, so a retried flush or COMMIT, on that handle
+or any other, is refused too instead of being told its data is durable because
+the kernel forgot an fsync error. At
 `strict` a flush costs one barrier and finds nothing to do. A share whose
 clients never flush (a WebDAV or S3 share, or an SFTP client that does not send
 `fsync@openssh.com`) gets `lazy`'s exposure in full.

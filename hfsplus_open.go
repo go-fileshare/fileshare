@@ -104,16 +104,18 @@ type hfsplusDurable interface {
 	SetDurability(hfsplus.Durability) error
 }
 
-// applyHFSPlusDurability is run by swap once the new list of shares is the one
-// being served, never while it is being opened: a reload that fails later (another
-// share that does not open, a state file that cannot be written) says "nothing
-// changed", so the volume of a share it kept must not have moved. A level that
-// cannot be set (the sync that settles the old one failed) is said in the log and
-// the volume stays at the level it had.
+// applyHFSPlusDurability is run by swap, never while the new list is being
+// opened: a reload that fails (another share that does not open, a state file that
+// cannot be written) says "nothing changed", so the volume of a share it kept must
+// not have moved. swap calls it after the old generation is stopped (no client is
+// writing) and BEFORE the new list is published, so no client of the new
+// generation ever sees the old level. A level that cannot be set (the sync that
+// settles the old one failed) is said in the log: the volume stays at the level it
+// had, and hfsplus then refuses every later write until the image is reopened.
 func (s *server) applyHFSPlusDurability(shares []*share) {
 	for _, sh := range shares {
 		if err := sh.setHFSPlusDurability(sh.block); err != nil {
-			fmt.Fprintf(s.out, "share %s: hfsplus_durability %q was not applied, the volume stays at %s: %v\n",
+			fmt.Fprintf(s.out, "share %s: hfsplus_durability %q was not applied, the volume stays at %s and the share accepts no write until it is reopened: %v\n",
 				sh.block.Name, sh.block.HFSPlusDurability, sh.hfsVol.Durability(), err)
 		}
 	}

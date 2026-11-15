@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-filesystems/hfsplus"
@@ -210,7 +211,7 @@ func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
 	sh.block.HFSPlusDurability = "lazy"
 	r.srv.applyHFSPlusDurability([]*share{sh})
 	out := r.out.String()
-	for _, want := range []string{"share attic", `hfsplus_durability "lazy" was not applied`, "stays at strict", "sync failed"} {
+	for _, want := range []string{"share attic", `hfsplus_durability "lazy" was not applied`, "stays at strict", "accepts no write until it is reopened", "sync failed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}
@@ -220,39 +221,52 @@ func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
 	}
 }
 
-// The level is changed under the image's lock: a reload that does it while
-// clients write must not race the writers (go test -race).
+// lockProbe is a volume whose SetDurability records whether the image's mutex
+// was held when it ran: TryLock succeeds only if nobody held it.
+type lockProbe struct {
+	mu   *sync.Mutex
+	d    hfsplus.Durability
+	runs int
+	free int // calls that found the mutex free: a defect
+}
+
+func (p *lockProbe) Durability() hfsplus.Durability { return p.d }
+func (p *lockProbe) SetDurability(d hfsplus.Durability) error {
+	p.runs++
+	if p.mu.TryLock() {
+		p.free++
+		p.mu.Unlock()
+	}
+	p.d = d
+	return nil
+}
+
+// The level is changed under the image's lock (SetDurability must not run with a
+// mutator). Deterministic: the volume itself asserts the mutex is held, so
+// removing the lock fails this test on every run, with or without -race.
 func TestHFSPlusDurabilityChangeIsSerialisedWithWriters(t *testing.T) {
 	needUsers(t)
 	path := hfsImage(t)
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
 		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
-	sh := r.srv.currentShares()[0]
-	stop := make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		for i := 0; ; i++ {
-			select {
-			case <-stop:
-				done <- nil
-				return
-			default:
-			}
-			if err := sh.fsys.WriteFile(fmt.Sprintf("/w%d.txt", i%20), []byte("x"), 0o644); err != nil {
-				done <- err
-				return
-			}
-		}
-	}()
+	cur := r.srv.currentShares()[0]
+	l, ok := cur.fsys.(interface{ lock() *sync.Mutex })
+	if !ok {
+		t.Fatal("the writable driver has no image lock")
+	}
+	probe := &lockProbe{mu: l.lock(), d: hfsplus.DurabilityStrict}
+	sh := &share{fsys: cur.fsys, hfsVol: probe, block: cur.block}
 	b := sh.block
-	for i := 0; i < 300; i++ {
-		b.HFSPlusDurability = []string{"lazy", "mounted", "strict"}[i%3]
+	for _, s := range []string{"lazy", "mounted", "strict"} {
+		b.HFSPlusDurability = s
 		if err := sh.setHFSPlusDurability(b); err != nil {
-			t.Errorf("set %q: %v", b.HFSPlusDurability, err)
+			t.Errorf("set %q: %v", s, err)
 		}
 	}
-	close(stop)
-	if err := <-done; err != nil {
-		t.Errorf("a write during the changes: %v", err)
+	if probe.runs != 3 {
+		t.Errorf("SetDurability ran %d times, want 3", probe.runs)
+	}
+	if probe.free != 0 {
+		t.Errorf("SetDurability ran %d times without the image lock held", probe.free)
 	}
 }

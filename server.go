@@ -898,6 +898,9 @@ func (s *server) swap(next []*share) (closed uint64, err error) {
 		// used a worker went with the generation.
 		s.workers.reset()
 	}
+	// Nothing can fail from here on, and the old generation's connections are
+	// gone: the level is set before the new list is published.
+	s.applyHFSPlusDurability(next)
 	s.sharesMu.Lock()
 	prev := s.shares
 	s.shares = next
@@ -905,7 +908,6 @@ func (s *server) swap(next []*share) (closed uint64, err error) {
 	s.genN++
 	s.gen = s.startGeneration(s.genN, s.feeds, s.failures)
 	s.ready.Store(true)
-	s.applyHFSPlusDurability(next)
 	// Closes only what nobody serves any more: a share carried over shares
 	// its driver with its successor.
 	release(prev, next)

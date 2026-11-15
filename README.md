@@ -1766,7 +1766,7 @@ share "mac" {
 
 | value | write barriers per commit | what it means |
 |---|---|---|
-| `strict` (default) | 3 (first write, without data and with data alike); `Sync` 1 | every commit is durable when it returns. Unchanged since v0.46.0 |
+| `strict` (default) | 3 (first write, without data and with data alike, on a volume that was clean when opened); `Sync` 1 | every commit is durable when it returns, and the volume is marked clean between commits. Unchanged since v0.46.0 |
 | `mounted` | 2 for the first write, 1 without data, 2 with data; `Sync` 1 | data is written before the metadata that points at it, and the volume stays marked as in use between commits, as TN1150 describes a mounted volume: what macOS does |
 | `lazy` | 1 for the first write, 0 after; `Sync` 2 | data is written back with no order. A change is on the medium only when the volume is closed (the share is removed or the server stops) or a reload changes the level: **fileshare never syncs a volume on its own, so an SMB FLUSH, an NFS COMMIT or an SFTP fsync succeeds without making `lazy` data durable** |
 

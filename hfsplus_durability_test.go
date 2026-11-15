@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-filesystems/hfsplus"
@@ -210,7 +211,7 @@ func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
 	sh.block.HFSPlusDurability = "lazy"
 	r.srv.applyHFSPlusDurability([]*share{sh})
 	out := r.out.String()
-	for _, want := range []string{"share attic", `hfsplus_durability "lazy" was not applied`, "stays at strict", "sync failed"} {
+	for _, want := range []string{"share attic", `hfsplus_durability "lazy" was not applied`, "stays at strict", "accepts no write until it is reopened", "sync failed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}
@@ -220,39 +221,112 @@ func TestFailedHFSPlusDurabilityChangeIsReported(t *testing.T) {
 	}
 }
 
-// The level is changed under the image's lock: a reload that does it while
-// clients write must not race the writers (go test -race).
+// orderProbe is a volume that records, when its level is set, what the server
+// was serving at that moment.
+type orderProbe struct {
+	srv     *server
+	d       hfsplus.Durability
+	shares  []*share
+	genN    uint64
+	ready   bool
+	applied bool
+}
+
+func (p *orderProbe) Durability() hfsplus.Durability { return p.d }
+func (p *orderProbe) SetDurability(d hfsplus.Durability) error {
+	p.applied = true
+	p.shares = p.srv.currentShares()
+	p.genN = p.srv.genN // swap holds runMu: this goroutine may read it
+	p.ready = p.srv.ready.Load()
+	p.d = d
+	return nil
+}
+
+// swap sets the level before the new list is published: when the volume's level
+// is set, the server still serves the previous list, the new generation has not
+// started and the server is not ready.
+func TestSwapAppliesHFSPlusDurabilityBeforePublishing(t *testing.T) {
+	needUsers(t)
+	path := hfsImage(t)
+	srv, _ := runServer(t, onlyProtocol(t, t.TempDir(), "smb",
+		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
+	r := &running{srv: srv, out: &safeBuffer{}}
+	prev := r.srv.currentShares()
+	genBefore := r.srv.generationNumber()
+	probe := &orderProbe{srv: r.srv, d: hfsplus.DurabilityStrict}
+	// adopt carries the closers of the real image over: the list swap serves is
+	// the one srv.Close closes, and a closer left behind keeps hfs.img open,
+	// which Windows refuses to delete when t.TempDir is cleaned up.
+	sh := &share{block: prev[0].block}
+	sh.adopt(prev[0])
+	sh.hfsVol = probe
+	sh.block.HFSPlusDurability = "lazy"
+	if _, err := r.srv.swap([]*share{sh}); err != nil {
+		t.Fatal(err)
+	}
+	if !probe.applied {
+		t.Fatal("swap did not set the level")
+	}
+	if len(probe.shares) != 1 || probe.shares[0] != prev[0] {
+		t.Errorf("the new list was already published when the level was set")
+	}
+	if probe.genN != genBefore {
+		t.Errorf("generation %d had started when the level was set, want %d", probe.genN, genBefore)
+	}
+	if probe.ready {
+		t.Errorf("the server was ready when the level was set")
+	}
+	if got := r.srv.currentShares(); len(got) != 1 || got[0] != sh {
+		t.Errorf("the new list is not the one served after swap")
+	}
+}
+
+// lockProbe is a volume whose SetDurability records whether the image's mutex
+// was held when it ran: TryLock succeeds only if nobody held it.
+type lockProbe struct {
+	mu   *sync.Mutex
+	d    hfsplus.Durability
+	runs int
+	free int // calls that found the mutex free: a defect
+}
+
+func (p *lockProbe) Durability() hfsplus.Durability { return p.d }
+func (p *lockProbe) SetDurability(d hfsplus.Durability) error {
+	p.runs++
+	if p.mu.TryLock() {
+		p.free++
+		p.mu.Unlock()
+	}
+	p.d = d
+	return nil
+}
+
+// The level is changed under the image's lock (SetDurability must not run with a
+// mutator). Deterministic: the volume itself asserts the mutex is held, so
+// removing the lock fails this test on every run, with or without -race.
 func TestHFSPlusDurabilityChangeIsSerialisedWithWriters(t *testing.T) {
 	needUsers(t)
 	path := hfsImage(t)
 	r := start(t, onlyProtocol(t, t.TempDir(), "smb",
 		fmt.Sprintf("share \"attic\" {\n  image = %q\n  hfsplus_writable_max = \"8M\"\n}\n", hclPath(path))))
-	sh := r.srv.currentShares()[0]
-	stop := make(chan struct{})
-	done := make(chan error, 1)
-	go func() {
-		for i := 0; ; i++ {
-			select {
-			case <-stop:
-				done <- nil
-				return
-			default:
-			}
-			if err := sh.fsys.WriteFile(fmt.Sprintf("/w%d.txt", i%20), []byte("x"), 0o644); err != nil {
-				done <- err
-				return
-			}
-		}
-	}()
+	cur := r.srv.currentShares()[0]
+	l, ok := cur.fsys.(interface{ lock() *sync.Mutex })
+	if !ok {
+		t.Fatal("the writable driver has no image lock")
+	}
+	probe := &lockProbe{mu: l.lock(), d: hfsplus.DurabilityStrict}
+	sh := &share{fsys: cur.fsys, hfsVol: probe, block: cur.block}
 	b := sh.block
-	for i := 0; i < 300; i++ {
-		b.HFSPlusDurability = []string{"lazy", "mounted", "strict"}[i%3]
+	for _, s := range []string{"lazy", "mounted", "strict"} {
+		b.HFSPlusDurability = s
 		if err := sh.setHFSPlusDurability(b); err != nil {
-			t.Errorf("set %q: %v", b.HFSPlusDurability, err)
+			t.Errorf("set %q: %v", s, err)
 		}
 	}
-	close(stop)
-	if err := <-done; err != nil {
-		t.Errorf("a write during the changes: %v", err)
+	if probe.runs != 3 {
+		t.Errorf("SetDurability ran %d times, want 3", probe.runs)
+	}
+	if probe.free != 0 {
+		t.Errorf("SetDurability ran %d times without the image lock held", probe.free)
 	}
 }

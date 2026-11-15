@@ -1828,10 +1828,12 @@ trust). A driver that held real writes would have to say so and keep `Sync` nil
 rather than return a success.
 
 A reload that changes `hfsplus_durability` changes the open volume in place (the
-driver is kept, so no second writer has to take the image lock), once the new
-list of shares is being served: a reload that is refused leaves the level as it
-was. Leaving a lazier level flushes first; if that flush fails, one log line says
-so and the volume stays at its level.
+driver is kept, so no second writer has to take the image lock), after the old
+connections are stopped and before the new list of shares is served: a reload
+that is refused leaves the level as it was. Leaving a lazier level flushes first;
+if that flush fails, one log line says so, the volume stays at its level, and the
+share accepts no write until it is reopened (the volume refuses them after a
+failed flush).
 
 A **journaled** volume (what `hdiutil create -fs "Journaled HFS+"` and macOS
 make) is written only when its journal is empty, which is what a clean unmount

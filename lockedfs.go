@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -38,6 +39,15 @@ import (
 type lockedFS struct {
 	mu   *sync.Mutex
 	fsys filesystem.Filesystem
+	// img is the image file the driver reads and writes through, when there is
+	// one: what Sync fsyncs for a driver with no Sync of its own.
+	img interface{ Sync() error }
+	// imgErr is the first error img.Sync returned, kept for as long as this
+	// wrapper lives (until the share's image is reopened). A retried fsync after
+	// an EIO can succeed because the kernel reports the error once and forgets it
+	// (fsyncgate), without the data that failed being on the medium, so it must
+	// not be answered as durable. Guarded by mu.
+	imgErr *error
 }
 
 // lockFS wraps a driver so that every server shares one lock. It returns
@@ -46,8 +56,16 @@ type lockedFS struct {
 // MetadataSetter (Chmod, Chown, Chtimes) is the fifth axis, carried since smb
 // v0.10.0: its SET_INFO calls Chtimes, so a wrapper that hid it made every
 // image drop a client's access and write times, even a driver that can set them.
-func lockFS(fsys filesystem.Filesystem) filesystem.Filesystem {
-	res := lockFSTimes(fsys)
+func lockFS(fsys filesystem.Filesystem) filesystem.Filesystem { return lockFSImage(fsys, nil) }
+
+// lockFSImage is lockFS for a driver that reads and writes through img (the
+// share's image file): a client's flush on a driver with no Sync of its own
+// fsyncs img. That is truthful for every image driver this program serves: fat32,
+// exfat, ext4, ntfs and ufs write each change through to the file as it is made
+// (none holds writes back in memory), and hfsplus has its own Sync, preferred.
+// A directory share has no image, and its Sync stays nil.
+func lockFSImage(fsys filesystem.Filesystem, img interface{ Sync() error }) filesystem.Filesystem {
+	res := lockFSTimes(fsys, img)
 	ms, ok := fsys.(filesystem.MetadataSetter)
 	if !ok {
 		return res
@@ -186,8 +204,8 @@ type lockedPlainM struct {
 }
 
 // lockFSTimes is lockFS without MetadataSetter.
-func lockFSTimes(fsys filesystem.Filesystem) filesystem.Filesystem {
-	locked := lockFSCaps(fsys)
+func lockFSTimes(fsys filesystem.Filesystem, img interface{ Sync() error }) filesystem.Filesystem {
+	locked := lockFSCaps(fsys, img)
 	tr, ok := fsys.(filesystem.TimesReader)
 	if !ok {
 		return locked
@@ -269,8 +287,8 @@ type lockedPlainT struct {
 	lockedTimes
 }
 
-func lockFSCaps(fsys filesystem.Filesystem) filesystem.Filesystem {
-	l := lockedFS{mu: new(sync.Mutex), fsys: fsys}
+func lockFSCaps(fsys filesystem.Filesystem, img interface{ Sync() error }) filesystem.Filesystem {
+	l := lockedFS{mu: new(sync.Mutex), fsys: fsys, img: img, imgErr: new(error)}
 	// The combinations are spelled out because Go has no way to build a type
 	// whose method set depends on a value. Each one is a real driver shape:
 	// fat32 and ext4 answer all of them, iso9660 answers none.
@@ -300,6 +318,30 @@ func lockFSCaps(fsys filesystem.Filesystem) filesystem.Filesystem {
 // here is held across a call into anything else, so this cannot deadlock with
 // a server's own lock.
 func (l lockedFS) Close() error { l.mu.Lock(); defer l.mu.Unlock(); return l.fsys.Close() }
+
+// Sync is what a client's flush reaches (SMB FLUSH, NFS COMMIT, SFTP
+// fsync@openssh.com), under the image's lock: the driver's own Sync when it has
+// one (hfsplus's Volume.Sync makes the work of the mounted and lazy durability
+// levels durable), else an fsync of the image file the driver writes through, so
+// the acknowledgement is truthful for fat32, exfat, ext4, ntfs and ufs too. With
+// neither (a directory share) there is nothing to sync: nil.
+func (l lockedFS) Sync() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s, ok := l.fsys.(interface{ Sync() error }); ok {
+		return s.Sync()
+	}
+	if l.img != nil {
+		if *l.imgErr != nil {
+			return fmt.Errorf("an earlier fsync of the image failed, so its data cannot be reported durable until the share is reopened: %w", *l.imgErr)
+		}
+		if err := l.img.Sync(); err != nil {
+			*l.imgErr = err
+			return err
+		}
+	}
+	return nil
+}
 
 func (l lockedFS) ReadFile(p string) ([]byte, error) {
 	l.mu.Lock()

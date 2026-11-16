@@ -23,9 +23,9 @@ import (
 // memory, and marks the volume as in use for the length of each commit (the
 // unmounted and journaled bits are cleared in the first header write and
 // restored at the end), so a crash is visible to fsck_hfs. It is still opt-in
-// per share for three reasons that remain open in hfsplus: a durable small write
-// costs 3 fsyncs, about 3x slower than macOS (go-filesystems/hfsplus#35); the
-// crash tests are not finished (go-filesystems/hfsplus#37); and after a crash a
+// per share for two reasons that remain open in hfsplus: a durable small write
+// is about 2.5x slower than macOS (go-filesystems/hfsplus#45, measured in
+// #35), 1.6x at hfsplus_durability = "mounted"; and after a crash a
 // journaled volume mounts without its journal until `diskutil enableJournal`.
 // A share that sets a size accepts those. v0.44.0 and v0.45.0 defaulted to
 // 256 MiB; v0.45.1 to 0 because hfsplus v0.9.0 held the whole image in memory
@@ -189,8 +189,8 @@ func openHFSPlus(r io.ReaderAt, size int64) (filesystem.Filesystem, error) {
 	switch {
 	case o.max == 0:
 		o.fallback = "hfsplus_writable_max is 0, the default: HFS+ images are written only when a share sets a size, " +
-			"because a durable small write is about 3x slower than on macOS (go-filesystems/hfsplus#35), " +
-			"the crash tests are not finished (go-filesystems/hfsplus#37), and after a crash a journaled volume " +
+			"because a durable small write is about 2.5x slower than on macOS (go-filesystems/hfsplus#45), " +
+			"1.6x at the \"mounted\" durability level, and after a crash a journaled volume " +
 			"mounts without its journal until diskutil enableJournal"
 		return hfsplus.OpenReader(r, size)
 	case size <= 0:

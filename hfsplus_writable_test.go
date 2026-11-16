@@ -296,8 +296,8 @@ func TestHFSPlusImageOverTheCapIsReadOnly(t *testing.T) {
 }
 
 // Since v0.45.1 hfsplus_writable_max defaults to 0: since v0.46.0 (hfsplus
-// v0.10.0) still, for the commit latency (go-filesystems/hfsplus#35) and the
-// unfinished crash tests (#37), so an HFS+ image is written only when
+// v0.10.0) still, for the commit latency (go-filesystems/hfsplus#45) and the
+// journal after a crash, so an HFS+ image is written only when
 // a share sets a size. A share that says nothing, or says "0", serves the image
 // read-only and logs the default's reason exactly once; the driver itself
 // refuses the write, and range reads and times survive.
@@ -328,7 +328,7 @@ func TestHFSPlusDefaultIsReadOnly(t *testing.T) {
 			}
 			wantAbilities(t, sh.fsys)
 			out := r.out.String()
-			if n := strings.Count(out, "hfsplus#35"); n != 1 {
+			if n := strings.Count(out, "hfsplus#45"); n != 1 {
 				t.Errorf("default reason logged %d times, want once:\n%s", n, out)
 			}
 			for _, want := range []string{"hfsplus_writable_max is 0, the default", "so attic is read-only"} {

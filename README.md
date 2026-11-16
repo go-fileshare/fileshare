@@ -1716,11 +1716,12 @@ volumes included. After a failed write the volume refuses further writes
 (`ErrVolumeFailed`) until the share is reopened.
 
 It stays **opt-in**, for what hfsplus has not finished: a durable small write
-costs 3 fsyncs per commit and is about 3x slower than on macOS (Refs
-go-filesystems/hfsplus#35), the crash tests are not hardened (Refs
-go-filesystems/hfsplus#37), and after a crash a journaled volume mounts without
-its journal until `diskutil enableJournal`. The default can come back when
-those are fixed. Until then an HFS+ share is served **read-only** (through
+(create, one byte, fsync) takes 12.66 ms at the default durability against 5.13
+ms on macOS, about 2.5x slower, and 8.20 ms, 1.6x, at `hfsplus_durability =
+"mounted"` (measured at hfsplus v0.12.2, go-filesystems/hfsplus#35; the rest of
+the gap is go-filesystems/hfsplus#45, writing journaled volumes through their
+journal), and after a crash a journaled volume mounts without its journal until
+`diskutil enableJournal`. The default can come back when those are fixed. Until then an HFS+ share is served **read-only** (through
 `hfsplus.OpenReader`, with range reads and times as before, marked read-only)
 unless it sets `hfsplus_writable_max`:
 
@@ -1740,7 +1741,7 @@ served read-only too. Each of these opens writes one line naming the image and
 the reason, for instance with no setting:
 
 ```text
-/srv/mac.img is an HFS+ volume and hfsplus_writable_max is 0, the default: HFS+ images are written only when a share sets a size, because a durable small write is about 3x slower than on macOS (go-filesystems/hfsplus#35), the crash tests are not finished (go-filesystems/hfsplus#37), and after a crash a journaled volume mounts without its journal until diskutil enableJournal, so mac is read-only
+/srv/mac.img is an HFS+ volume and hfsplus_writable_max is 0, the default: HFS+ images are written only when a share sets a size, because a durable small write is about 2.5x slower than on macOS (go-filesystems/hfsplus#45), 1.6x at the "mounted" durability level, and after a crash a journaled volume mounts without its journal until diskutil enableJournal, so mac is read-only
 ```
 
 and over the size:
@@ -1753,8 +1754,8 @@ and over the size:
 
 hfsplus v0.12.0 (go-filesystems/hfsplus#41) lets a writable volume trade
 durability for speed per volume, and a share chooses with `hfsplus_durability`
-(Refs go-filesystems/hfsplus#35: the 3x gap against macOS is not measured again
-yet):
+(go-filesystems/hfsplus#35 measured the gap against macOS at v0.12.2: 2.5x at
+the default, 1.6x at `mounted`; the rest is go-filesystems/hfsplus#45):
 
 ```hcl
 share "mac" {

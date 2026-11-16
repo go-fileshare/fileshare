@@ -7,6 +7,7 @@ package provision
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -198,11 +199,8 @@ func TestAnUnknownMethodClosesTheConnection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s was answered", method)
 		}
-		if err := capabilitiesOnANewConnection(ctx, c); err != nil {
+		if err := capabilitiesOnANewConnection(ctx, c, d, before); err != nil {
 			t.Fatalf("after %s: %v", method, err)
-		}
-		if d.n.Load() == before {
-			t.Errorf("%s: the connection survived (still %d dials)", method, before)
 		}
 	}
 	if !strings.Contains(w.log.String(), "not a provisioner verb") {
@@ -249,11 +247,8 @@ func TestAMalformedMessageClosesTheConnection(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: answered", what)
 		}
-		if err := capabilitiesOnANewConnection(ctx, c); err != nil {
+		if err := capabilitiesOnANewConnection(ctx, c, d, before); err != nil {
 			t.Fatalf("after %s: %v", what, err)
-		}
-		if d.n.Load() == before {
-			t.Errorf("%s: the connection survived", what)
 		}
 	}
 	if w.zfs.ds["pool/fs/x"] != nil {
@@ -270,22 +265,38 @@ func TestAMalformedMessageClosesTheConnection(t *testing.T) {
 }
 
 // capabilitiesOnANewConnection is the client's next call after the server
-// closed its connection. On a slow machine (riscv64 under qemu, where this
-// failed once with "error reading from server: EOF") that call can leave on
-// the transport being torn down before the client has seen it go, and is
-// answered Unavailable. That is the close being observed, not a defect: the
-// call is retried while it is Unavailable, within the test's deadline, and any
-// other error is returned at once.
+// closed its connection, and it returns once that call has been answered on a
+// NEW connection: once d has dialled again since before. Two orderings make
+// the first call after the close land elsewhere, and neither is a defect:
+//
+//   - On a slow machine (riscv64 under qemu, where this failed once with "error
+//     reading from server: EOF") the call can leave on the transport being torn
+//     down before the client has seen it go, and is answered Unavailable.
+//   - A malformed message is closed by the stats handler, which grpc-go calls
+//     from a defer in processRPC AFTER WriteStatus (server.go:1350 and :1494 in
+//     v1.85.0): the client holds its error before the connection is closed, so
+//     its next call can still be answered on the old connection
+//     (go-fileshare/fileshare#143).
+//
+// So the call is repeated, while it is Unavailable or answered without a new
+// dial, until the client has dialled again; any other error is returned at
+// once, and a connection still open at the test's deadline is the failure.
 func capabilitiesOnANewConnection(ctx context.Context, c interface {
 	Capabilities(context.Context) (*pb.GetCapabilitiesResponse, error)
-}) error {
+}, d *dialer, before int32) error {
 	for {
 		_, err := c.Capabilities(ctx)
-		if status.Code(err) != codes.Unavailable {
+		switch {
+		case err == nil && d.n.Load() > before:
+			return nil
+		case err != nil && status.Code(err) != codes.Unavailable:
 			return err
 		}
 		select {
 		case <-ctx.Done():
+			if err == nil {
+				return fmt.Errorf("the connection survived (still %d dials)", before)
+			}
 			return err
 		case <-time.After(20 * time.Millisecond):
 		}

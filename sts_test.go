@@ -453,7 +453,9 @@ func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
 	if victim == nil {
 		t.Fatal(why)
 	}
-	for i := 0; i < stsPerPrincipal+5; i++ {
+	// The documented limit, spelled once: raising it is a decision the README
+	// and this line say together.
+	for i := 0; i < 16+5; i++ {
 		if c, why := credsFor(t, r, assume(p.machineToken(t, "flooder", nil))); c == nil {
 			t.Fatalf("exchange %d: %s", i, why)
 		}
@@ -466,8 +468,8 @@ func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
 		}
 	}
 	r.srv.sts.mu.Unlock()
-	if n != stsPerPrincipal {
-		t.Errorf("one name holds %d sessions, want %d", n, stsPerPrincipal)
+	if n != 16 {
+		t.Errorf("one name holds %d sessions, want 16 (the README's number)", n)
 	}
 	if _, ok := r.srv.sts.get(victim.key); !ok {
 		t.Error("another name's session was pushed out")

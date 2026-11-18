@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -71,6 +72,65 @@ type stsStore struct {
 	// rate is the recent STS requests by source address, perMinute allowed.
 	rate      map[string][]time.Time
 	perMinute int
+	rateMax   int
+}
+
+// rateKey is what a source is counted as: an IPv4 address itself, an IPv6 one
+// as its /64 (a host rotates through the whole /64 for free), anything that
+// is not an address as written.
+func rateKey(host string) string {
+	a, err := netip.ParseAddr(host)
+	if err != nil {
+		return host
+	}
+	a = a.Unmap().WithZone("")
+	if a.Is6() {
+		p, _ := a.Prefix(64)
+		return p.String()
+	}
+	return a.String()
+}
+
+// clientSource is who asked: the address of the connection, unless that is a
+// trusted proxy, in which case the right-most X-Forwarded-For hop that is not
+// itself a trusted proxy. ⛔ From anybody else X-Forwarded-For is ignored: a
+// direct client could write anything in it. A hop that is not an address ends
+// the walk at the proxy, which is then the source.
+func clientSource(r *http.Request, trusted []netip.Prefix) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	isTrusted := func(s string) bool {
+		a, err := netip.ParseAddr(strings.TrimSpace(s))
+		if err != nil {
+			return false
+		}
+		a = a.Unmap().WithZone("")
+		for _, p := range trusted {
+			if p.Contains(a) {
+				return true
+			}
+		}
+		return false
+	}
+	if !isTrusted(host) {
+		return rateKey(host)
+	}
+	hops := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		h := strings.TrimSpace(hops[i])
+		if h == "" {
+			continue
+		}
+		if _, err := netip.ParseAddr(h); err != nil {
+			break
+		}
+		if !isTrusted(h) {
+			return rateKey(h)
+		}
+	}
+	return rateKey(host)
 }
 
 const (
@@ -89,20 +149,36 @@ const (
 
 func newSTSStore(now func() time.Time) *stsStore {
 	return &stsStore{m: map[string]*stsSession{}, now: now, max: stsMaxSessions, perPrincipal: stsPerPrincipal,
-		rate: map[string][]time.Time{}, perMinute: stsRatePerMinute}
+		rate: map[string][]time.Time{}, perMinute: stsRatePerMinute, rateMax: stsRateSources}
 }
 
 // allow counts one STS request from a source and says whether it is within
 // the rate: perMinute a minute each. Every request counts, valid or not,
 // before anything is verified -- a flood of tokens is what it is for. The
-// table is bounded: past stsRateSources sources it is emptied, which errs on
-// the side of serving.
+// source is rateKey's (an IPv6 address is its /64). The table is bounded, and
+// never emptied: when full, entries a minute old go first, then the one with
+// the fewest recent requests -- so that a flood of fresh sources, each at
+// one, cannot push out a source that is at its limit.
 func (st *stsStore) allow(source string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	now := st.now()
-	if _, known := st.rate[source]; !known && len(st.rate) >= stsRateSources {
-		clear(st.rate)
+	if _, known := st.rate[source]; !known && len(st.rate) >= st.rateMax {
+		for k, ts := range st.rate {
+			if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= time.Minute {
+				delete(st.rate, k)
+			}
+		}
+		if len(st.rate) >= st.rateMax {
+			var victim string
+			least := int(^uint(0) >> 1)
+			for k, ts := range st.rate {
+				if len(ts) < least {
+					victim, least = k, len(ts)
+				}
+			}
+			delete(st.rate, victim)
+		}
 	}
 	recent := st.rate[source][:0]
 	for _, t := range st.rate[source] {
@@ -247,11 +323,7 @@ func isSTSRequest(r *http.Request) bool {
 
 // serveSTS answers an STS request.
 func (s *server) serveSTS(w http.ResponseWriter, r *http.Request) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if !s.sts.allow(host) {
+	if !s.sts.allow(clientSource(r, s.cfg.serveBlockFor("s3").proxies)) {
 		w.Header().Set("Retry-After", "60")
 		stsFail(w, http.StatusTooManyRequests, "Throttling", "too many requests from this address")
 		return

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -499,6 +500,14 @@ type serveBlock struct {
 	// password way of signing OFF: only STS credentials are accepted. It
 	// needs sts, or nobody could sign at all. Default true.
 	StaticKeys *bool `hcl:"static_keys,optional"`
+	// TrustedProxies are the addresses or CIDRs of the reverse proxies in
+	// front of this listener (the ones plaintext = true is for). Only a
+	// request that arrives FROM one is believed about its client, through
+	// X-Forwarded-For: STS counts requests per client with it. Without the
+	// list every client behind a proxy is one source.
+	TrustedProxies []string `hcl:"trusted_proxies,optional"`
+
+	proxies []netip.Prefix
 }
 
 // stsOn reports whether the configuration serves STS.
@@ -542,7 +551,25 @@ func (b *serveBlock) stsDurations() (def, max time.Duration, err error) {
 
 // checkSTS refuses an STS configuration that would not do what it says.
 func (c *config) checkSTS() error {
-	for _, b := range c.Serves {
+	for i := range c.Serves {
+		b := &c.Serves[i]
+		if len(b.TrustedProxies) > 0 {
+			if !(b.Protocol == "s3" && b.STS) {
+				return fmt.Errorf("%s: trusted_proxies is for s3 with sts = true, where it says who asked", b.Protocol)
+			}
+			b.proxies = nil
+			for _, e := range b.TrustedProxies {
+				p, err := netip.ParsePrefix(e)
+				if err != nil {
+					a, err2 := netip.ParseAddr(e)
+					if err2 != nil {
+						return fmt.Errorf("s3: trusted_proxies: %q is not an address or a CIDR", e)
+					}
+					p = netip.PrefixFrom(a, a.BitLen())
+				}
+				b.proxies = append(b.proxies, p.Masked())
+			}
+		}
 		set := b.STS || b.StaticKeys != nil || b.STSDuration != "" || b.STSMaxDuration != ""
 		switch {
 		case set && b.Protocol != "s3":

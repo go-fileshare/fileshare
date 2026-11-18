@@ -649,7 +649,13 @@ serve "s3" {
   credentials would sit inside the SDKs' renewal window (about 5 minutes before
   `Expiration`) and be renewed at once, for ever. A client presents a fresh token
   at each exchange, as awscred does. One name holds 16 sessions at most, and a
-  source address 60 requests a minute.
+  source address 60 requests a minute (an IPv6 address counts as its /64; the
+  table is bounded and a flood of fresh sources cannot reset another's count).
+  Behind the proxy that `plaintext = true` is for, every client would be one
+  source: name the proxies, `trusted_proxies = ["10.0.0.0/24"]` (addresses or
+  CIDRs, on the `s3` serve block), and only a request arriving FROM one is
+  believed about its client, by the right-most `X-Forwarded-For` hop that is not
+  itself a trusted proxy. From anybody else the header is ignored.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
   ignored, and the parameters must be in the POST body — never the URL.
 - `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password

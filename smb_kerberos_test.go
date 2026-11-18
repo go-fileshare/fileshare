@@ -266,9 +266,25 @@ func TestSMBNTLMOffIsRefusedAtLoadWithoutKerberos(t *testing.T) {
 		t.Errorf("ntlm = false without a kerberos block: %v", err)
 	}
 
-	path = write(t, dir, "b.hcl", body+"serve \"webdav\" {\n addr = \"127.0.0.1:0\"\n ntlm = false\n}\n")
-	if _, err := loadConfig([]string{path}); err == nil || !strings.Contains(err.Error(), "for SMB") {
-		t.Errorf("ntlm on webdav: %v", err)
+	// ntlm is an SMB word: on any other protocol it is refused. Every protocol
+	// but SMB can be compiled out (nowebdav, nonfs, nosftp, nos3), so try them in
+	// turn and use the first this binary has; the minimal build has none, and
+	// then this half has nothing to check and says so.
+	tried := false
+	for _, proto := range []string{"webdav", "sftp", "nfs", "s3"} {
+		path = write(t, dir, "b-"+proto+".hcl", body+fmt.Sprintf("serve %q {\n addr = \"127.0.0.1:0\"\n ntlm = false\n}\n", proto))
+		_, err := loadConfig([]string{path})
+		if err != nil && strings.Contains(err.Error(), "this binary was built without "+proto) {
+			continue
+		}
+		tried = true
+		if err == nil || !strings.Contains(err.Error(), "for SMB") {
+			t.Errorf("ntlm on %s: %v", proto, err)
+		}
+		break
+	}
+	if !tried {
+		t.Log("this build serves SMB only: no other protocol to put ntlm on")
 	}
 }
 

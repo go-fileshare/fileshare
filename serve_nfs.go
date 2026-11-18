@@ -46,6 +46,10 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 	k := s.cfg.Kerberos
 	if k != nil {
 		s.nfsOnce.Do(func() {
+			if err := checkKeytabMode(k.Keytab); err != nil {
+				s.nfsErr = err
+				return
+			}
 			a, err := krb5.Load(k.Keytab)
 			if err != nil {
 				s.nfsErr = fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)

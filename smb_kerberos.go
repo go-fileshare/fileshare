@@ -73,6 +73,9 @@ func cifsPrincipals(kt *keytab.Keytab, realm string) []string {
 // newSMBAcceptor reads the block's keytab. It returns nil, nil for a keytab
 // that holds no cifs/ principal of the realm: that is NFS-only, not an error.
 func newSMBAcceptor(k *kerberosBlock, known func(string) bool) (*smbAcceptor, error) {
+	if err := checkKeytabMode(k.Keytab); err != nil {
+		return nil, err
+	}
 	kt, err := keytab.Load(k.Keytab)
 	if err != nil {
 		return nil, fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)
@@ -103,24 +106,41 @@ func (a *smbAcceptor) Accept(token []byte) (*smb.Accepted, []byte, error) {
 	if err := checkCipher("the authenticator", req.EncryptedAuthenticator); err != nil {
 		return nil, nil, err
 	}
-	var creds interface {
-		UserName() string
-		Domain() string
+	// gokrb5 picks the service key by the ticket's CLEARTEXT realm, so a
+	// cifs/<host>@OTHER key sharing this keytab would otherwise decrypt it
+	// although cifsPrincipals kept only this realm's names.
+	if req.Ticket.Realm != a.k.Realm {
+		return nil, nil, fmt.Errorf("the ticket is for realm %q, not %q", req.Ticket.Realm, a.k.Realm)
 	}
+	verified := false
 	var lastErr error
 	for _, p := range a.principals {
-		ok, c, err := service.VerifyAPREQ(req, service.NewSettings(a.kt,
+		ok, _, err := service.VerifyAPREQ(req, service.NewSettings(a.kt,
 			service.KeytabPrincipal(p), service.DecodePAC(false)))
 		if err == nil && ok {
-			creds = c
+			verified = true
 			break
 		}
 		lastErr = err
 	}
-	if creds == nil {
+	if !verified {
 		return nil, nil, fmt.Errorf("ticket rejected: %w", errors.Join(errors.New("no cifs principal of this keytab accepts it"), lastErr))
 	}
-	principal := creds.UserName() + "@" + creds.Domain()
+	// ⛔ WHO the client is comes from the ticket, which the KDC sealed with our
+	// key, never from the authenticator, which the client writes. gokrb5 v8.4.4
+	// builds its credentials from the authenticator (service/APExchange.go) and
+	// compares only its NAME with the ticket's (messages/APReq.go Verify), so a
+	// partner realm's alice with a genuine cross-realm ticket could name our
+	// realm and pass userOf. RFC 4120 3.2.3: name and realm are compared,
+	// KRB_AP_ERR_BADMATCH otherwise. Same fix as go-authn/krb5 v0.3.4.
+	tp := req.Ticket.DecryptedEncPart
+	if req.Authenticator.CRealm != tp.CRealm || !req.Authenticator.CName.Equal(tp.CName) {
+		return nil, nil, errors.New("the authenticator names another client than the ticket")
+	}
+	if tp.CName.PrincipalNameString() == "" || tp.CRealm == "" {
+		return nil, nil, errors.New("the ticket names no client")
+	}
+	principal := tp.CName.PrincipalNameString() + "@" + tp.CRealm
 	// The same mapping NFS makes, with its refusal of another realm, and then
 	// the question NTLM asks without being able to skip it: is this somebody
 	// this server knows? A ticket proves the KDC knows the person, not that this

@@ -33,7 +33,7 @@ require (
 	github.com/go-filesystems/remote v0.2.0
 	github.com/go-filesystems/s3 v0.5.0
 	github.com/go-filesystems/sftp v0.15.0
-	github.com/go-filesystems/smb v0.11.0
+	github.com/go-filesystems/smb v0.16.2-0.20261118133145-4cce00bb9f9d
 	github.com/go-filesystems/squashfs v0.6.0
 	github.com/go-filesystems/ssh v0.1.0
 	github.com/go-filesystems/ufs v0.5.0
@@ -53,6 +53,7 @@ require (
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
 	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jcmturner/gofork v1.7.6
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/lestrrat-go/jwx/v3 v3.4.0
 	github.com/openpubkey/openpubkey v0.30.0
@@ -111,7 +112,6 @@ require (
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
-	github.com/jcmturner/gofork v1.7.6 // indirect
 	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect

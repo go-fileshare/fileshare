@@ -162,8 +162,10 @@ func (p *protocol) refusal(s *share) string {
 func canServeUser(name string, who *directory.Identity, cfg *config) bool {
 	switch name {
 	case "smb":
-		// NTLMv2 needs the password or its MD4, and nothing else will do.
-		return who.Can(directory.NTHash)
+		// NTLMv2 needs the password or its MD4, and nothing else will do -- unless a
+		// kerberos block lets a ticket stand in, which needs no credential this
+		// directory holds (the person has to be known, and is).
+		return who.Can(directory.NTHash) || (cfg != nil && cfg.Kerberos != nil)
 	case "webdav":
 		return who.Can(directory.Verifier) || who.Can(directory.Password)
 	case "sftp":

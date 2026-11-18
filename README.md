@@ -656,6 +656,13 @@ serve "s3" {
   CIDRs, on the `s3` serve block), and only a request arriving FROM one is
   believed about its client, by the right-most `X-Forwarded-For` hop that is not
   itself a trusted proxy. From anybody else the header is ignored.
+  ⛔ **The list must name the proxies and nothing else.** A prefix wider than one
+  host is accepted (a pool of proxies, a /29, is legitimate) and a warning is
+  printed at start: a client that can have an address inside it chooses its own
+  `X-Forwarded-For`, and with it the bucket it is counted in. The count is O(1)
+  per request and held under its own lock, so a flood of fresh sources cannot
+  slow the credentialed S3 requests; sources past the table (10000) share one
+  overflow bucket of ten times the rate.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
   ignored, and the parameters must be in the POST body — never the URL.
 - `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password

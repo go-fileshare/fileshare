@@ -82,7 +82,7 @@ func TestSTS_RateIsPerClientBehindATrustedProxy(t *testing.T) {
 	}
 	// Trusted: the loopback test client is the proxy.
 	r := start(t, stsConfig(t, p, "", `trusted_proxies = ["127.0.0.0/8"]`+"\n"))
-	r.srv.sts.perMinute = 2
+	r.srv.sts.lim.perMinute = 2
 	for i := 0; i < 2; i++ {
 		if s := post(r, "198.51.100.1"); s != http.StatusBadRequest {
 			t.Fatalf("client A request %d: %d", i, s)
@@ -97,7 +97,7 @@ func TestSTS_RateIsPerClientBehindATrustedProxy(t *testing.T) {
 	// Not trusted: XFF is ignored, every client is the one connection, and
 	// rotating the header buys nothing.
 	r2 := start(t, stsConfig(t, p, "", ""))
-	r2.srv.sts.perMinute = 2
+	r2.srv.sts.lim.perMinute = 2
 	post(r2, "198.51.100.1")
 	post(r2, "198.51.100.2")
 	if s := post(r2, "198.51.100.3"); s != http.StatusTooManyRequests {
@@ -108,7 +108,7 @@ func TestSTS_RateIsPerClientBehindATrustedProxy(t *testing.T) {
 // A flood of fresh sources cannot reset the count of one that is at its limit.
 func TestSTS_AFloodOfSourcesDoesNotResetAnother(t *testing.T) {
 	st := newSTSStore(time.Now)
-	st.perMinute, st.rateMax = 3, 50
+	st.lim = newRateLimiter(time.Now, 3, 50)
 	for i := 0; i < 3; i++ {
 		if !st.allow("victim") {
 			t.Fatalf("request %d", i)
@@ -123,11 +123,111 @@ func TestSTS_AFloodOfSourcesDoesNotResetAnother(t *testing.T) {
 	if st.allow("victim") {
 		t.Error("a flood of fresh sources reset the victim's count")
 	}
-	st.mu.Lock()
-	n := len(st.rate)
-	st.mu.Unlock()
+	st.lim.mu.Lock()
+	n := len(st.lim.cur)
+	st.lim.mu.Unlock()
 	if n > 50 {
 		t.Errorf("the table holds %d sources, bound 50", n)
+	}
+	// And the flood itself is not served without limit: past the table, the
+	// shared overflow bucket (10 x the rate) answers 429.
+	served := 0
+	for i := 0; i < 500; i++ {
+		if st.allow("more-" + strconv.Itoa(i)) {
+			served++
+		}
+	}
+	if served > 3*stsOverflowFactor {
+		t.Errorf("%d requests from sources the table could not hold were served", served)
+	}
+}
+
+// The window slides: a source at its limit is served again once its minute is
+// over, and the previous minute counts for the part of it still in the last.
+func TestSTS_TheRateWindowSlides(t *testing.T) {
+	now := time.Now()
+	l := newRateLimiter(func() time.Time { return now }, 4, 100)
+	for i := 0; i < 4; i++ {
+		if !l.allow("a") {
+			t.Fatalf("request %d", i)
+		}
+	}
+	if l.allow("a") {
+		t.Fatal("the 5th in a minute")
+	}
+	now = now.Add(90 * time.Second) // the 4 are in the previous minute, half still in the last
+	if !l.allow("a") {
+		t.Error("90s later: still refused, a minute is over")
+	}
+	now = now.Add(5 * time.Minute)
+	for i := 0; i < 4; i++ {
+		if !l.allow("a") {
+			t.Errorf("after a long quiet, request %d refused", i)
+		}
+	}
+	now = now.Add(-time.Hour) // a clock that went back forgets, it does not lock out
+	if !l.allow("a") {
+		t.Error("a clock set back locked a source out")
+	}
+}
+
+// get() takes st.mu on every credentialed S3 request. allow() on a full table
+// must not hold it: sessions are served while a flood of fresh sources is
+// being counted.
+func TestSTS_GetIsNotBlockedByAllowOnAFullTable(t *testing.T) {
+	st := newSTSStore(time.Now)
+	st.lim = newRateLimiter(time.Now, 60, 1000)
+	sess, err := st.issue(principal{name: "m"}, "iss", "sub", time.Now(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		st.allow("seed-" + strconv.Itoa(i))
+	}
+	// Hold the RATE lock, as a slow allow() would: get() must still answer.
+	st.lim.mu.Lock()
+	done := make(chan bool, 1)
+	go func() { _, ok := st.get(sess.accessKey); done <- ok }()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Error("the session is gone")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("get() waits for the rate limiter's lock")
+	}
+	st.lim.mu.Unlock()
+}
+
+func TestSTS_WideTrustedProxyWarns(t *testing.T) {
+	cfg := func(list ...string) *config {
+		return &config{OIDC: &oidcBlock{Issuer: "https://x", Audience: "a"},
+			Serves: []serveBlock{{Protocol: "s3", STS: true, Addr: "127.0.0.1:0", TrustedProxies: list}}}
+	}
+	for name, c := range map[string]struct {
+		list []string
+		warn []string
+	}{
+		"single hosts":    {[]string{"10.0.0.2", "10.0.0.3/32", "fd00::5", "fd00::6/128"}, nil},
+		"a /29 pool":      {[]string{"10.0.0.0/29"}, []string{"10.0.0.0/29"}},
+		"a /24":           {[]string{"10.0.0.0/24", "192.0.2.1"}, []string{"10.0.0.0/24"}},
+		"an IPv6 /64":     {[]string{"fd00::/64"}, []string{"fd00::/64"}},
+		"mapped /32 host": {[]string{"::ffff:10.0.0.2"}, nil},
+	} {
+		c0 := cfg(c.list...)
+		if err := c0.checkSTS(); err != nil {
+			t.Fatalf("%s: a warning is not a refusal: %v", name, err)
+		}
+		got := c0.stsWarnings()
+		if len(got) != len(c.warn) {
+			t.Errorf("%s: warnings %q, want %d", name, got, len(c.warn))
+			continue
+		}
+		for i, w := range c.warn {
+			if !strings.Contains(got[i], w) || !strings.Contains(got[i], "X-Forwarded-For") {
+				t.Errorf("%s: %q does not name %s and the risk", name, got[i], w)
+			}
+		}
 	}
 }
 

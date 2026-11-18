@@ -549,6 +549,24 @@ func (b *serveBlock) stsDurations() (def, max time.Duration, err error) {
 	return def, max, nil
 }
 
+// stsWarnings are what is legal and worth saying: a trusted_proxies prefix
+// wider than one host. A small pool of proxies (a /29) is legitimate, so it is
+// not refused; but every address in it is believed about its client through
+// X-Forwarded-For, and if clients can be in it they choose their own bucket.
+func (c *config) stsWarnings() []string {
+	var out []string
+	for _, b := range c.Serves {
+		for _, p := range b.proxies {
+			if p.Bits() < p.Addr().BitLen() {
+				out = append(out, fmt.Sprintf("s3: trusted_proxies %s covers more than one host: every address in it is believed about "+
+					"its clients through X-Forwarded-For, so if clients can have an address in it they choose the source they are "+
+					"counted as -- name the proxies only", p))
+			}
+		}
+	}
+	return out
+}
+
 // checkSTS refuses an STS configuration that would not do what it says.
 func (c *config) checkSTS() error {
 	for i := range c.Serves {
@@ -565,6 +583,7 @@ func (c *config) checkSTS() error {
 					if err2 != nil {
 						return fmt.Errorf("s3: trusted_proxies: %q is not an address or a CIDR", e)
 					}
+					a = a.Unmap()
 					p = netip.PrefixFrom(a, a.BitLen())
 				}
 				b.proxies = append(b.proxies, p.Masked())

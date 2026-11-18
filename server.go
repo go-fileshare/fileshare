@@ -297,6 +297,9 @@ func open(cfg *config, out io.Writer) (*server, error) {
 	} else if v != nil {
 		s.oidc = v
 	}
+	for _, w := range cfg.stsWarnings() {
+		fmt.Fprintf(s.out, "warning: %s\n", w)
+	}
 	if cfg.stsOn() {
 		v, err := openOIDCType(cfg.OIDC, "at+jwt")
 		if err != nil {

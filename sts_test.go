@@ -448,7 +448,7 @@ func TestSTS_DurationSecondsOverflow(t *testing.T) {
 func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
 	p := newIDP(t)
 	r := start(t, stsConfig(t, p, "trust_all = true", ""))
-	r.srv.sts.perMinute = 1000 // the cap is under test here, not the rate
+	r.srv.sts.lim.perMinute = 1000 // the cap is under test here, not the rate
 	victim, why := credsFor(t, r, assume(p.machineToken(t, "victim-pc", nil)))
 	if victim == nil {
 		t.Fatal(why)
@@ -476,10 +476,7 @@ func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
 	}
 
 	// The rate, per source address.
-	r.srv.sts.perMinute = 3
-	r.srv.sts.mu.Lock()
-	clear(r.srv.sts.rate)
-	r.srv.sts.mu.Unlock()
+	r.srv.sts.lim = newRateLimiter(time.Now, 3, stsRateSources)
 	for i := 0; i < 3; i++ {
 		if status, body := stsPost(t, r, assume("garbage")); status != http.StatusBadRequest {
 			t.Fatalf("request %d: %d %s", i, status, body)
@@ -492,9 +489,9 @@ func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
 	if !r.srv.sts.allow("203.0.113.9") {
 		t.Error("another source was throttled")
 	}
-	r.srv.sts.mu.Lock()
-	r.srv.sts.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
-	r.srv.sts.mu.Unlock()
+	r.srv.sts.lim.mu.Lock()
+	r.srv.sts.lim.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
+	r.srv.sts.lim.mu.Unlock()
 	if status, _ := stsPost(t, r, assume("garbage")); status != http.StatusBadRequest {
 		t.Errorf("a minute later: %d", status)
 	}

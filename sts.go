@@ -69,10 +69,8 @@ type stsStore struct {
 	// max bounds the store, perPrincipal what one name may hold: the oldest of
 	// their own is dropped first, so that nobody can push others out.
 	max, perPrincipal int
-	// rate is the recent STS requests by source address, perMinute allowed.
-	rate      map[string][]time.Time
-	perMinute int
-	rateMax   int
+	// lim counts STS requests per source, under its own lock.
+	lim *rateLimiter
 }
 
 // rateKey is what a source is counted as: an IPv4 address itself, an IPv6 one
@@ -149,48 +147,72 @@ const (
 
 func newSTSStore(now func() time.Time) *stsStore {
 	return &stsStore{m: map[string]*stsSession{}, now: now, max: stsMaxSessions, perPrincipal: stsPerPrincipal,
-		rate: map[string][]time.Time{}, perMinute: stsRatePerMinute, rateMax: stsRateSources}
+		lim: newRateLimiter(now, stsRatePerMinute, stsRateSources)}
 }
 
 // allow counts one STS request from a source and says whether it is within
-// the rate: perMinute a minute each. Every request counts, valid or not,
-// before anything is verified -- a flood of tokens is what it is for. The
-// source is rateKey's (an IPv6 address is its /64). The table is bounded, and
-// never emptied: when full, entries a minute old go first, then the one with
-// the fewest recent requests -- so that a flood of fresh sources, each at
-// one, cannot push out a source that is at its limit.
-func (st *stsStore) allow(source string) bool {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	now := st.now()
-	if _, known := st.rate[source]; !known && len(st.rate) >= st.rateMax {
-		for k, ts := range st.rate {
-			if len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= time.Minute {
-				delete(st.rate, k)
-			}
-		}
-		if len(st.rate) >= st.rateMax {
-			var victim string
-			least := int(^uint(0) >> 1)
-			for k, ts := range st.rate {
-				if len(ts) < least {
-					victim, least = k, len(ts)
-				}
-			}
-			delete(st.rate, victim)
-		}
+// the rate. See rateLimiter; it takes the limiter's lock, never st.mu, which
+// every credentialed S3 request takes.
+func (st *stsStore) allow(source string) bool { return st.lim.allow(source) }
+
+// rateLimiter counts requests per source in a sliding window of one minute,
+// made of two generations: the minute now running and the one before, which
+// counts for the part of it that still overlaps the last minute. Everything is
+// O(1): a request is a map lookup and an increment, and expiry is the swap of
+// the generations once a minute -- nothing is scanned.
+//
+// Every request counts, valid or not, before anything is verified: a flood of
+// tokens is what it is for. The table is bounded (max sources a generation),
+// and a full one is never emptied nor made to forget anybody: a source it does
+// not hold is counted in ONE shared overflow bucket, perMinute*overflowFactor
+// a minute, so that a flood of fresh sources can neither reset a source at its
+// limit nor be served without limit.
+type rateLimiter struct {
+	mu        sync.Mutex
+	now       func() time.Time
+	perMinute int
+	max       int
+	start     time.Time
+	cur, prev map[string]int
+	overflow  [2]int // cur, prev
+}
+
+const stsOverflowFactor = 10
+
+func newRateLimiter(now func() time.Time, perMinute, max int) *rateLimiter {
+	return &rateLimiter{now: now, perMinute: perMinute, max: max, start: now(),
+		cur: map[string]int{}, prev: map[string]int{}}
+}
+
+func (l *rateLimiter) allow(source string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	switch el := now.Sub(l.start); {
+	case el < 0 || el >= 2*time.Minute:
+		// Two minutes (or a clock that went back): nothing counts any more.
+		l.start, l.cur, l.prev, l.overflow = now, map[string]int{}, map[string]int{}, [2]int{}
+	case el >= time.Minute:
+		l.start, l.prev, l.cur = l.start.Add(time.Minute), l.cur, map[string]int{}
+		l.overflow = [2]int{0, l.overflow[0]}
 	}
-	recent := st.rate[source][:0]
-	for _, t := range st.rate[source] {
-		if now.Sub(t) < time.Minute {
-			recent = append(recent, t)
+	// What the previous generation still weighs: the share of it that lies
+	// within the last minute.
+	left := time.Minute - now.Sub(l.start)
+	weigh := func(prev int) int { return int(int64(prev) * int64(left) / int64(time.Minute)) }
+
+	if _, known := l.cur[source]; !known && len(l.cur) >= l.max {
+		limit := l.perMinute * stsOverflowFactor
+		if l.overflow[0]+weigh(l.overflow[1]) >= limit {
+			return false
 		}
+		l.overflow[0]++
+		return true
 	}
-	if len(recent) >= st.perMinute {
-		st.rate[source] = recent
+	if l.cur[source]+weigh(l.prev[source]) >= l.perMinute {
 		return false
 	}
-	st.rate[source] = append(recent, now)
+	l.cur[source]++
 	return true
 }
 

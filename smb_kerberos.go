@@ -73,12 +73,9 @@ func cifsPrincipals(kt *keytab.Keytab, realm string) []string {
 // newSMBAcceptor reads the block's keytab. It returns nil, nil for a keytab
 // that holds no cifs/ principal of the realm: that is NFS-only, not an error.
 func newSMBAcceptor(k *kerberosBlock, known func(string) bool) (*smbAcceptor, error) {
-	if err := checkKeytabMode(k.Keytab); err != nil {
-		return nil, err
-	}
-	kt, err := keytab.Load(k.Keytab)
+	kt, err := readKeytab(k.Keytab)
 	if err != nil {
-		return nil, fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)
+		return nil, err
 	}
 	ps := cifsPrincipals(kt, k.Realm)
 	if len(ps) == 0 {

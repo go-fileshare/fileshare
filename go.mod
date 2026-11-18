@@ -12,7 +12,7 @@ require (
 	connectrpc.com/connect/v2 v2.0.2
 	github.com/cloudsoda/go-smb2 v0.0.0-20261105190815-95be04a983b8
 	github.com/go-authn/directory v0.23.0
-	github.com/go-authn/krb5 v0.3.3
+	github.com/go-authn/krb5 v0.3.4
 	github.com/go-authn/krl v0.6.1
 	github.com/go-authn/oidc v0.7.0
 	github.com/go-authn/revocation v0.7.0

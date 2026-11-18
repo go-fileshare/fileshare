@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	"crypto/x509"
-	"fmt"
 	"net"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/go-filesystems/nfs"
 	"github.com/go-filesystems/nfs/rpc"
 	"github.com/go-filesystems/nfs/rpcgss"
+	"github.com/jcmturner/gokrb5/v8/keytab"
 )
 
 // NFS, and what it can say about who is asking.
@@ -31,6 +31,10 @@ import (
 //
 // Each share is exported at /name, so `mount host:/photos` is the same name a
 // person types everywhere else.
+// newNFSAcceptor is the RPCSEC_GSS acceptor serveNFS installs, named so a test
+// can hand it the same tokens a client would.
+func newNFSAcceptor(kt *keytab.Keytab) *krb5.Acceptor { return krb5.New(kt) }
+
 func serveNFS(s *server, p *protocol, ln net.Listener) error {
 	srv, err := nfs.New()
 	if err != nil {
@@ -46,12 +50,14 @@ func serveNFS(s *server, p *protocol, ln net.Listener) error {
 	k := s.cfg.Kerberos
 	if k != nil {
 		s.nfsOnce.Do(func() {
-			a, err := krb5.Load(k.Keytab)
+			// go-authn/krb5 >= v0.3.4: the acceptor takes the client's name
+			// and realm from the ticket, not the authenticator (gokrb5#577).
+			kt, err := readKeytab(k.Keytab)
 			if err != nil {
-				s.nfsErr = fmt.Errorf("kerberos keytab %s: %w", k.Keytab, err)
+				s.nfsErr = err
 				return
 			}
-			s.nfsState = a
+			s.nfsState = newNFSAcceptor(kt)
 		})
 		if s.nfsErr != nil {
 			return s.nfsErr

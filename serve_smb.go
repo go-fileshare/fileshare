@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 
 	"github.com/go-filesystems/smb"
 )
@@ -37,6 +38,9 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
+	}
+	if err := s.smbKerberos(srv); err != nil {
+		return err
 	}
 	// Somebody a directory reload adds is added here too, while this
 	// generation serves: an addition needs no new generation.
@@ -78,6 +82,42 @@ func serveSMB(s *server, p *protocol, ln net.Listener) error {
 		}
 	}
 	return srv.Serve(ln)
+}
+
+// smbKerberos turns on Kerberos for SMB from the kerberos block, and NTLM off
+// when the serve block says ntlm = false.
+//
+// ⛔ A keytab that cannot be read stops the server, as it stops NFS: serving on
+// regardless would be a server that says "Kerberos" and takes NTLM only, or,
+// with ntlm = false, a server nobody can log in to. ntlm = false with a keytab
+// that holds no cifs/ principal of the realm is refused for the same reason.
+func (s *server) smbKerberos(srv *smb.Server) error {
+	k := s.cfg.Kerberos
+	noNTLM := false
+	if b := s.cfg.serveBlockFor("smb"); b != nil && b.NTLM != nil && !*b.NTLM {
+		noNTLM = true
+	}
+	if k == nil {
+		if noNTLM {
+			return errNTLMOffNeedsKerberos
+		}
+		return nil
+	}
+	a, err := newSMBAcceptor(k, func(user string) bool { _, ok := s.person(user); return ok })
+	if err != nil {
+		return err
+	}
+	switch {
+	case a != nil:
+		srv.Kerberos = a
+		fmt.Fprintf(s.out, "smb: Kerberos for %s (%s)\n", k.Realm, strings.Join(a.principals, ", "))
+	case noNTLM:
+		return fmt.Errorf("smb: ntlm = false, and the keytab %s holds no cifs/<host>@%s principal: nobody could log in", k.Keytab, k.Realm)
+	default:
+		fmt.Fprintf(s.out, "smb: the keytab %s holds no cifs/<host>@%s principal, so SMB stays NTLM-only\n", k.Keytab, k.Realm)
+	}
+	srv.DisableNTLM = noNTLM
+	return nil
 }
 
 // timePolicy is the smb policy a validated unstorable_times names; "" and

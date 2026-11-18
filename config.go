@@ -465,6 +465,12 @@ type serveBlock struct {
 	// address other machines can reach is refused.
 	Plaintext bool `hcl:"plaintext,optional"`
 
+	// NTLM = false makes SMB Kerberos-only: NTLMSSP is not offered and is
+	// refused if a client sends it, so no password is ever checked. It needs the
+	// kerberos block (and a cifs/<host> key in its keytab), and is refused at
+	// load without one. Left out, SMB takes both, Kerberos first.
+	NTLM *bool `hcl:"ntlm,optional"`
+
 	// Identity = "certificate" makes NFS take the caller's identity from the
 	// client certificate -- the FreeBSD / draft-cel-nfsv4-rpc-tls-othername
 	// otherName user@domain, as go-authn/bridge issues after an identity
@@ -673,6 +679,14 @@ func (c *config) check() error {
 		}
 		if _, _, err := net.SplitHostPort(s.Addr); err != nil {
 			return fmt.Errorf("%s: %q is not an address to listen on: %w", s.Protocol, s.Addr, err)
+		}
+		if s.NTLM != nil {
+			if s.Protocol != "smb" {
+				return fmt.Errorf("serve %q sets ntlm, which is for SMB", s.Protocol)
+			}
+			if !*s.NTLM && c.Kerberos == nil {
+				return errNTLMOffNeedsKerberos
+			}
 		}
 		// Asked of the deployment, not only of the protocol: NFS tells
 		// people apart with a kerberos block, or with identities from
@@ -1043,15 +1057,24 @@ func diagError(parser *hclparse.Parser, diags hcl.Diagnostics) error {
 	return fmt.Errorf("%s", strings.TrimSpace(sb.String()))
 }
 
-// A kerberosBlock lets NFS tell people apart.
+// A kerberosBlock lets NFS tell people apart, and lets SMB take a ticket in
+// place of a password.
 //
 // ⛔ It is the only reason a restricted share can be served over NFS at all.
 // Without it NFSv3 carries AUTH_UNIX, which is a claim the client makes about
 // itself and the wire cannot disagree with -- so a share naming who may use it
 // is refused rather than handed to whoever connects.
 //
-// The keytab holds the key for nfs/<host>@REALM. It is the same file a KDC
-// writes with ktadd, and go-authn/kdc reads the other side of it.
+// The keytab holds the key for nfs/<host>@REALM, and for SMB cifs/<host>@REALM:
+// ONE file, each port answering for its own service (NFS for any principal in
+// it, as it always has; SMB for the cifs/ ones). It is the same file a KDC
+// writes with ktadd, and go-authn/kdc reads the other side of it. A keytab with
+// no cifs/ principal leaves SMB as it was, NTLM-only.
+//
+// Over SMB a principal goes through userOf like an NFS one, and then must also
+// be somebody this configuration knows: a ticket proves the KDC knows the
+// person, which says nothing about this server, and NTLM never let in a name it
+// did not hold.
 type kerberosBlock struct {
 	// Realm is the realm whose tickets this server accepts. Principals from
 	// any other realm are refused even when the name before the @ matches:
@@ -1074,6 +1097,12 @@ func (k *kerberosBlock) userOf(principal string) string {
 	}
 	return name
 }
+
+// errNTLMOffNeedsKerberos is what a serve block that turns NTLM off says when
+// there is nothing to take its place. Refused at load, before an image is
+// opened: a server nobody can log in to is not one.
+var errNTLMOffNeedsKerberos = errors.New(`serve "smb" sets ntlm = false, and there is no kerberos block: ` +
+	`with NTLM off the only way in is a Kerberos ticket, and nothing here could check one`)
 
 func isRule(who string) bool { return strings.HasPrefix(who, "oidc:") }
 

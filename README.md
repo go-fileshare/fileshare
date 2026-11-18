@@ -149,7 +149,7 @@ the server can tell **who** is asking.
 
 | | |
 |---|---|
-| **SMB** | NTLMv2. The password never crosses the wire, and the share tells a reader they are one — in the access mask, before they try. |
+| **SMB** | NTLMv2, or **Kerberos** with a [`kerberos` block](#smb-with-kerberos-no-password-no-ntlm) (a ticket in place of a password; `ntlm = false` turns NTLM off). The password never crosses the wire, and the share tells a reader they are one — in the access mask, before they try. |
 | **WebDAV** | HTTP Basic, over whatever TLS the transport gives it. A share a person may not use answers 404, not 403: it is not confirmed to exist. Nor to somebody who has not authenticated: a share and a name that is none get the same challenge, and only then the same 404. |
 | **SFTP** | A **public key**, or an **SSH certificate** from an authority you trust: the server never holds the secret, and with a certificate a person's access is issued and expires elsewhere. No password: a client that prompts for one is doing the thing keys exist to avoid. |
 | **S3** | **SigV4**, header or presigned. The secret proves itself by computing an HMAC and never crosses the wire — so, like NTLMv2, the directory must HOLD the password rather than merely check it. A share is a bucket. |
@@ -183,6 +183,47 @@ them as collections (207), so a file manager can mount the server rather than
 one share. Depth infinity is refused (403, `propfind-finite-depth`), and so is
 anything that would write at the root (405). Up to v0.28 every method at `/`
 got the page, with a 200 no WebDAV client could read.
+
+## SMB with Kerberos: no password, no NTLM
+
+The `kerberos` block that lets NFS tell people apart also lets SMB take a
+ticket in place of a password. **One keytab** holds both services: the key for
+`nfs/<host>@REALM` and the key for `cifs/<host>@REALM`, each protocol answering
+for its own (a ticket made for `nfs/` is refused by SMB, which only reads the
+`cifs/` principals of the block's realm). A keytab with no `cifs/` principal
+leaves SMB exactly as it was, NTLM only, and the server says so at startup.
+
+```hcl
+kerberos {
+  realm  = "EXAMPLE.ORG"
+  keytab = "/etc/fileshare/krb5.keytab"   # nfs/fs.example.org and cifs/fs.example.org
+}
+
+serve "smb" {
+  addr = "0.0.0.0:445"
+  ntlm = false          # Kerberos only: no password is ever checked
+}
+```
+
+The client's principal goes through the same `userOf` as an NFS one — another
+realm's `alice` is nobody — and then must also be **somebody this configuration
+knows**: a ticket proves the KDC knows the person, not that this server does,
+and NTLM never let in a name it did not hold. The share's `allow` and
+`writers` lists then apply as they do for a password. A session ends with its
+ticket, and a Windows client authenticates again by itself.
+
+`ntlm = false` is refused at load without a `kerberos` block, and the server
+refuses to start if the keytab holds no `cifs/` key for the realm: a server
+nobody can log in to is not one. A `check` run says SMB can serve a person
+whose directory holds no NT hash once a `kerberos` block is there.
+
+A Windows machine that is **not in a domain** reaches it with a ticket from this
+realm: `ksetup /addkdc EXAMPLE.ORG <kdc>` and `ksetup /addhosttorealmmap
+fs.example.org EXAMPLE.ORG` once, a ticket-granting ticket in the logon session,
+and `net use \\fs.example.org\photos` (by name: Windows falls back to NTLM for
+an address). `Set-SmbClientConfiguration -BlockNTLM $true` makes a client refuse
+the fallback. How the ticket is obtained without a password is the identity
+provider's side, not this server's.
 
 ## The configuration
 

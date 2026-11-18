@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -55,6 +56,8 @@ type s3ByUser struct {
 
 	mu     sync.Mutex
 	byUser map[string]http.Handler
+	// byKey is the same for temporary credentials, by session access key.
+	byKey map[string]http.Handler
 	// limit bounds byUser; zero means s3CachedUsers. Only somebody the
 	// directory knows gets an entry, so the directory already bounds it --
 	// this is the second wall, for a directory of a million people.
@@ -69,10 +72,28 @@ type s3ByUser struct {
 const s3CachedUsers = 4096
 
 func (h *s3ByUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.server.sts != nil && isSTSRequest(r) {
+		h.server.serveSTS(w, r)
+		return
+	}
 	user, ok := accessKeyOf(r)
 	if !ok {
 		// No credential at all. The library answers this the same way, but it
 		// cannot be reached without choosing a user first.
+		unsignedS3(w, r)
+		return
+	}
+	// Temporary credentials (sts.go): an access key that is a SESSION, whose
+	// signature is checked against that session's random secret.
+	if strings.HasPrefix(user, stsAccessKeyPrefix) && h.server.sts != nil {
+		if sess, live := h.server.sts.get(user); live {
+			h.serveSession(w, r, user, sess)
+			return
+		}
+	}
+	if !h.server.cfg.staticKeysOn() {
+		// Static keys are off: an access key that is not a live session is not
+		// a way in, whoever it names.
 		unsignedS3(w, r)
 		return
 	}
@@ -82,6 +103,58 @@ func (h *s3ByUser) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv.ServeHTTP(w, r)
+}
+
+// serveSession serves a request signed with temporary credentials. Whether
+// the session is alive, carries its token and is still admitted is decided
+// here at every request (checkSession); the signature is the library's, over
+// a lookup that answers for this session's access key alone and re-reads it
+// -- so an expiry is felt by the signature check as well.
+func (h *s3ByUser) serveSession(w http.ResponseWriter, r *http.Request, key string, sess *stsSession) {
+	if code, why := h.server.checkSession(r, sess); code != "" {
+		w.Header().Set("Content-Type", "application/xml")
+		status := http.StatusForbidden
+		if code == "ExpiredToken" || code == "InvalidToken" {
+			status = http.StatusBadRequest
+		}
+		w.WriteHeader(status)
+		if r.Method != http.MethodHead {
+			fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>%s</Code><Message>%s</Message></Error>`, code, why)
+		}
+		return
+	}
+	h.mu.Lock()
+	srv, ok := h.byKey[key]
+	if !ok {
+		if h.byKey == nil || len(h.byKey) >= s3CachedUsers {
+			h.byKey = map[string]http.Handler{}
+		}
+		built, err := objectapi.New(unionFor(h.server.sharesFor(h.proto, sess.caller), sess.caller), h.server.sessionSecret(key))
+		if err != nil {
+			h.mu.Unlock()
+			unsignedS3(w, r)
+			return
+		}
+		built.ReadOnly = true // as everybody else's
+		h.byKey[key], srv = built, built
+	}
+	h.mu.Unlock()
+	srv.ServeHTTP(w, r)
+}
+
+// sessionSecret answers the library's credential lookup for ONE session's
+// access key, and for nobody else, as long as it is alive.
+func (s *server) sessionSecret(key string) func(string) (string, bool) {
+	return func(id string) (string, bool) {
+		if id != key {
+			return "", false
+		}
+		sess, ok := s.sts.get(key)
+		if !ok {
+			return "", false
+		}
+		return sess.secret, true
+	}
 }
 
 // forUser builds, once, the server this person sees.

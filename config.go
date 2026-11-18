@@ -484,6 +484,95 @@ type serveBlock struct {
 	// CRLStateFile keeps the last CRL that verified across a restart, so
 	// that an older one is still refused after it.
 	CRLStateFile string `hcl:"crl_state_file,optional"`
+
+	// STS, on the s3 serve block, answers STS AssumeRoleWithWebIdentity on the
+	// S3 listener: a token from the oidc block's provider is exchanged for
+	// short-lived credentials (an access key, a secret key and a session
+	// token) that S3 clients sign with. See sts.go.
+	STS bool `hcl:"sts,optional"`
+	// STSDuration is how long credentials last when the client does not say
+	// (default 1h); STSMaxDuration is the most a client may ask for (default
+	// STSDuration). 15 minutes to 12 hours, as AWS.
+	STSDuration    string `hcl:"sts_duration,optional"`
+	STSMaxDuration string `hcl:"sts_max_duration,optional"`
+	// StaticKeys, false, turns the access-key-is-a-user, secret-key-is-the-
+	// password way of signing OFF: only STS credentials are accepted. It
+	// needs sts, or nobody could sign at all. Default true.
+	StaticKeys *bool `hcl:"static_keys,optional"`
+}
+
+// stsOn reports whether the configuration serves STS.
+func (c *config) stsOn() bool {
+	b := c.serveBlockFor("s3")
+	return b != nil && b.STS
+}
+
+// staticKeysOn reports whether access keys that are users are accepted.
+func (c *config) staticKeysOn() bool {
+	b := c.serveBlockFor("s3")
+	return b == nil || b.StaticKeys == nil || *b.StaticKeys
+}
+
+// stsDurations are the default and the maximum lifetime of credentials.
+func (b *serveBlock) stsDurations() (def, max time.Duration, err error) {
+	def, max = time.Hour, 0
+	parse := func(name, s string) (time.Duration, error) {
+		d, err := time.ParseDuration(s)
+		if err != nil || d < 15*time.Minute || d > 12*time.Hour {
+			return 0, fmt.Errorf("%s = %q: a duration from 15m to 12h", name, s)
+		}
+		return d, nil
+	}
+	if b.STSDuration != "" {
+		if def, err = parse("sts_duration", b.STSDuration); err != nil {
+			return 0, 0, err
+		}
+	}
+	max = def
+	if b.STSMaxDuration != "" {
+		if max, err = parse("sts_max_duration", b.STSMaxDuration); err != nil {
+			return 0, 0, err
+		}
+	}
+	if def > max {
+		return 0, 0, fmt.Errorf("sts_duration (%s) is longer than sts_max_duration (%s)", def, max)
+	}
+	return def, max, nil
+}
+
+// checkSTS refuses an STS configuration that would not do what it says.
+func (c *config) checkSTS() error {
+	for _, b := range c.Serves {
+		set := b.STS || b.StaticKeys != nil || b.STSDuration != "" || b.STSMaxDuration != ""
+		switch {
+		case set && b.Protocol != "s3":
+			return fmt.Errorf("%s: sts, sts_duration, sts_max_duration and static_keys are for s3", b.Protocol)
+		case b.Protocol != "s3":
+			continue
+		case !b.STS && (b.STSDuration != "" || b.STSMaxDuration != ""):
+			return fmt.Errorf("s3: sts_duration and sts_max_duration without sts = true would limit nothing")
+		case b.StaticKeys != nil && !*b.StaticKeys && !b.STS:
+			// ⛔ Not a server that starts and admits nobody: static keys off
+			// and no way to get a temporary one is a listener nobody can sign
+			// for, and it would look configured.
+			return fmt.Errorf("s3: static_keys = false and no sts = true: nobody could sign a request")
+		case b.STS && c.OIDC == nil:
+			return fmt.Errorf("s3: sts = true and no oidc block: there is no identity provider whose tokens could be exchanged")
+		case b.STS && c.OIDC.JWKSURL == "" && c.OIDC.Issuer == "":
+			return fmt.Errorf("s3: sts needs the oidc block's issuer")
+		case b.STS && !b.TLS && !b.Plaintext && !loopback(b.Addr):
+			// A token in the clear is a credential anybody on the path can use
+			// once, and the credentials it buys travel back the same way.
+			return fmt.Errorf("s3 on %s would carry tokens and temporary credentials in the clear: serve it with tls = true, "+
+				"or -- when TLS is terminated in front of it -- say plaintext = true", b.Addr)
+		}
+		if b.STS {
+			if _, _, err := b.stsDurations(); err != nil {
+				return fmt.Errorf("s3: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // loadConfig reads every file named, and every .hcl file in every directory
@@ -723,6 +812,9 @@ func (c *config) check() error {
 	if err := c.checkTLS(); err != nil {
 		return err
 	}
+	if err := c.checkSTS(); err != nil {
+		return err
+	}
 	if c.SSF != nil {
 		if err := c.SSF.check(c); err != nil {
 			return err
@@ -763,7 +855,7 @@ func (c *config) check() error {
 		case o.Audience == "":
 			return fmt.Errorf("the oidc block has no audience: a token minted for another service is a " +
 				"valid token, and a server that does not check accepts every one that provider ever signed")
-		case !c.servesProtocol("webdav") && !(c.servesProtocol("sftp") && (o.SSHCAFile != "" || o.OpksshClientID != "")):
+		case !c.servesProtocol("webdav") && !c.stsOn() && !(c.servesProtocol("sftp") && (o.SSHCAFile != "" || o.OpksshClientID != "")):
 			// ⛔ Not a warning: a configuration that names a provider and
 			// serves nothing that can carry its word does not do what it says.
 			return fmt.Errorf("the oidc block is here and neither webdav nor a federated sftp is served: " +

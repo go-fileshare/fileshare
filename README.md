@@ -592,18 +592,68 @@ can answer.
 key or a certificate, NFS with nothing at all, and **S3 with a SigV4
 signature** — an HMAC computed over the request, with no field a bearer token
 fits in. None of them has anywhere to put an Authorization header. That is a
-fact about the protocols, not a limit of this program.
+fact about the protocols, not a limit of this program. For S3, the route is
+STS: the token is exchanged for temporary credentials (see below).
 
 **The provider's word over SFTP** arrives in a certificate instead, in two
 shapes (see below): one its SSH CA signed, or an opkssh one. A configuration
 naming a provider and serving neither WebDAV nor such an SFTP is refused rather
 than started.
 
-The usual way to reach S3 with an OIDC token is **STS
+### S3 with a token: STS `AssumeRoleWithWebIdentity`
+
+The way to reach S3 with an OIDC token is **STS
 `AssumeRoleWithWebIdentity`**, which exchanges the token for temporary
-credentials the client then signs with. That is a different thing from
-accepting a bearer token, and it is not implemented here — said plainly
-because it is the first thing somebody arriving from MinIO will look for.
+credentials the client then signs with. It is not a bearer token accepted by S3:
+it is the AWS STS API (version 2011-06-15) answered on the S3 listener, and
+`aws`, `rclone` and the AWS SDKs speak it as they do to AWS.
+
+```hcl
+oidc {
+  issuer   = "https://login.example.org"
+  audience = "fileshare"          # the audience of the token: what bridge's client lists
+}
+
+serve "s3" {
+  addr             = "0.0.0.0:9000"
+  tls              = true
+  sts              = true         # POST / with Action=AssumeRoleWithWebIdentity
+  sts_duration     = "1h"         # the default; 15m to 12h
+  sts_max_duration = "4h"         # the most DurationSeconds may ask; defaults to sts_duration
+  static_keys      = false        # no more access-key-is-a-user: only temporary credentials sign
+}
+```
+
+- **The token** is an access token (`typ` `at+jwt`) from the `oidc` block's
+  provider, verified for that block's issuer and audience — there is no second
+  provider configuration. A person's, or a machine's: go-authn/bridge's
+  `client_credentials` token for a client that authenticates with a private key
+  (`private_key_jwt`) has `sub` = the client ID, which is the name here.
+- ⛔ **It passes the same rule as a token over WebDAV.** A valid token for a name
+  no source here knows is refused unless `trust_all = true` or a share's `oidc:`
+  rule names it (`allow = ["oidc:user:winpc-17"]`, `oidc:groups:...`); the
+  share's rules then decide what is visible, buckets and objects alike.
+- **The answer** is `AccessKeyId` (`ASIA…`), `SecretAccessKey`, `SessionToken`
+  and `Expiration`. Requests are signed with them and carry the session token in
+  `x-amz-security-token`, **signed** (as the AWS signers do). The credentials are
+  random, held in memory only and never written anywhere; a restart ends them,
+  and the client asks again.
+- ⛔ **A session is judged at every request**, not once: it expires; it is bound
+  to its access key (a session token replayed beside another key is refused); it
+  ends when the provider revokes the person after the token was issued (the
+  `ssf` block, as for every other federated credential); and when the
+  configuration stops admitting the name.
+- `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
+  ignored, and the parameters must be in the POST body — never the URL.
+- `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password
+  way OFF. It needs `sts = true`; without it the configuration is refused at load,
+  since a listener nobody could sign for would look configured. Over a
+  non-loopback address `sts` needs `tls = true`, or `plaintext = true` when TLS is
+  terminated in front.
+
+On an unattended machine the credentials renew themselves: the AWS SDKs and
+CLI run a `credential_process` command, which signs a `private_key_jwt`, gets a
+token from the provider, calls this endpoint and prints the JSON they read.
 
 ⛔ **A token says who the provider thinks somebody is. It does not say this
 server has a share for them.** A valid token for a name no source here knows is

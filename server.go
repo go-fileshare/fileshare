@@ -68,6 +68,11 @@ type server struct {
 	// oidc verifies bearer tokens, when the configuration named a provider.
 	// Only WebDAV can carry one -- see oidcauth.go.
 	oidc *oidc.Verifier
+	// oidcAccess is the same provider's verifier for access tokens alone
+	// (typ at+jwt), and sts the temporary S3 credentials issued for them:
+	// both only with sts = true on the s3 serve block (sts.go).
+	oidcAccess *oidc.Verifier
+	sts        *stsStore
 
 	// hostKeyFile is the SFTP identity, when the configuration named one, and
 	// trustedCAFile the authorities whose certificates are accepted.
@@ -291,6 +296,15 @@ func open(cfg *config, out io.Writer) (*server, error) {
 		return nil, fmt.Errorf("the identity provider: %w", err)
 	} else if v != nil {
 		s.oidc = v
+	}
+	if cfg.stsOn() {
+		v, err := openOIDCType(cfg.OIDC, "at+jwt")
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("the identity provider (sts): %w", err)
+		}
+		s.oidcAccess = v
+		s.sts = newSTSStore(func() time.Time { return time.Now() })
 	}
 
 	every := append(slices.Clone(cfg.Shares), cfg.offline...)

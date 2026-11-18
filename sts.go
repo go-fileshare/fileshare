@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -67,18 +68,54 @@ type stsStore struct {
 	// max bounds the store, perPrincipal what one name may hold: the oldest of
 	// their own is dropped first, so that nobody can push others out.
 	max, perPrincipal int
+	// rate is the recent STS requests by source address, perMinute allowed.
+	rate      map[string][]time.Time
+	perMinute int
 }
 
 const (
-	stsMaxSessions     = 20000
-	stsPerPrincipal    = 64
+	stsMaxSessions = 20000
+	// stsPerPrincipal bounds what one name holds (credential_process keeps one
+	// session per machine per hour); stsMinTokenLife is the least a token may
+	// have left; the rate is per source address.
+	stsPerPrincipal    = 16
+	stsMinTokenLife    = 6 * time.Minute
+	stsRatePerMinute   = 60
+	stsRateSources     = 10000
 	stsMaxBody         = 64 << 10
 	stsVersion         = "2011-06-15"
 	stsAccessKeyPrefix = "ASIA"
 )
 
 func newSTSStore(now func() time.Time) *stsStore {
-	return &stsStore{m: map[string]*stsSession{}, now: now, max: stsMaxSessions, perPrincipal: stsPerPrincipal}
+	return &stsStore{m: map[string]*stsSession{}, now: now, max: stsMaxSessions, perPrincipal: stsPerPrincipal,
+		rate: map[string][]time.Time{}, perMinute: stsRatePerMinute}
+}
+
+// allow counts one STS request from a source and says whether it is within
+// the rate: perMinute a minute each. Every request counts, valid or not,
+// before anything is verified -- a flood of tokens is what it is for. The
+// table is bounded: past stsRateSources sources it is emptied, which errs on
+// the side of serving.
+func (st *stsStore) allow(source string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	now := st.now()
+	if _, known := st.rate[source]; !known && len(st.rate) >= stsRateSources {
+		clear(st.rate)
+	}
+	recent := st.rate[source][:0]
+	for _, t := range st.rate[source] {
+		if now.Sub(t) < time.Minute {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= st.perMinute {
+		st.rate[source] = recent
+		return false
+	}
+	st.rate[source] = append(recent, now)
+	return true
 }
 
 var stsEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
@@ -210,6 +247,15 @@ func isSTSRequest(r *http.Request) bool {
 
 // serveSTS answers an STS request.
 func (s *server) serveSTS(w http.ResponseWriter, r *http.Request) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if !s.sts.allow(host) {
+		w.Header().Set("Retry-After", "60")
+		stsFail(w, http.StatusTooManyRequests, "Throttling", "too many requests from this address")
+		return
+	}
 	// The body only, never the query string: a token in a URL is in every log
 	// on the way.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, stsMaxBody))
@@ -265,8 +311,10 @@ func (s *server) serveSTS(w http.ResponseWriter, r *http.Request) {
 	}
 	d := def
 	if ds := v.Get("DurationSeconds"); ds != "" {
-		n, err := strconv.Atoi(ds)
-		if err != nil || n < 900 || time.Duration(n)*time.Second > max {
+		// Compared as seconds in an int64: n * time.Second overflows a
+		// Duration for n past about 9.2e9 and would pass as negative.
+		n, err := strconv.ParseInt(ds, 10, 64)
+		if err != nil || n < 900 || n > int64(max/time.Second) {
 			stsFail(w, http.StatusBadRequest, "ValidationError",
 				fmt.Sprintf("DurationSeconds is 900 to %d", int(max.Seconds())))
 			return
@@ -281,13 +329,30 @@ func (s *server) serveSTS(w http.ResponseWriter, r *http.Request) {
 		stsFail(w, http.StatusBadRequest, "InvalidIdentityToken", "the token was not accepted")
 		return
 	}
+	// ⛔ The credentials never outlive the token: they freeze the person's
+	// groups as of the token, and a token with seconds left must not buy hours.
+	// And a token with little left is refused rather than given credentials
+	// shorter than the SDKs' renewal window (about 5 minutes before
+	// Expiration, which awscred also uses): they would be renewed at once,
+	// forever. awscred presents a FRESH token at every exchange, so a good
+	// client never meets this.
+	exp, hasExp := tok.Expiry()
+	remaining := exp.Sub(s.sts.now())
+	if !hasExp || remaining < stsMinTokenLife {
+		fmt.Fprintf(s.out, "s3: sts: %q: the token has %s left, and STS wants %s\n", who.name, remaining.Round(time.Second), stsMinTokenLife)
+		stsFail(w, http.StatusBadRequest, "ExpiredTokenException", "the token is too close to its expiry; ask the provider for a new one")
+		return
+	}
+	if d > remaining {
+		d = remaining
+	}
 	iat, _ := tok.IssuedAt()
 	sess, err := s.sts.issue(who, tok.Issuer(), tok.Subject(), iat, d)
 	if err != nil {
 		stsFail(w, http.StatusServiceUnavailable, "ServiceUnavailable", "try again later")
 		return
 	}
-	fmt.Fprintf(s.out, "s3: sts: %s, vouched for by the provider, has credentials %s until %s\n",
+	fmt.Fprintf(s.out, "s3: sts: %q, vouched for by the provider, has credentials %s until %s\n",
 		who.name, sess.accessKey, sess.expires.UTC().Format(time.RFC3339))
 
 	var resp stsResponse
@@ -359,12 +424,12 @@ func (s *server) checkSession(r *http.Request, sess *stsSession) (code, why stri
 	// this session began, or a name the configuration no longer admits, stops
 	// counting at once -- not at expiry.
 	if err := s.admitFederated(sess.caller); err != nil {
-		fmt.Fprintf(s.out, "s3: sts: %s: %v\n", sess.caller.name, err)
+		fmt.Fprintf(s.out, "s3: sts: %q: %v\n", sess.caller.name, err)
 		s.sts.forget(sess.accessKey)
 		return "AccessDenied", "access is no longer allowed"
 	}
 	if err := s.federatedRevoked(sess.caller.name, sess.iss, sess.sub, sess.iat); err != nil {
-		fmt.Fprintf(s.out, "s3: sts: %s: %v\n", sess.caller.name, err)
+		fmt.Fprintf(s.out, "s3: sts: %q: %v\n", sess.caller.name, err)
 		s.sts.forget(sess.accessKey)
 		return "AccessDenied", "access is no longer allowed"
 	}

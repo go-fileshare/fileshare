@@ -90,7 +90,7 @@ func (s *server) tokenPrincipal(ctx context.Context, v *oidc.Verifier, raw strin
 	// verified; a username_claim of "email" asks for the claim as it is,
 	// so the same rule is applied here.
 	if s.usernameClaim() == "email" && !tok.EmailVerified() {
-		fmt.Fprintf(s.out, "a token names %s by an email its provider has not verified: refused\n", name)
+		fmt.Fprintf(s.out, "a token names %q by an email its provider has not verified: refused\n", name)
 		return principal{}, nil, false
 	}
 	// ⛔ A token proves who the PROVIDER says this is. It does not put them in
@@ -108,14 +108,14 @@ func (s *server) tokenPrincipal(ctx context.Context, v *oidc.Verifier, raw strin
 	// it names is known here, as far as that share goes.
 	p := principal{name: name, federated: true, groups: tok.Groups(), localName: s.localNames()}
 	if err := s.admitFederated(p); err != nil {
-		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
+		fmt.Fprintf(s.out, "%q arrived with a valid token: %v\n", name, err)
 		return principal{}, nil, false
 	}
 	// A token verifies until it expires; a revocation since it was issued
 	// is what makes it stop counting sooner.
 	iat, _ := tok.IssuedAt()
 	if err := s.federatedRevoked(name, tok.Issuer(), tok.Subject(), iat); err != nil {
-		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
+		fmt.Fprintf(s.out, "%q arrived with a valid token: %v\n", name, err)
 		return principal{}, nil, false
 	}
 	return p, tok, true

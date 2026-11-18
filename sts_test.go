@@ -52,7 +52,7 @@ func (p *idp) accessToken(t *testing.T, claims map[string]any) string {
 func (p *idp) machineToken(t *testing.T, client string, edit func(map[string]any)) string {
 	c := map[string]any{
 		"iss": p.URL, "sub": client, "azp": client, "client_id": client, "aud": "fileshare",
-		"iat": time.Now().Unix(), "exp": time.Now().Add(10 * time.Minute).Unix(), "scope": "machine",
+		"iat": time.Now().Unix(), "exp": time.Now().Add(2 * time.Hour).Unix(), "scope": "machine",
 	}
 	if edit != nil {
 		edit(c)
@@ -63,7 +63,7 @@ func (p *idp) machineToken(t *testing.T, client string, edit func(map[string]any
 func (p *idp) personToken(t *testing.T, user string, groups ...string) string {
 	return p.accessToken(t, map[string]any{
 		"iss": p.URL, "sub": "s-" + user, "aud": "fileshare", "preferred_username": user, "groups": groups,
-		"iat": time.Now().Unix(), "exp": time.Now().Add(10 * time.Minute).Unix(),
+		"iat": time.Now().Unix(), "exp": time.Now().Add(2 * time.Hour).Unix(),
 	})
 }
 
@@ -381,6 +381,149 @@ func TestSTS_TheSessionTokenIsRequiredAndBoundToItsKey(t *testing.T) {
 	}
 }
 
+// ⛔ The credentials never outlive the token that bought them.
+func TestSTS_TheTokenCapsTheCredentialLifetime(t *testing.T) {
+	p := newIDP(t)
+	r := start(t, stsConfig(t, p, "", `sts_duration = "1h"`))
+	short := func(d time.Duration) url.Values {
+		return assume(p.machineToken(t, "winpc-17", func(c map[string]any) { c["exp"] = time.Now().Add(d).Unix() }))
+	}
+	// A token with 30 minutes left, and a default of 1h: 30 minutes at most.
+	c, why := credsFor(t, r, short(30*time.Minute))
+	if c == nil {
+		t.Fatal(why)
+	}
+	if d := time.Until(c.expires); d > 30*time.Minute+5*time.Second || d < 29*time.Minute {
+		t.Errorf("credentials for a 30-minute token last %s", d)
+	}
+	// And the session really ends then, by the store's clock.
+	r.srv.sts.mu.Lock()
+	r.srv.sts.now = func() time.Time { return time.Now().Add(31 * time.Minute) }
+	r.srv.sts.mu.Unlock()
+	if _, ok := r.srv.sts.get(c.key); ok {
+		t.Error("the session outlived its token")
+	}
+	r.srv.sts.mu.Lock()
+	r.srv.sts.now = time.Now
+	r.srv.sts.mu.Unlock()
+	// A token with little left buys nothing: shorter credentials than the SDKs'
+	// renewal window would be renewed at once, for ever.
+	if c, _ := credsFor(t, r, short(3*time.Minute)); c != nil {
+		t.Error("a token with 3 minutes left was given credentials")
+	}
+	if c, _ := credsFor(t, r, short(-time.Minute)); c != nil {
+		t.Error("an expired token was given credentials")
+	}
+	// The control: just over the threshold is served.
+	if c, why := credsFor(t, r, short(stsMinTokenLife+time.Minute)); c == nil {
+		t.Errorf("a token with %s left: %s", stsMinTokenLife+time.Minute, why)
+	}
+	// A token with no exp at all is no token (the verifier refuses it).
+	if c, _ := credsFor(t, r, assume(p.machineToken(t, "winpc-17", func(c map[string]any) { delete(c, "exp") }))); c != nil {
+		t.Error("a token with no expiry was given credentials")
+	}
+}
+
+// A DurationSeconds that overflows time.Duration is refused, not wrapped.
+func TestSTS_DurationSecondsOverflow(t *testing.T) {
+	p := newIDP(t)
+	r := start(t, stsConfig(t, p, "", ""))
+	for _, ds := range []string{"9223372037", "9223372036854775807", "99999999999999999999", "-1", "1e3", "0x10"} {
+		f := assume(p.machineToken(t, "winpc-17", nil))
+		f.Set("DurationSeconds", ds)
+		status, _ := stsPost(t, r, f)
+		if status != http.StatusBadRequest {
+			t.Errorf("DurationSeconds=%s: %d", ds, status)
+		}
+	}
+	f := assume(p.machineToken(t, "winpc-17", nil))
+	f.Set("DurationSeconds", "1800")
+	if status, body := stsPost(t, r, f); status != http.StatusOK {
+		t.Errorf("CONTROL: %d %s", status, body)
+	}
+}
+
+// One name cannot push another's sessions out, nor fill the store; a source
+// that asks too often is throttled.
+func TestSTS_PerPrincipalCapAndRate(t *testing.T) {
+	p := newIDP(t)
+	r := start(t, stsConfig(t, p, "trust_all = true", ""))
+	r.srv.sts.perMinute = 1000 // the cap is under test here, not the rate
+	victim, why := credsFor(t, r, assume(p.machineToken(t, "victim-pc", nil)))
+	if victim == nil {
+		t.Fatal(why)
+	}
+	for i := 0; i < stsPerPrincipal+5; i++ {
+		if c, why := credsFor(t, r, assume(p.machineToken(t, "flooder", nil))); c == nil {
+			t.Fatalf("exchange %d: %s", i, why)
+		}
+	}
+	r.srv.sts.mu.Lock()
+	n := 0
+	for _, s := range r.srv.sts.m {
+		if s.caller.name == "flooder" {
+			n++
+		}
+	}
+	r.srv.sts.mu.Unlock()
+	if n != stsPerPrincipal {
+		t.Errorf("one name holds %d sessions, want %d", n, stsPerPrincipal)
+	}
+	if _, ok := r.srv.sts.get(victim.key); !ok {
+		t.Error("another name's session was pushed out")
+	}
+
+	// The rate, per source address.
+	r.srv.sts.perMinute = 3
+	r.srv.sts.mu.Lock()
+	clear(r.srv.sts.rate)
+	r.srv.sts.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if status, body := stsPost(t, r, assume("garbage")); status != http.StatusBadRequest {
+			t.Fatalf("request %d: %d %s", i, status, body)
+		}
+	}
+	if status, _ := stsPost(t, r, assume("garbage")); status != http.StatusTooManyRequests {
+		t.Errorf("the 4th request in a minute: %d", status)
+	}
+	// Another source is not throttled by this one, and a minute later this one is served.
+	if !r.srv.sts.allow("203.0.113.9") {
+		t.Error("another source was throttled")
+	}
+	r.srv.sts.mu.Lock()
+	r.srv.sts.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
+	r.srv.sts.mu.Unlock()
+	if status, _ := stsPost(t, r, assume("garbage")); status != http.StatusBadRequest {
+		t.Errorf("a minute later: %d", status)
+	}
+}
+
+// A name from a token is quoted in the log: a newline in it cannot forge a line.
+func TestSTS_ANameWithANewlineCannotForgeALogLine(t *testing.T) {
+	p := newIDP(t)
+	evil := "mallory\nforged: s3: sts: admin has credentials"
+	// Refused (a stranger): oidcauth's line.
+	r := start(t, stsConfig(t, p, "", ""))
+	credsFor(t, r, assume(p.machineToken(t, evil, func(c map[string]any) { c["azp"] = evil })))
+	// Admitted (trust_all): sts's line.
+	r2 := start(t, stsConfig(t, p, "trust_all = true", ""))
+	if c, why := credsFor(t, r2, assume(p.machineToken(t, evil, nil))); c == nil {
+		t.Fatal(why)
+	}
+	for name, out := range map[string]string{"refused": r.out.String(), "admitted": r2.out.String()} {
+		if !strings.Contains(out, "mallory") {
+			t.Fatalf("%s: the name is not logged at all: %q", name, out)
+		}
+		if strings.Contains(out, "\nforged") {
+			t.Errorf("%s: a forged line in the log:\n%s", name, out)
+		}
+	}
+}
+
+// What a revocation does is tested with the store the SSF receiver fills
+// (caep.go's revocationStore, checked at every request); the receiver's own
+// delivery path is covered by ssf_test.go, which this PR does not rewire.
+//
 // A revocation the provider sent after the token was issued ends the session
 // at its next request, not at its expiry.
 func TestSTS_ARevokedPersonLosesTheirSession(t *testing.T) {

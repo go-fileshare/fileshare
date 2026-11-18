@@ -643,6 +643,13 @@ serve "s3" {
   ends when the provider revokes the person after the token was issued (the
   `ssf` block, as for every other federated credential); and when the
   configuration stops admitting the name.
+- ⛔ **The credentials never outlive the token**: their lifetime is the shorter of
+  `sts_duration` / `DurationSeconds` and what the token has left, and a token
+  with under 6 minutes left is refused (`ExpiredTokenException`) — shorter
+  credentials would sit inside the SDKs' renewal window (about 5 minutes before
+  `Expiration`) and be renewed at once, for ever. A client presents a fresh token
+  at each exchange, as awscred does. One name holds 16 sessions at most, and a
+  source address 60 requests a minute.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
   ignored, and the parameters must be in the POST body — never the URL.
 - `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password

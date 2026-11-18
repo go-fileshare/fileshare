@@ -466,6 +466,19 @@ serve "s3" {
 	}
 }
 
+// The STS settings are s3's, whatever else this build serves.
+func TestSTS_SettingsBelongToS3(t *testing.T) {
+	for _, b := range []serveBlock{{Protocol: "smb", STS: true}, {Protocol: "webdav", STSDuration: "1h"}} {
+		c := &config{Serves: []serveBlock{b}}
+		if err := c.checkSTS(); err == nil || !strings.Contains(err.Error(), "are for s3") {
+			t.Errorf("%s: %v", b.Protocol, err)
+		}
+	}
+	if err := (&config{Serves: []serveBlock{{Protocol: "smb"}}}).checkSTS(); err != nil {
+		t.Errorf("the control: %v", err)
+	}
+}
+
 func TestSTS_ConfigurationRefusals(t *testing.T) {
 	p := newIDP(t)
 	dir := t.TempDir()
@@ -485,10 +498,6 @@ func TestSTS_ConfigurationRefusals(t *testing.T) {
  addr = "127.0.0.1:0"
  sts = true
 }`, "no oidc block"},
-		"sts on another protocol": {oidcBlock + share + `serve "webdav" {
- addr = "127.0.0.1:0"
- sts = true
-}`, "are for s3"},
 		"a duration with no sts": {oidcBlock + share + `serve "s3" {
  addr = "127.0.0.1:0"
  sts_duration = "1h"

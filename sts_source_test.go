@@ -133,7 +133,7 @@ func TestSTS_AFloodOfSourcesDoesNotResetAnother(t *testing.T) {
 	// shared overflow bucket (10 x the rate) answers 429.
 	served := 0
 	for i := 0; i < 500; i++ {
-		if st.allow("more-" + strconv.Itoa(i)) {
+		if st.allow("198.51.100." + strconv.Itoa(i%250+1)) { // one /24: one overflow bucket
 			served++
 		}
 	}
@@ -184,8 +184,14 @@ func TestSTS_GetIsNotBlockedByAllowOnAFullTable(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		st.allow("seed-" + strconv.Itoa(i))
 	}
-	// Hold the RATE lock, as a slow allow() would: get() must still answer.
+	// Hold the RATE lock, as a slow allow() would, and let allow() run into it
+	// -- if allow() took st.mu first (wrapped in it), it would now be holding
+	// it while it waits. get() must still answer within a deadline.
 	st.lim.mu.Lock()
+	allowing := make(chan struct{})
+	go func() { close(allowing); st.allow("fresh-source") }()
+	<-allowing
+	time.Sleep(100 * time.Millisecond) // allow() is parked on the rate lock
 	done := make(chan bool, 1)
 	go func() { _, ok := st.get(sess.accessKey); done <- ok }()
 	select {
@@ -194,9 +200,92 @@ func TestSTS_GetIsNotBlockedByAllowOnAFullTable(t *testing.T) {
 			t.Error("the session is gone")
 		}
 	case <-time.After(2 * time.Second):
-		t.Error("get() waits for the rate limiter's lock")
+		t.Error("get() waits behind allow(): the sessions' lock is held while counting a request")
 	}
 	st.lim.mu.Unlock()
+}
+
+// ⛔ The witness of the review: a sustained flood across a minute boundary
+// refuses neither a source that was already here nor a newcomer from another
+// network. Counted in cur, a "known" source was one in cur alone, which the
+// swap empties and a flood refills: every client then fell into one exhausted
+// overflow bucket.
+func TestSTS_AFloodAcrossAMinuteRefusesNeitherOldNorNew(t *testing.T) {
+	for name, c := range map[string]struct {
+		attacker func(i int) string
+		existing string
+		newcomer []string
+	}{
+		"IPv6 /48": {
+			attacker: func(i int) string { return "2001:db8:aaaa:" + strconv.FormatInt(int64(i), 16) + "::/64" },
+			existing: "2001:db8:eeee:1::/64",
+			newcomer: []string{"2001:db8:bbbb:1::/64", "203.0.113.7"},
+		},
+		"IPv4 /24": {
+			attacker: func(i int) string { return "198.51.100." + strconv.Itoa(i%250+1) },
+			existing: "192.0.2.10",
+			newcomer: []string{"203.0.113.7", "2001:db8:bbbb:1::/64"},
+		},
+	} {
+		now := time.Now()
+		l := newRateLimiter(func() time.Time { return now }, 60, 100)
+		if !l.allow(c.existing) {
+			t.Fatalf("%s: the existing source's first request", name)
+		}
+		flood := func(n int) {
+			for i := 0; i < n; i++ {
+				l.allow(c.attacker(i))
+			}
+		}
+		flood(2000) // fills the table, then exhausts the attacker's overflow
+		now = now.Add(61 * time.Second)
+		flood(2000) // the minute swapped: the flood refills the table
+		if !l.allow(c.existing) {
+			t.Errorf("%s: a source seen in the last minute was refused", name)
+		}
+		for _, n := range c.newcomer {
+			if !l.allow(n) {
+				t.Errorf("%s: a newcomer %s from another network was refused", name, n)
+			}
+		}
+		// The control: the attacker itself IS refused, so the flood did exhaust something.
+		// (source 200 was past the table in both minutes: it is in no
+		// generation, so it is counted in its network's exhausted bucket.)
+		if l.allow(c.attacker(200)) {
+			t.Errorf("%s: CONTROL: the attacker's own network was not exhausted", name)
+		}
+	}
+}
+
+// The extra memory is bounded: known sources are counted past max, but only
+// those of the previous generation, which max bounds in turn.
+func TestSTS_TheTableStaysBounded(t *testing.T) {
+	now := time.Now()
+	l := newRateLimiter(func() time.Time { return now }, 60, 50)
+	for round := 0; round < 5; round++ {
+		for i := 0; i < 3000; i++ {
+			l.allow("2001:db8:aaaa:" + strconv.FormatInt(int64(i), 16) + "::/64")
+		}
+		now = now.Add(61 * time.Second)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.cur) > 2*50 || len(l.prev) > 2*50 {
+		t.Errorf("cur %d, prev %d, bound %d", len(l.cur), len(l.prev), 2*50)
+	}
+	if len(l.ovCur) > stsOverflowBuckets+1 {
+		t.Errorf("%d overflow buckets", len(l.ovCur))
+	}
+}
+
+// open() says so when a trusted_proxies prefix covers more than one host.
+func TestSTS_OpenPrintsTheWidePrefixWarning(t *testing.T) {
+	p := newIDP(t)
+	r := start(t, stsConfig(t, p, "", `trusted_proxies = ["10.0.0.0/24", "192.0.2.1"]`+"\n"))
+	out := r.out.String()
+	if !strings.Contains(out, "warning: s3: trusted_proxies 10.0.0.0/24") || strings.Contains(out, "192.0.2.1/32 covers") {
+		t.Errorf("the start did not warn about the /24 alone:\n%s", out)
+	}
 }
 
 func TestSTS_WideTrustedProxyWarns(t *testing.T) {

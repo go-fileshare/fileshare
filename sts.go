@@ -162,11 +162,21 @@ func (st *stsStore) allow(source string) bool { return st.lim.allow(source) }
 // the generations once a minute -- nothing is scanned.
 //
 // Every request counts, valid or not, before anything is verified: a flood of
-// tokens is what it is for. The table is bounded (max sources a generation),
-// and a full one is never emptied nor made to forget anybody: a source it does
-// not hold is counted in ONE shared overflow bucket, perMinute*overflowFactor
-// a minute, so that a flood of fresh sources can neither reset a source at its
-// limit nor be served without limit.
+// tokens is what it is for. The table is bounded, and a full one is never
+// emptied nor made to forget anybody:
+//
+//   - A source seen in the previous minute is KNOWN: it is counted in cur even
+//     when cur is full, so a flood that refills cur after every swap cannot
+//     lock out the sources that were already here. The extra memory is bounded
+//     by the previous generation: cur holds at most max fresh sources plus the
+//     (at most 2*max) known ones, so 2*max entries in all.
+//   - A source seen in neither is counted, when the table is full, in an
+//     overflow bucket of its AGGREGATE -- its /48 (IPv6) or /24 (IPv4) --
+//     perMinute*overflowFactor a minute each, so a flood exhausts the buckets of
+//     the networks it comes from and nobody else's. There are at most
+//     stsOverflowBuckets aggregates a generation, then one shared bucket
+//     serves the rest: an attacker holding more networks than that is the
+//     limit of this design, not of the table.
 type rateLimiter struct {
 	mu        sync.Mutex
 	now       func() time.Time
@@ -174,14 +184,34 @@ type rateLimiter struct {
 	max       int
 	start     time.Time
 	cur, prev map[string]int
-	overflow  [2]int // cur, prev
+	// ovCur and ovPrev are the overflow buckets, by aggregate.
+	ovCur, ovPrev map[string]int
 }
 
-const stsOverflowFactor = 10
+const (
+	stsOverflowFactor  = 10
+	stsOverflowBuckets = 1024
+	stsOverflowShared  = "*"
+)
 
 func newRateLimiter(now func() time.Time, perMinute, max int) *rateLimiter {
 	return &rateLimiter{now: now, perMinute: perMinute, max: max, start: now(),
-		cur: map[string]int{}, prev: map[string]int{}}
+		cur: map[string]int{}, prev: map[string]int{}, ovCur: map[string]int{}, ovPrev: map[string]int{}}
+}
+
+// aggregate is the network an overflowing source is counted with: a /48 for an
+// IPv6 source (rateKey wrote its /64), a /24 for an IPv4 one; anything else
+// as it is.
+func aggregate(source string) string {
+	if p, err := netip.ParsePrefix(source); err == nil && p.Addr().Is6() {
+		a, _ := p.Addr().Prefix(48)
+		return a.String()
+	}
+	if a, err := netip.ParseAddr(source); err == nil && a.Is4() {
+		p, _ := a.Prefix(24)
+		return p.String()
+	}
+	return source
 }
 
 func (l *rateLimiter) allow(source string) bool {
@@ -191,22 +221,28 @@ func (l *rateLimiter) allow(source string) bool {
 	switch el := now.Sub(l.start); {
 	case el < 0 || el >= 2*time.Minute:
 		// Two minutes (or a clock that went back): nothing counts any more.
-		l.start, l.cur, l.prev, l.overflow = now, map[string]int{}, map[string]int{}, [2]int{}
+		l.start, l.cur, l.prev = now, map[string]int{}, map[string]int{}
+		l.ovCur, l.ovPrev = map[string]int{}, map[string]int{}
 	case el >= time.Minute:
 		l.start, l.prev, l.cur = l.start.Add(time.Minute), l.cur, map[string]int{}
-		l.overflow = [2]int{0, l.overflow[0]}
+		l.ovPrev, l.ovCur = l.ovCur, map[string]int{}
 	}
 	// What the previous generation still weighs: the share of it that lies
 	// within the last minute.
 	left := time.Minute - now.Sub(l.start)
 	weigh := func(prev int) int { return int(int64(prev) * int64(left) / int64(time.Minute)) }
 
-	if _, known := l.cur[source]; !known && len(l.cur) >= l.max {
-		limit := l.perMinute * stsOverflowFactor
-		if l.overflow[0]+weigh(l.overflow[1]) >= limit {
+	_, inCur := l.cur[source]
+	_, inPrev := l.prev[source]
+	if !inCur && !inPrev && len(l.cur) >= l.max {
+		key := aggregate(source)
+		if _, there := l.ovCur[key]; !there && len(l.ovCur) >= stsOverflowBuckets {
+			key = stsOverflowShared
+		}
+		if l.ovCur[key]+weigh(l.ovPrev[key]) >= l.perMinute*stsOverflowFactor {
 			return false
 		}
-		l.overflow[0]++
+		l.ovCur[key]++
 		return true
 	}
 	if l.cur[source]+weigh(l.prev[source]) >= l.perMinute {

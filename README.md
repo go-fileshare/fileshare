@@ -661,8 +661,13 @@ serve "s3" {
   printed at start: a client that can have an address inside it chooses its own
   `X-Forwarded-For`, and with it the bucket it is counted in. The count is O(1)
   per request and held under its own lock, so a flood of fresh sources cannot
-  slow the credentialed S3 requests; sources past the table (10000) share one
-  overflow bucket of ten times the rate.
+  slow the credentialed S3 requests. A source seen in the last minute is always
+  counted (the table holds at most 2 × 10000 entries for it); a source the full
+  table has not seen is counted in an overflow bucket of its network — its /48
+  (IPv6) or /24 (IPv4), ten times the rate each — so a flood exhausts the buckets
+  of the networks it comes from, not everybody's. Past 1024 networks a minute one
+  shared bucket serves the rest: an attacker holding more networks than that is
+  this design's limit.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
   ignored, and the parameters must be in the POST body — never the URL.
 - `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password

@@ -662,14 +662,18 @@ serve "s3" {
   `X-Forwarded-For`, and with it the bucket it is counted in. The count is O(1)
   per request and held under its own lock, so a flood of fresh sources cannot
   slow the credentialed S3 requests. A source seen in the last minute is counted
-  as long as the table holds fewer than 2 × 10000 entries (that is the bound, however
-  long a flood lasts; past it such a source is counted in its network's bucket
-  too); a source the full
-  table has not seen is counted in an overflow bucket of its network — its /48
-  (IPv6) or /24 (IPv4), ten times the rate each — so a flood exhausts the buckets
-  of the networks it comes from, not everybody's. IPv4 neighbours behind one /24 (CGNAT, a campus) share one bucket. Past 1024 networks a minute one
-  shared bucket serves the rest: an attacker holding more networks than that is
-  this design's limit.
+  as long as the table holds fewer than 2 × 10000 entries (that is the bound,
+  however long a flood lasts; past it such a source is counted in its network's
+  bucket too); a source the full table has not seen is counted in an overflow
+  bucket of its network — its /48 (IPv6) or /24 (IPv4), ten times the rate each —
+  so a flood exhausts the buckets of the networks it comes from, not
+  everybody's. IPv4 neighbours behind one /24 (CGNAT, a campus) share one
+  bucket. Past 1024 networks a minute one shared bucket serves the rest: an
+  attacker holding more networks than that is this design's limit. ⚠ Once such
+  an attacker has filled the table and drained that shared bucket, EXISTING
+  clients are refused too, not only new ones, until the flood stops (a minute
+  after it does, every count is fresh again). Bounding memory per network makes
+  that the price; rate-limit in front of fileshare as well if it matters.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
   ignored, and the parameters must be in the POST body — never the URL.
 - `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password

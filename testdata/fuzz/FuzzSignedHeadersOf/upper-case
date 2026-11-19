@@ -1,0 +1,2 @@
+go test fuzz v1
+string("AWS4-HMAC-SHA256 SignedHeaders=X-AMZ-SECURITY-TOKEN;Host,,,")

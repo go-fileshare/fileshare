@@ -646,18 +646,99 @@ can answer.
 key or a certificate, NFS with nothing at all, and **S3 with a SigV4
 signature** — an HMAC computed over the request, with no field a bearer token
 fits in. None of them has anywhere to put an Authorization header. That is a
-fact about the protocols, not a limit of this program.
+fact about the protocols, not a limit of this program. For S3, the route is
+STS: the token is exchanged for temporary credentials (see below).
 
 **The provider's word over SFTP** arrives in a certificate instead, in two
 shapes (see below): one its SSH CA signed, or an opkssh one. A configuration
 naming a provider and serving neither WebDAV nor such an SFTP is refused rather
 than started.
 
-The usual way to reach S3 with an OIDC token is **STS
+### S3 with a token: STS `AssumeRoleWithWebIdentity`
+
+The way to reach S3 with an OIDC token is **STS
 `AssumeRoleWithWebIdentity`**, which exchanges the token for temporary
-credentials the client then signs with. That is a different thing from
-accepting a bearer token, and it is not implemented here — said plainly
-because it is the first thing somebody arriving from MinIO will look for.
+credentials the client then signs with. It is not a bearer token accepted by S3:
+it is the AWS STS API (version 2011-06-15) answered on the S3 listener, and
+`aws`, `rclone` and the AWS SDKs speak it as they do to AWS.
+
+```hcl
+oidc {
+  issuer   = "https://login.example.org"
+  audience = "fileshare"          # the audience of the token: what bridge's client lists
+}
+
+serve "s3" {
+  addr             = "0.0.0.0:9000"
+  tls              = true
+  sts              = true         # POST / with Action=AssumeRoleWithWebIdentity
+  sts_duration     = "1h"         # the default; 15m to 12h
+  sts_max_duration = "4h"         # the most DurationSeconds may ask; defaults to sts_duration
+  static_keys      = false        # no more access-key-is-a-user: only temporary credentials sign
+}
+```
+
+- **The token** is an access token (`typ` `at+jwt`) from the `oidc` block's
+  provider, verified for that block's issuer and audience — there is no second
+  provider configuration. A person's, or a machine's: go-authn/bridge's
+  `client_credentials` token for a client that authenticates with a private key
+  (`private_key_jwt`) has `sub` = the client ID, which is the name here.
+- ⛔ **It passes the same rule as a token over WebDAV.** A valid token for a name
+  no source here knows is refused unless `trust_all = true` or a share's `oidc:`
+  rule names it (`allow = ["oidc:user:winpc-17"]`, `oidc:groups:...`); the
+  share's rules then decide what is visible, buckets and objects alike.
+- **The answer** is `AccessKeyId` (`ASIA…`), `SecretAccessKey`, `SessionToken`
+  and `Expiration`. Requests are signed with them and carry the session token in
+  `x-amz-security-token`, **signed** (as the AWS signers do). The credentials are
+  random, held in memory only and never written anywhere; a restart ends them,
+  and the client asks again.
+- ⛔ **A session is judged at every request**, not once: it expires; it is bound
+  to its access key (a session token replayed beside another key is refused); it
+  ends when the provider revokes the person after the token was issued (the
+  `ssf` block, as for every other federated credential); and when the
+  configuration stops admitting the name.
+- ⛔ **The credentials never outlive the token**: their lifetime is the shorter of
+  `sts_duration` / `DurationSeconds` and what the token has left, and a token
+  with under 6 minutes left is refused (`ExpiredTokenException`) — shorter
+  credentials would sit inside the SDKs' renewal window (about 5 minutes before
+  `Expiration`) and be renewed at once, for ever. A client presents a fresh token
+  at each exchange, as awscred does. One name holds 16 sessions at most, and a
+  source address 60 requests a minute (an IPv6 address counts as its /64; the
+  table is bounded and a flood of fresh sources cannot reset another's count).
+  Behind the proxy that `plaintext = true` is for, every client would be one
+  source: name the proxies, `trusted_proxies = ["10.0.0.0/24"]` (addresses or
+  CIDRs, on the `s3` serve block), and only a request arriving FROM one is
+  believed about its client, by the right-most `X-Forwarded-For` hop that is not
+  itself a trusted proxy. From anybody else the header is ignored.
+  ⛔ **The list must name the proxies and nothing else.** A prefix wider than one
+  host is accepted (a pool of proxies, a /29, is legitimate) and a warning is
+  printed at start: a client that can have an address inside it chooses its own
+  `X-Forwarded-For`, and with it the bucket it is counted in. The count is O(1)
+  per request and held under its own lock, so a flood of fresh sources cannot
+  slow the credentialed S3 requests. A source seen in the last minute is counted
+  as long as the table holds fewer than 2 × 10000 entries (that is the bound,
+  however long a flood lasts; past it such a source is counted in its network's
+  bucket too); a source the full table has not seen is counted in an overflow
+  bucket of its network — its /48 (IPv6) or /24 (IPv4), ten times the rate each —
+  so a flood exhausts the buckets of the networks it comes from, not
+  everybody's. IPv4 neighbours behind one /24 (CGNAT, a campus) share one
+  bucket. Past 1024 networks a minute one shared bucket serves the rest: an
+  attacker holding more networks than that is this design's limit. ⚠ Once such
+  an attacker has filled the table and drained that shared bucket, EXISTING
+  clients are refused too, not only new ones, until the flood stops (a minute
+  after it does, every count is fresh again). Bounding memory per network makes
+  that the price; rate-limit in front of fileshare as well if it matters.
+- `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than
+  ignored, and the parameters must be in the POST body — never the URL.
+- `static_keys = false` turns the access-key-is-a-user, secret-key-is-the-password
+  way OFF. It needs `sts = true`; without it the configuration is refused at load,
+  since a listener nobody could sign for would look configured. Over a
+  non-loopback address `sts` needs `tls = true`, or `plaintext = true` when TLS is
+  terminated in front.
+
+On an unattended machine the credentials renew themselves: the AWS SDKs and
+CLI run a `credential_process` command, which signs a `private_key_jwt`, gets a
+token from the provider, calls this endpoint and prints the JSON they read.
 
 ⛔ **A token says who the provider thinks somebody is. It does not say this
 server has a share for them.** A valid token for a name no source here knows is

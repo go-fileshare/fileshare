@@ -110,10 +110,10 @@ func (c *config) checkTLS() error {
 			return fmt.Errorf("%s: client_ca_file is for nfs, whose clients present a certificate", b.Protocol)
 		case b.ClientCAFile != "" && !b.TLS:
 			return fmt.Errorf("nfs: client_ca_file without tls = true would check nothing")
-		case b.Plaintext && b.Protocol != "webdav":
-			return fmt.Errorf("%s: plaintext is for webdav, the protocol that sends a password", b.Protocol)
+		case b.Plaintext && b.Protocol != "webdav" && !(b.Protocol == "s3" && b.STS):
+			return fmt.Errorf("%s: plaintext is for webdav, the protocol that sends a password (and s3 with sts, which takes tokens)", b.Protocol)
 		case b.Plaintext && b.TLS:
-			return fmt.Errorf("webdav says tls and plaintext: one or the other")
+			return fmt.Errorf("%s says tls and plaintext: one or the other", b.Protocol)
 		}
 		if b.TLS {
 			usesTLS = true

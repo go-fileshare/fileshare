@@ -30,7 +30,13 @@ import (
 // openOIDC builds the verifier, at startup rather than at the first request:
 // a provider that is not answering is a server that cannot authenticate
 // anybody through it, and it should say so before it listens.
-func openOIDC(b *oidcBlock) (*oidc.Verifier, error) {
+func openOIDC(b *oidcBlock) (*oidc.Verifier, error) { return openOIDCType(b, "") }
+
+// openOIDCType is openOIDC for tokens of one "typ": "at+jwt" for what STS
+// takes (RFC 9068 4), so that an ID token addressed to the same audience is not
+// taken for an access token. Same issuer, audience and claims as the oidc
+// block -- there is no second provider configuration.
+func openOIDCType(b *oidcBlock, typ string) (*oidc.Verifier, error) {
 	if b == nil {
 		return nil, nil
 	}
@@ -42,6 +48,7 @@ func openOIDC(b *oidcBlock) (*oidc.Verifier, error) {
 		JWKSURL:       b.JWKSURL,
 		UsernameClaim: b.UsernameClaim,
 		GroupsClaim:   b.GroupsClaim,
+		Type:          typ,
 	})
 }
 
@@ -58,15 +65,24 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	if !ok || strings.TrimSpace(raw) == "" {
 		return principal{}, false
 	}
-	tok, err := s.oidc.Verify(r.Context(), strings.TrimSpace(raw))
+	p, _, ok := s.tokenPrincipal(r.Context(), s.oidc, strings.TrimSpace(raw))
+	return p, ok
+}
+
+// tokenPrincipal is the one rule a provider's token passes, over WebDAV and at
+// STS alike: verified by v, named by its username claim, and admitted by
+// admitFederated -- so that STS can never be a way round "I do not know you
+// is not you are allowed".
+func (s *server) tokenPrincipal(ctx context.Context, v *oidc.Verifier, raw string) (principal, *oidc.Token, bool) {
+	tok, err := v.Verify(ctx, raw)
 	if err != nil {
 		fmt.Fprintf(s.out, "a token was refused: %v\n", err)
-		return principal{}, false
+		return principal{}, nil, false
 	}
 	name := tok.Username()
 	if name == "" {
 		fmt.Fprintf(s.out, "a token carries no %s: nobody to be\n", s.usernameClaim())
-		return principal{}, false
+		return principal{}, nil, false
 	}
 	// ⛔ An email names somebody only once the provider has verified it
 	// (OpenID Connect Core 5.1, email_verified): unverified, it is what the
@@ -74,8 +90,8 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// verified; a username_claim of "email" asks for the claim as it is,
 	// so the same rule is applied here.
 	if s.usernameClaim() == "email" && !tok.EmailVerified() {
-		fmt.Fprintf(s.out, "a token names %s by an email its provider has not verified: refused\n", name)
-		return principal{}, false
+		fmt.Fprintf(s.out, "a token names %q by an email its provider has not verified: refused\n", name)
+		return principal{}, nil, false
 	}
 	// ⛔ A token proves who the PROVIDER says this is. It does not put them in
 	// this server's shares: a name that no source here knows is somebody this
@@ -92,17 +108,17 @@ func (s *server) bearer(r *http.Request) (principal, bool) {
 	// it names is known here, as far as that share goes.
 	p := principal{name: name, federated: true, groups: tok.Groups(), localName: s.localNames()}
 	if err := s.admitFederated(p); err != nil {
-		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
-		return principal{}, false
+		fmt.Fprintf(s.out, "%q arrived with a valid token: %v\n", name, err)
+		return principal{}, nil, false
 	}
 	// A token verifies until it expires; a revocation since it was issued
 	// is what makes it stop counting sooner.
 	iat, _ := tok.IssuedAt()
 	if err := s.federatedRevoked(name, tok.Issuer(), tok.Subject(), iat); err != nil {
-		fmt.Fprintf(s.out, "%s arrived with a valid token: %v\n", name, err)
-		return principal{}, false
+		fmt.Fprintf(s.out, "%q arrived with a valid token: %v\n", name, err)
+		return principal{}, nil, false
 	}
-	return p, true
+	return p, tok, true
 }
 
 // admitFederated is the one test somebody the identity provider vouches for

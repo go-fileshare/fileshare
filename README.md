@@ -205,6 +205,19 @@ serve "smb" {
 }
 ```
 
+**The keytab file itself** is checked before anything is read from it, for NFS
+and SMB alike: it must be a regular file, owned by **root or by the account
+fileshare runs as**, and not readable or writable by others nor writable by
+its group. `root:fileshare 0640` (fileshare in that group) or
+`fileshare:fileshare 0600` both work; `krb5:fileshare 0640` is refused,
+because its owner could rewrite the keys or the mode. The keys in that file
+are the right to be this server for every person of the realm.
+
+The client's name and realm are taken from the **ticket**, which the KDC
+sealed with the service key, never from the authenticator the client writes
+(gokrb5 compares only the name, jcmturner/gokrb5#577); an authenticator that
+names another client or realm is refused, as RFC 4120 3.2.3 requires.
+
 The client's principal goes through the same `userOf` as an NFS one — another
 realm's `alice` is nobody — and then must also be **somebody this configuration
 knows**: a ticket proves the KDC knows the person, not that this server does,

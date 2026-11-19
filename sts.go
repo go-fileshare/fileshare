@@ -234,7 +234,15 @@ func (l *rateLimiter) allow(source string) bool {
 
 	_, inCur := l.cur[source]
 	_, inPrev := l.prev[source]
-	if !inCur && !inPrev && len(l.cur) >= l.max {
+	// A fresh source is admitted while cur holds fewer than max; one known from
+	// the previous minute while it holds fewer than 2*max -- the bound that
+	// makes cur at most 2*max however many minutes the flood lasts. Past it,
+	// either is counted in its network's overflow bucket.
+	room := l.max
+	if inPrev {
+		room = 2 * l.max
+	}
+	if !inCur && len(l.cur) >= room {
 		key := aggregate(source)
 		if _, there := l.ovCur[key]; !there && len(l.ovCur) >= stsOverflowBuckets {
 			key = stsOverflowShared

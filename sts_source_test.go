@@ -278,6 +278,50 @@ func TestSTS_TheTableStaysBounded(t *testing.T) {
 	}
 }
 
+// ⛔ The reviewer's witness: every minute, max fresh sources plus one request
+// from EVERY source of the previous minute. A known source admitted without a
+// size check made cur grow by max a minute for ever.
+func TestSTS_KnownSourcesDoNotGrowTheTableWithoutBound(t *testing.T) {
+	const max = 1000
+	now := time.Now()
+	l := newRateLimiter(func() time.Time { return now }, 60, max)
+	src := func(minute, i int) string {
+		return "2001:db8:" + strconv.FormatInt(int64(minute), 16) + ":" + strconv.FormatInt(int64(i), 16) + "::/64"
+	}
+	// One source that was here from the start and keeps asking once a minute.
+	const existing = "198.51.100.77"
+	l.allow(existing)
+	for minute := 0; minute < 8; minute++ {
+		var prevKeys []string
+		l.mu.Lock()
+		for k := range l.cur {
+			prevKeys = append(prevKeys, k)
+		}
+		l.mu.Unlock()
+		now = now.Add(61 * time.Second)
+		for i := 0; i < max; i++ {
+			l.allow(src(minute, i))
+		}
+		for _, k := range prevKeys {
+			l.allow(k)
+		}
+		l.mu.Lock()
+		n := len(l.cur)
+		l.mu.Unlock()
+		if n > 2*max {
+			t.Fatalf("minute %d: cur holds %d, bound %d", minute, n, 2*max)
+		}
+		// The control that the witness did reach the bound's neighbourhood.
+		if minute >= 3 && n < max {
+			t.Fatalf("minute %d: cur holds only %d: the witness is not flooding", minute, n)
+		}
+		// And a source that keeps asking is served while the cap holds.
+		if !l.allow(existing) {
+			t.Fatalf("minute %d: the existing source was refused", minute)
+		}
+	}
+}
+
 // open() says so when a trusted_proxies prefix covers more than one host.
 func TestSTS_OpenPrintsTheWidePrefixWarning(t *testing.T) {
 	p := newIDP(t)

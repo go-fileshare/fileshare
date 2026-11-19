@@ -661,11 +661,13 @@ serve "s3" {
   printed at start: a client that can have an address inside it chooses its own
   `X-Forwarded-For`, and with it the bucket it is counted in. The count is O(1)
   per request and held under its own lock, so a flood of fresh sources cannot
-  slow the credentialed S3 requests. A source seen in the last minute is always
-  counted (the table holds at most 2 × 10000 entries for it); a source the full
+  slow the credentialed S3 requests. A source seen in the last minute is counted
+  as long as the table holds fewer than 2 × 10000 entries (that is the bound, however
+  long a flood lasts; past it such a source is counted in its network's bucket
+  too); a source the full
   table has not seen is counted in an overflow bucket of its network — its /48
   (IPv6) or /24 (IPv4), ten times the rate each — so a flood exhausts the buckets
-  of the networks it comes from, not everybody's. Past 1024 networks a minute one
+  of the networks it comes from, not everybody's. IPv4 neighbours behind one /24 (CGNAT, a campus) share one bucket. Past 1024 networks a minute one
   shared bucket serves the rest: an attacker holding more networks than that is
   this design's limit.
 - `Policy`, `PolicyArns` and a second `WebIdentityToken` are refused rather than

@@ -221,8 +221,13 @@ names another client or realm is refused, as RFC 4120 3.2.3 requires.
 The client's principal goes through the same `userOf` as an NFS one — another
 realm's `alice` is nobody — and then must also be **somebody this configuration
 knows**: a ticket proves the KDC knows the person, not that this server does,
-and NTLM never let in a name it did not hold. The share's `allow` and
-`writers` lists then apply as they do for a password. A session ends with its
+and NTLM never let in a name it did not hold. With a `kerberos` block a person
+is declared with no credential at all, `user "alice" {}`: the ticket is their
+credential, as a certificate is with `trusted_user_ca_file`. The name is what
+precedes the **last** `@` of the principal, so a name that holds one
+(`user "alice@example.org" {}`, for the principal `alice@example.org@EXAMPLE.ORG`
+an identity provider's local account gets) is matched whole. The share's `allow`
+and `writers` lists then apply as they do for a password. A session ends with its
 ticket, and a Windows client authenticates again by itself.
 
 `ntlm = false` is refused at load without a `kerberos` block, and the server

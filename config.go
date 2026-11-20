@@ -772,11 +772,14 @@ func (c *config) check() error {
 		case len(u.AuthorizedKeys) > 0 && u.AuthorizedKeysFile != "":
 			return fmt.Errorf("user %q has both authorized_keys and an authorized_keys_file: say which one", u.Name)
 		case u.Password == "" && u.PasswordFile == "" && len(u.AuthorizedKeys) == 0 &&
-			u.AuthorizedKeysFile == "" && c.TrustedUserCAFile == "":
+			u.AuthorizedKeysFile == "" && c.TrustedUserCAFile == "" && c.Kerberos == nil:
 			// With a trusted authority there is nothing to say here: the
 			// certificate IS the credential, issued elsewhere and expiring on
-			// its own. That is the whole reason to have one.
-			return fmt.Errorf("user %q has no way to authenticate: a password, authorized keys, or a certificate from trusted_user_ca_file", u.Name)
+			// its own. That is the whole reason to have one. A kerberos block is
+			// the same: the ticket is the credential, and the KDC's word that
+			// somebody is who they say is all this server may ask. Naming the
+			// person here is what makes them somebody this server knows.
+			return fmt.Errorf("user %q has no way to authenticate: a password, authorized keys, a certificate from trusted_user_ca_file, or a kerberos block", u.Name)
 		}
 	}
 
@@ -1229,11 +1232,23 @@ type kerberosBlock struct {
 // point of the realm being configured rather than inferred: two realms can
 // both have an alice, and only one of them is ours.
 func (k *kerberosBlock) userOf(principal string) string {
-	name, realm, ok := strings.Cut(principal, "@")
-	if !ok || realm != k.Realm || name == "" {
+	// The realm is what follows the LAST @: a realm is a DNS name and holds
+	// none, while a name may (authn-bridge's local accounts are login@scope, so
+	// their principal is login@scope@REALM). Cutting at the first @ made every
+	// such person a stranger in their own realm.
+	name, realm, ok := cutLast(principal, "@")
+	if !ok || realm != k.Realm || name == "" || strings.HasPrefix(name, "@") || strings.HasSuffix(name, "@") {
 		return ""
 	}
 	return name
+}
+
+// cutLast is strings.Cut at the LAST separator.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
 
 // errNTLMOffNeedsKerberos is what a serve block that turns NTLM off says when

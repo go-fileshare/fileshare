@@ -1236,15 +1236,19 @@ func (k *kerberosBlock) userOf(principal string) string {
 	// none, while a name may (authn-bridge's local accounts are login@scope, so
 	// their principal is login@scope@REALM). Cutting at the first @ made every
 	// such person a stranger in their own realm.
-	i := strings.LastIndex(principal, "@")
-	if i < 0 {
-		return ""
-	}
-	name, realm := principal[:i], principal[i+1:]
-	if realm != k.Realm || name == "" || strings.HasPrefix(name, "@") || strings.HasSuffix(name, "@") {
+	name, realm, ok := cutLast(principal, "@")
+	if !ok || realm != k.Realm || name == "" || strings.HasPrefix(name, "@") || strings.HasSuffix(name, "@") {
 		return ""
 	}
 	return name
+}
+
+// cutLast is strings.Cut at the LAST separator.
+func cutLast(s, sep string) (before, after string, found bool) {
+	if i := strings.LastIndex(s, sep); i >= 0 {
+		return s[:i], s[i+len(sep):], true
+	}
+	return s, "", false
 }
 
 // errNTLMOffNeedsKerberos is what a serve block that turns NTLM off says when

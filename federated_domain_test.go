@@ -1,4 +1,4 @@
-//go:build !nosftp && !nowebdav
+//go:build !nosftp && !nowebdav && !wasip1
 
 package main
 

@@ -86,6 +86,9 @@ func serveWithLauncher(cfg *config, files []string, out io.Writer) error {
 	}()
 	var protos []string
 	for _, b := range cfg.Serves {
+		if b.quic() {
+			return fmt.Errorf("smb: transport = \"quic\" binds UDP itself and is not served through identity = \"system\" yet")
+		}
 		ln, err := net.Listen("tcp", b.Addr)
 		if err != nil {
 			return fmt.Errorf("%s: %w", b.Protocol, err)

@@ -1688,8 +1688,43 @@ client present a certificate from that authority — which host is mounting —
 and RFC 9289 leaves user authentication as it was: the uid inside is still the
 one AUTH_SYS claims. So a share that names who may use it is still refused over
 NFS without a `kerberos` block. TLS is offered, not required: a client that
-never asks for it is still served the open shares. SMB and SFTP do not take
-`tls`: SMB 3 encrypts with its own keys, and SFTP is SSH.
+never asks for it is still served the open shares. SMB over TCP and SFTP do not
+take `tls`: SMB 3 encrypts with its own keys, and SFTP is SSH.
+
+## SMB over QUIC
+
+```hcl
+tls {
+  cert_file = "/var/lib/caddy/certificates/acme-v02.api.letsencrypt.org-directory/files.example.org/files.example.org.crt"
+  key_file  = "/var/lib/caddy/certificates/acme-v02.api.letsencrypt.org-directory/files.example.org/files.example.org.key"
+}
+
+serve "smb" {
+  addr      = ":443"          # UDP: it does not clash with an HTTPS proxy on TCP 443
+  transport = "quic"
+  tls       = true
+  # client_cert    = "required"                        # in addition to Kerberos
+  # client_ca_file = "/etc/fileshare/client-ca.pem"
+}
+```
+
+SMB 3.1.1 over QUIC ([MS-SMB2] 3.1.1 and [MS-QUIC]) is the same protocol inside
+TLS 1.3 on UDP 443, with ALPN `smb`: `net use \\files.example.org\share
+/TRANSPORT:QUIC` on Windows 11 and Server 2025, with TCP 445 closed. The
+certificate is the `tls` block's, files reloaded when they change, so pointing
+`cert_file` and `key_file` at a reverse proxy's ACME storage follows its
+renewals. A Windows client checks the server name against the certificate's DNS
+names, so use a name, not an IP address. A proxy on the same host must not
+offer HTTP/3 on that UDP port (Caddy: `protocols h1 h2`).
+
+By default only Kerberos authenticates the person. `client_cert = "required"`
+adds a client certificate, chaining to `client_ca_file`, demanded in the TLS
+handshake before any SMB byte is read; it says which machine or session may
+connect, and the Kerberos principal is still who the person is. The CA file is
+read when the server starts. Over QUIC the server grants one credit per request
+and advertises no large MTU, as [MS-SMB2] 3.3.5.4 requires, so each read or
+write is at most 64 KiB. `identity = "system"` and isolated children do not
+serve QUIC yet; the server refuses to start with them.
 
 ## NFS, with identities from certificates
 

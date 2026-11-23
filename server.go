@@ -875,6 +875,10 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 
 // listen is serve block i's listener: the launcher's, or bound here.
 func (s *server) listen(i int, b serveBlock) (net.Listener, error) {
+	if b.quic() {
+		// UDP, bound here: the launcher only hands over TCP sockets.
+		return listenQUIC(b.Addr, s.tlsConfigs[b.Protocol])
+	}
 	if s.inherited != nil {
 		return s.inherited[i], nil
 	}

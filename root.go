@@ -419,6 +419,13 @@ func report(cmd *cobra.Command, cfg *config) error {
 		fmt.Fprintln(out)
 		for _, b := range cfg.Serves {
 			switch {
+			case b.quic() && b.ClientCAFile != "":
+				fmt.Fprintf(out, "%s: SMB over QUIC on UDP %s, certificate from %s (it must name the host clients dial: a DNS name in its SANs); "+
+					"Kerberos AND a client certificate signed by %s, read at start (restart to change the CA)\n",
+					b.Protocol, b.Addr, cfg.TLS.describe(), b.ClientCAFile)
+			case b.quic():
+				fmt.Fprintf(out, "%s: SMB over QUIC on UDP %s, certificate from %s (it must name the host clients dial: a DNS name in its SANs); "+
+					"Kerberos only, no client certificate\n", b.Protocol, b.Addr, cfg.TLS.describe())
 			case b.TLS && b.ClientCAFile != "":
 				fmt.Fprintf(out, "%s: TLS, certificate from %s; clients present one signed by %s (the machine, not the person)\n",
 					b.Protocol, cfg.TLS.describe(), b.ClientCAFile)

@@ -47,6 +47,12 @@ const (
 
 // serveWithLauncher is `serve` for a configuration with identity shares.
 func serveWithLauncher(cfg *config, files []string, out io.Writer) error {
+	// A refusal about the configuration comes before the one about privilege.
+	for _, b := range cfg.Serves {
+		if b.quic() {
+			return fmt.Errorf("smb: transport = \"quic\" binds UDP itself and is not served through identity = \"system\" yet")
+		}
+	}
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("shares served as their people (identity = %q) need `fileshare serve` started as root: "+
 			"it stays root only to start each person's worker, and serves the protocols as %s",
@@ -86,9 +92,6 @@ func serveWithLauncher(cfg *config, files []string, out io.Writer) error {
 	}()
 	var protos []string
 	for _, b := range cfg.Serves {
-		if b.quic() {
-			return fmt.Errorf("smb: transport = \"quic\" binds UDP itself and is not served through identity = \"system\" yet")
-		}
 		ln, err := net.Listen("tcp", b.Addr)
 		if err != nil {
 			return fmt.Errorf("%s: %w", b.Protocol, err)

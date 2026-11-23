@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,4 +117,48 @@ serve "smb" {
 			t.Fatal("a QUIC client offering h3 was accepted")
 		}
 	})
+}
+
+// A client_ca_file that cannot be read, or holds no certificate, stops the
+// server at start, naming the file: it must not come up demanding nothing.
+func TestSMBOverQUICClientCAFileRefusals(t *testing.T) {
+	needUsers(t)
+	dir := t.TempDir()
+	p := newPKI(t, dir)
+	img := image(t, dir, "d.img", nil)
+	alice := write(t, dir, "alice.pw", "hunter2\n")
+	empty := write(t, dir, "empty.pem", "not a certificate\n")
+	for _, c := range []struct{ name, ca, want string }{
+		{"missing", dir + "/absent.pem", "smb: client_ca_file"},
+		{"no certificate in it", empty, "smb: " + empty},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := fmt.Sprintf(`user "alice" { password_file = %q }
+share "d" { image = %q }
+tls {
+  cert_file = %q
+  key_file  = %q
+}
+serve "smb" {
+  addr           = "127.0.0.1:0"
+  transport      = "quic"
+  tls            = true
+  client_cert    = "required"
+  client_ca_file = %q
+}
+`, hclPath(alice), hclPath(img), hclPath(p.certFile), hclPath(p.keyFile), hclPath(c.ca))
+			cfg, err := loadConfig([]string{write(t, t.TempDir(), "c.hcl", body)})
+			if err != nil {
+				t.Fatalf("loadConfig: %v", err)
+			}
+			srv, err := open(cfg, &safeBuffer{})
+			if err == nil {
+				srv.Close()
+				t.Fatal("started with a client CA it could not use")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("refused for another reason: %v", err)
+			}
+		})
+	}
 }

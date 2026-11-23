@@ -115,6 +115,9 @@ type server struct {
 	// each protocol served over TLS is served with; see tls.go.
 	certs      *servercert.Source
 	tlsConfigs map[string]*tls.Config
+	// quicProtos are the protocols served over QUIC: TLS 1.3 is already
+	// under their stream, so the listener must not be wrapped in TLS again.
+	quicProtos map[string]bool
 
 	// sshKRL is the provider's list of revoked SSH certificates, when the
 	// oidc block names one. It outlives generations, and is fetched by run.
@@ -266,6 +269,12 @@ func open(cfg *config, out io.Writer) (*server, error) {
 			}
 			if c != nil {
 				s.tlsConfigs[b.Protocol] = c
+				if b.quic() {
+					if s.quicProtos == nil {
+						s.quicProtos = map[string]bool{}
+					}
+					s.quicProtos[b.Protocol] = true
+				}
 			}
 		}
 	}
@@ -875,6 +884,10 @@ func (s *server) run(ctx context.Context, cfg *config) error {
 
 // listen is serve block i's listener: the launcher's, or bound here.
 func (s *server) listen(i int, b serveBlock) (net.Listener, error) {
+	if b.quic() {
+		// UDP, bound here: the launcher only hands over TCP sockets.
+		return listenQUIC(b.Addr, s.tlsConfigs[b.Protocol])
+	}
 	if s.inherited != nil {
 		return s.inherited[i], nil
 	}

@@ -120,6 +120,10 @@ func runIsolated(ctx context.Context, cfg *config, out *os.File, files []string)
 	for i := range cfg.Serves {
 		b := cfg.Serves[i]
 		p := protocolByName(b.Protocol)
+		if b.quic() {
+			stopAll()
+			return fmt.Errorf("smb: transport = \"quic\" binds UDP itself and is not served in an isolated child yet")
+		}
 		ln, err := net.Listen("tcp", b.Addr)
 		if err != nil {
 			stopAll()

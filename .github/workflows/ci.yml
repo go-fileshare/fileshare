@@ -543,7 +543,7 @@ jobs:
             riscv64) e="$(qemu_for riscv64)" || exit 1; echo "running riscv64 under $e"; GOARCH=riscv64 go test -count=1 -exec="$e" ./... ;;
             loong64) e="$(qemu_for loongarch64)" || exit 1; echo "running loong64 under $e"; GOARCH=loong64 go test -count=1 -exec="$e" ./... ;;
             ppc64le) e="$(qemu_for ppc64le)" || exit 1; echo "running ppc64le under $e"; GOARCH=ppc64le go test -count=1 -exec="$e" ./... ;;
-            s390x) e="$(qemu_for s390x)" || exit 1; echo "running s390x under $e"; GOARCH=s390x   go test -count=1 -exec="$e" ./... ;;
+            s390x) e="$(qemu_for s390x)" || exit 1; echo "running s390x under $e"; GOARCH=s390x QUIC_GO_DISABLE_ECN=true QUIC_GO_DISABLE_GSO=true go test -count=1 -exec="$e" ./... ;;
           esac
 
   # ⛔ THE ONLY PLACE A BLOCK DEVICE IS EXERCISED, and that is deliberate.

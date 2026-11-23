@@ -461,6 +461,16 @@ type serveBlock struct {
 	// ClientCAFile makes NFS clients present a certificate signed by one of
 	// these. It proves the MACHINE, not the person: see tls.go.
 	ClientCAFile string `hcl:"client_ca_file,optional"`
+	// Transport, on the smb serve block, is "tcp" (the default) or "quic":
+	// SMB 3.1.1 over QUIC on UDP, TLS 1.3 with ALPN "smb", which needs
+	// tls = true and Windows 11. See smb_quic.go.
+	Transport string `hcl:"transport,optional"`
+	// ClientCert, on an smb serve block with transport = "quic", is "none" (the
+	// default: Kerberos only) or "required": a client certificate chaining to
+	// client_ca_file is demanded in the TLS handshake, in addition to
+	// Kerberos. The certificate gates the transport; the person is still the
+	// Kerberos principal.
+	ClientCert string `hcl:"client_cert,optional"`
 	// Plaintext says WebDAV is served in the clear on purpose -- because TLS
 	// is terminated in front of it. Without it, WebDAV with passwords on an
 	// address other machines can reach is refused.

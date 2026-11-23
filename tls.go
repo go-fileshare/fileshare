@@ -83,8 +83,44 @@ type acmeBlock struct {
 	HTTPChallenge string `hcl:"http_challenge,optional"`
 }
 
-// tlsProtocols are the ones that can be served over TLS here.
+// tlsProtocols are the ones that can be served over TLS here. SMB joins them
+// only with transport = "quic" (see quic()).
 var tlsProtocols = []string{"webdav", "s3", "nfs"}
+
+// quic says this serve block is SMB over QUIC.
+func (b serveBlock) quic() bool { return b.Protocol == "smb" && b.Transport == "quic" }
+
+// checkQUIC refuses what transport and client_cert cannot mean.
+func (b serveBlock) checkQUIC() error {
+	switch b.Transport {
+	case "", "tcp":
+	case "quic":
+		if b.Protocol != "smb" {
+			return fmt.Errorf("%s: transport = \"quic\" is for smb", b.Protocol)
+		}
+		if !b.TLS {
+			return fmt.Errorf("smb: transport = \"quic\" is TLS 1.3 under UDP, and there is no tls = true to say so")
+		}
+	default:
+		return fmt.Errorf("%s: transport = %q is not \"tcp\" or \"quic\"", b.Protocol, b.Transport)
+	}
+	switch b.ClientCert {
+	case "", "none":
+		if b.quic() && b.ClientCAFile != "" {
+			return fmt.Errorf("smb: client_ca_file without client_cert = \"required\" would check nothing")
+		}
+	case "required":
+		if !b.quic() {
+			return fmt.Errorf("%s: client_cert is for smb with transport = \"quic\"", b.Protocol)
+		}
+		if b.ClientCAFile == "" {
+			return fmt.Errorf("smb: client_cert = \"required\" needs client_ca_file, the CA that issues the client certificates")
+		}
+	default:
+		return fmt.Errorf("%s: client_cert = %q is not \"none\" or \"required\"", b.Protocol, b.ClientCert)
+	}
+	return nil
+}
 
 func (t *tlsBlock) servercert() servercert.Config {
 	c := servercert.Config{CertFile: t.CertFile, KeyFile: t.KeyFile}
@@ -101,15 +137,19 @@ func (t *tlsBlock) servercert() servercert.Config {
 func (c *config) checkTLS() error {
 	var usesTLS bool
 	for _, b := range c.Serves {
+		if err := b.checkQUIC(); err != nil {
+			return err
+		}
+		quic := b.quic()
 		switch {
-		case b.TLS && !slices.Contains(tlsProtocols, b.Protocol):
-			return fmt.Errorf("%s does not take tls: SMB 3 encrypts with its own keys and SFTP is SSH", b.Protocol)
+		case b.TLS && !quic && !slices.Contains(tlsProtocols, b.Protocol):
+			return fmt.Errorf("%s does not take tls: SMB 3 encrypts with its own keys (or, with transport = \"quic\", TLS 1.3 under UDP) and SFTP is SSH", b.Protocol)
 		case b.TLS && c.TLS == nil:
 			return fmt.Errorf("%s says tls, and there is no tls block to say where the certificate comes from", b.Protocol)
-		case b.ClientCAFile != "" && b.Protocol != "nfs":
-			return fmt.Errorf("%s: client_ca_file is for nfs, whose clients present a certificate", b.Protocol)
+		case b.ClientCAFile != "" && b.Protocol != "nfs" && !quic:
+			return fmt.Errorf("%s: client_ca_file is for nfs, whose clients present a certificate (or smb with transport = \"quic\" and client_cert = \"required\")", b.Protocol)
 		case b.ClientCAFile != "" && !b.TLS:
-			return fmt.Errorf("nfs: client_ca_file without tls = true would check nothing")
+			return fmt.Errorf("%s: client_ca_file without tls = true would check nothing", b.Protocol)
 		case b.Plaintext && b.Protocol != "webdav" && !(b.Protocol == "s3" && b.STS):
 			return fmt.Errorf("%s: plaintext is for webdav, the protocol that sends a password (and s3 with sts, which takes tokens)", b.Protocol)
 		case b.Plaintext && b.TLS:
@@ -186,6 +226,20 @@ func (s *server) tlsFor(proto string) (*tls.Config, error) {
 		return nil, nil
 	}
 	cfg := s.certs.TLSConfig()
+	if b.quic() {
+		// ALPN "smb" and TLS 1.3 are set by smb.ListenQUIC. A client
+		// certificate is demanded in the handshake, before a byte of SMB.
+		if b.ClientCert == "required" {
+			pem, err := os.ReadFile(b.ClientCAFile)
+			if err != nil {
+				return nil, fmt.Errorf("smb: client_ca_file: %w", err)
+			}
+			if err := requireSMBClientCert(cfg, pem); err != nil {
+				return nil, fmt.Errorf("smb: %s: %w", b.ClientCAFile, err)
+			}
+		}
+		return cfg, nil
+	}
 	if proto != "nfs" {
 		// ⛔ APPENDED, and it has to be there. With ACME, NextProtos holds
 		// "acme-tls/1", and a Go server refuses a client whose ALPN list

@@ -117,8 +117,8 @@ github.com/go-filesystems/hfsplus v0.12.1 h1:uk1lWQkWgtiQIi09VYvw4eRQj6s+uCv+J4l
 github.com/go-filesystems/hfsplus v0.12.1/go.mod h1:SOk8oy2tA8cvH9yykrNYuwU2xWsebgAfG8e5h2rzSnk=
 github.com/go-filesystems/hostcopy v0.1.0 h1:eNOy7iGrEe7dGZQ+UhnXJraZsnT+Ht3pP3OIWy69Wq0=
 github.com/go-filesystems/hostcopy v0.1.0/go.mod h1:5HPox1vd9HgHm4tzbem2w3a/QxmM0gyxhFQmKBKMrKI=
-github.com/go-filesystems/inflight v0.2.0 h1:XN9rJkWSo51zDqx10VvQCvu8TG2t9t7v4Xv3vsvnmEM=
-github.com/go-filesystems/inflight v0.2.0/go.mod h1:RA1/w2Hbza3HvTw+ZfABSw8lh6zmixEUPsulzbeaarA=
+github.com/go-filesystems/inflight v0.6.0 h1:6JoAXtIJD5X2ewj/wf7ZuIrTgoab01VTRXgo6wlpk5o=
+github.com/go-filesystems/inflight v0.6.0/go.mod h1:S8CMMqsFJit6z/rNukkiJ6Pyz1i7SNkXnyNZGmv6BEo=
 github.com/go-filesystems/interface v0.6.0 h1:+7nA5FHgs/B03rZ9p81bkm0+6ew9fEntTFK8L5Uu6pk=
 github.com/go-filesystems/interface v0.6.0/go.mod h1:u9v8mvapNV8djzObwCECdyd2g6JBU6HNTR4EAqxOn6U=
 github.com/go-filesystems/iso9660 v0.5.0 h1:ITxuZUhQb6DOMaoBZEdcp6QNH/fCFCeh689zhGKLqbI=
@@ -135,8 +135,8 @@ github.com/go-filesystems/s3 v0.5.0 h1:1OpOPGMk2VVazoDM5NIZhuNWshdafSsJOy43EdsNA
 github.com/go-filesystems/s3 v0.5.0/go.mod h1:XBz0ilvQiEOyhab7X0Sxe+9Rf/JySPvts1DPEcdPwTg=
 github.com/go-filesystems/sftp v0.15.0 h1:LpOBo9JrQb1GcmjsmOfSq9FxxgEJPgKumr5uwvm1mXs=
 github.com/go-filesystems/sftp v0.15.0/go.mod h1:4+63PyoY+4vdvmym1dYkY6UIZxHEsLBDin8IqN4KAho=
-github.com/go-filesystems/smb v0.17.0 h1:E6WCaPG4+QQE5wYQQjfNLI7a6UuT0zYArdDbMvkDDho=
-github.com/go-filesystems/smb v0.17.0/go.mod h1:nsYaVqdziD72BvuVhiBUfQYDuNF70imXGJg1uMfKV70=
+github.com/go-filesystems/smb v0.18.1 h1:g/klVNB7HTrzv+mOY6zr0VLCfTNrtAFdc6Yp0P+cv80=
+github.com/go-filesystems/smb v0.18.1/go.mod h1:T3MPvlG89WN0iOTNBT85PfqRL2jFzLMH/Sz7kNuNho4=
 github.com/go-filesystems/squashfs v0.6.0 h1:Rv92z2QlGhGaBkwS+fFzAkPurzIbxQmrYew2qWM6VzI=
 github.com/go-filesystems/squashfs v0.6.0/go.mod h1:karBzt232JOTX6y+Igr1q8jSqj2QWXCiyXYgY7+Zcuk=
 github.com/go-filesystems/ssh v0.1.0 h1:5OWoXhNJiQN105ikw3YZ18BTE48cyWzNqyXiGUiATwQ=
@@ -274,6 +274,10 @@ github.com/pierrec/lz4/v4 v4.1.33/go.mod h1:7SE9MC2STkNtL4PIwGhjmyVwvILaGI9/COYQ
 github.com/pkg/sftp v1.13.12 h1:Myhzy/ZzLPnCtE2F2WtDHsgs8RfgMnH2gfbHuCJhkMU=
 github.com/pkg/sftp v1.13.12/go.mod h1:uNkH9roSXglNJqM+glJJi+TQXQUm0fXFWqCFmT8hsN0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/quic-go/go-ossfuzz-seeds v0.1.0 h1:APacT+iIaNF6fd8AGEiN3bT/Jtkd2jz4v4TzM7MFjy0=
+github.com/quic-go/go-ossfuzz-seeds v0.1.0/go.mod h1:3IOHRbJIc+L6YKMwfDtJAM9Vj9k0YY4muhuyUYk5tbk=
+github.com/quic-go/quic-go v0.64.1 h1:BCNTP+6x6++OPKrGST2FR3f1tycx8O3QOA3QQv09g70=
+github.com/quic-go/quic-go v0.64.1/go.mod h1:RAro2j2yN9a9EiPACLHT9IB2NXCvGQmmo/alT0yYI0w=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rs/cors v1.11.1 h1:eU3gRzXLRK57F5rKMGMZURNdIG4EoAmX8k94r9wXWHA=
@@ -324,6 +328,8 @@ go.opentelemetry.io/otel/metric v1.46.0 h1:yBnkXvgV7AXFILZc5K6IZe/CBFF3OS7BJ8ov6
 go.opentelemetry.io/otel/metric v1.46.0/go.mod h1:iPmdWqifKUdzziPkvvzIJXITl56fQx2mGM/DHLB3/2o=
 go.opentelemetry.io/otel/trace v1.46.0 h1:OULy7ccdJnZtJ0UDYFOIGaCmiWzJ8Vi2G/Rsu60qs1c=
 go.opentelemetry.io/otel/trace v1.46.0/go.mod h1:J7GAXweO77XSFkB/rmAqk9D6ihszhFjLU+d9WuUxDLI=
+go.uber.org/mock v0.5.2 h1:LbtPTcP8A5k9WPXj54PPPbjcI4Y6lhyOZXn+VS7wNko=
+go.uber.org/mock v0.5.2/go.mod h1:wLlUxC2vVTPTaE3UD51E0BGOAElKrILxhVSDYQLld5o=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=

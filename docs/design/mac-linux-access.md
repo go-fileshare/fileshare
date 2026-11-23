@@ -113,8 +113,8 @@ need for `authn-kinit` to fetch `cifs/` itself.
 - **macOS:** Apple's `kcc` has `copy_cred_cache [--krbtgt-only] … <from> <to>`
   (kuser/kcc-commands.in:236-276; `kcc copy_cred_cache --help` locally) [V].
   So: write a `FILE:` ccache (v4 format) from the KRB-CRED, then
-  `kcc copy_cred_cache FILE:/path API:` (or the KCM default) and `kswitch`
-  [I]. In process, Heimdal's `krb5_cc_store_cred` on `krb5_cc_default` does the
+  `kcc copy_cred_cache FILE:/path API:<new UUID>` and `kswitch -c API:<UUID>`
+  (`API:` alone fails, see Measurements) [V]. In process, Heimdal's `krb5_cc_store_cred` on `krb5_cc_default` does the
   same through cgo [I]; a pure-Go writer cannot reach KCM without its private
   Mach IPC.
 - **Linux:** write a ccache where `default_ccache_name` points (FILE: or
@@ -289,12 +289,60 @@ Under the no-password rule, without 445:
    `kdc = kkdcp://kdc…/KdcProxy` (macOS) / `kdc = https://kdc…/KdcProxy`
    (Linux). First test: `kgetcred`/`kvno HTTP/fs…` over kdcd's KKDCP.
 2. **fileshare: Negotiate on WebDAV** (443), sharing smb's acceptor. Linux
-   gvfs-dav works with it [V src]; macOS `mount_webdav` likely, Finder doubtful.
+   gvfs-dav works with it [V src]; macOS `mount_webdav` and the NetFS path sent no token in a probe (Measurements): macOS needs §6 or SMB.
 3. **If Finder prompts or WebDAV is too slow:** the loopback gateway of §6 with
    a WebDAV+Bearer client driver: no server change, SMB semantics, no dialog.
 4. **Where 445 may be opened** (campus, VPN): SMB with Kerberos is native on
    both and already served; gvfs needs no root.
 5. **Not:** SFTP for Finder users (needs FUSE), NFS for road warriors (it stays the on-site and site-to-site path, §5).
+
+## Measurements
+
+Phase 1, 2026-11-23, macOS 27.2.1 (Darwin 27.2.0, arm64). Stopped early: the
+project chose WireGuard as the main path, so this is partial. Tools and raw logs
+are in the local-only deploy repository (`tools/negprobe`, `tools/kirbi2ccache`,
+`tools/labnet`), not published.
+
+**1. TGS through the KDC proxy (§2.2): NOT MEASURED, still [I].** Heimdal's
+`kkdcp://` always builds an `https://` URL for `NSURLSession`, so the test needs
+the lab CA (`Caddy Local Authority - 2026 ECC Root`) trusted on the Mac. It is
+not: the System keychain holds an older Caddy root (2025), and trusting a new
+root was declined, so no TGT was fetched and `kgetcred` was never run.
+Measured on the way [V]:
+- A FILE ccache v4 written by `kirbi2ccache` was accepted by Apple's
+  `kcc copy_cred_cache FILE:<path> API:<uuid>` and `kswitch`, and listed by
+  `kcc list` with the right principals and times. The KRB-CRED to ccache step
+  must be ours: `kcc` has no import of a KRB-CRED.
+- `kcc copy_cred_cache FILE:… API:` (no uuid, as §2.3 writes it) fails with
+  `failed to parse uuid`: the target needs `API:<new UUID>`. §2.3 is corrected.
+- With no root access, `/etc/hosts` and `/etc/krb5.conf` cannot be edited. A
+  name under `/etc/resolver/lab.local` (an existing entry, port 15353) can be
+  served by a user-space DNS; `*.mesocentre.test` cannot.
+
+**2. mount_webdav and Finder against a Negotiate-only server (§3): the §3
+verdict is REFUTED for `mount_webdav` and the NetFS path.** Probe: 401
+`WWW-Authenticate: Negotiate` only; ticket = a forged ccache (random keys) with a
+`HTTP/fs.lab.local` service ticket, so no KDC is needed and the server checks
+nothing.
+- Control: `curl --negotiate -u :` with that cache sent `Authorization:
+  Negotiate` (948-byte token). The cache is usable by GSS.
+- Control: against an open server (`--open`), `mount_webdav` mounted at once.
+- `mount_webdav http://fs.lab.local:18081/ node`, ticket held: ONE `OPTIONS`
+  without `Authorization`, then exit 19 (ENODEV). No retry, no token. Same with no
+  ticket.
+- `osascript 'mount volume "http://…"'` (the NetFS path Finder uses): three
+  `OPTIONS` without `Authorization` (`WebDAVLib/1.3`, `WebDAVFS/3.0.0`), then
+  `User canceled (-128)`: it wanted credentials. Consistent with
+  `kNetFSSupportsKerberosKey = false` (§3) [V behaviour, I cause].
+- Not tested: https, the Finder GUI sheet itself (click Go, Connect to Server,
+  `http://fs.lab.local:18081/` with the probe up and a ticket cached, and note
+  whether a password sheet appears), a Basic+Negotiate challenge.
+- So option 2 of the Recommendation (macOS `mount_webdav` likely) does not hold
+  here; macOS needs the §6 gateway, or SMB.
+
+**3. SMB client throughput to a loopback server (§6): NOT MEASURED, still [I].**
+The host load average was 21 to 26 (limit 8) for the whole session; per the rule,
+no timing was taken. Nothing to report.
 
 ## Sources opened
 

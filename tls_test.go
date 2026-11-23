@@ -101,21 +101,17 @@ func TestTLSConfigRefusals(t *testing.T) {
 		{"... on loopback", withUsers(`serve "webdav" { addr = "127.0.0.1:8080" }`), ""},
 		{"... with nobody to authenticate", noUsers + `serve "webdav" { addr = "0.0.0.0:8080" }`, ""},
 		{"tls on smb", withUsers(tlsBlock + `serve "smb" { tls = true }`), "does not take tls"},
-		{"smb over quic", withUsers(tlsBlock + `serve "smb" { tls = true
-transport = "quic" }`), ""},
+		{"smb over quic", withUsers(tlsBlock + "serve \"smb\" {\n  tls = true\n  transport = \"quic\"\n}"), ""},
 		{"quic without tls", withUsers(`serve "smb" { transport = "quic" }`), "no tls = true"},
-		{"quic on webdav", withUsers(tlsBlock + `serve "webdav" { tls = true
-transport = "quic" }`), "is for smb"},
+		{"quic on webdav", withUsers(tlsBlock + "serve \"webdav\" {\n  tls = true\n  transport = \"quic\"\n}"), "is for smb"},
 		{"a transport that is none", withUsers(`serve "smb" { transport = "sctp" }`), "not \"tcp\" or \"quic\""},
 		{"smb tcp, said so", withUsers(`serve "smb" { transport = "tcp" }`), ""},
 		{"client_cert required with its CA", withUsers(tlsBlock + fmt.Sprintf("serve \"smb\" {\n  tls = true\n  transport = \"quic\"\n  client_cert = \"required\"\n  client_ca_file = %q\n}", hclPath(p.caFile))), ""},
-		{"client_cert required without a CA", withUsers(tlsBlock + `serve "smb" { tls = true
-transport = "quic"
-client_cert = "required" }`), "needs client_ca_file"},
+		{"client_cert required without a CA", withUsers(tlsBlock + "serve \"smb\" {\n  tls = true\n  transport = \"quic\"\n  client_cert = \"required\"\n}"), "needs client_ca_file"},
 		{"a CA file without required", withUsers(tlsBlock + fmt.Sprintf("serve \"smb\" {\n  tls = true\n  transport = \"quic\"\n  client_ca_file = %q\n}", hclPath(p.caFile))), "would check nothing"},
 		{"client_cert on smb over tcp", withUsers(`serve "smb" { client_cert = "required" }`), "client_cert is for smb with transport"},
 		{"client_cert that is none", withUsers(`serve "smb" { client_cert = "maybe" }`), "not \"none\" or \"required\""},
-		{"tls without a tls block",withUsers(`serve "webdav" { tls = true }`), "no tls block"},
+		{"tls without a tls block", withUsers(`serve "webdav" { tls = true }`), "no tls block"},
 		{"a tls block nothing uses", withUsers(tlsBlock + `serve "webdav" {}`), "nothing would use it"},
 		{"client_ca_file on webdav", withUsers(tlsBlock + fmt.Sprintf("serve \"webdav\" {\n  tls = true\n  client_ca_file = %q\n}", hclPath(p.caFile))), "for nfs"},
 		{"client_ca_file without tls", noUsers + tlsBlock + fmt.Sprintf("serve \"webdav\" { tls = true }\nserve \"nfs\" { client_ca_file = %q }", hclPath(p.caFile)), "check nothing"},

@@ -37,7 +37,7 @@ require (
 	github.com/go-filesystems/remote v0.2.0
 	github.com/go-filesystems/s3 v0.5.0
 	github.com/go-filesystems/sftp v0.15.0
-	github.com/go-filesystems/smb v0.17.0
+	github.com/go-filesystems/smb v0.17.3-0.20261123093907-cbc91ba79221
 	github.com/go-filesystems/squashfs v0.6.0
 	github.com/go-filesystems/ssh v0.1.0
 	github.com/go-filesystems/ufs v0.5.0
@@ -62,6 +62,7 @@ require (
 	github.com/lestrrat-go/jwx/v3 v3.4.0
 	github.com/openpubkey/openpubkey v0.30.0
 	github.com/pkg/sftp v1.13.12
+	github.com/quic-go/quic-go v0.64.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/stealthrocket/net v0.2.1
@@ -108,7 +109,7 @@ require (
 	github.com/go-encryptions/zfscrypt v0.0.0-20261102192741-5b96965ca160 // indirect
 	github.com/go-fde/apfs v0.3.0 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
-	github.com/go-filesystems/inflight v0.2.0 // indirect
+	github.com/go-filesystems/inflight v0.6.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

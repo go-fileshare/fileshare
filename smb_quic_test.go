@@ -37,7 +37,7 @@ func TestSMBOverQUIC(t *testing.T) {
 	needUsers(t)
 	dir := t.TempDir()
 	p := newPKI(t, dir)
-	img := image(t, dir, "d.img", map[string]string{"hello.txt": "over quic\n"})
+	img := image(t, dir, "d.img", map[string]string{"/hello.txt": "over quic\n"})
 	alice := write(t, dir, "alice.pw", "hunter2\n")
 	serve := func(extra string) string {
 		return fmt.Sprintf(`user "alice" { password_file = %q }

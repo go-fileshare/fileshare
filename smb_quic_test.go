@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -130,7 +131,7 @@ func TestSMBOverQUICClientCAFileRefusals(t *testing.T) {
 	empty := write(t, dir, "empty.pem", "not a certificate\n")
 	for _, c := range []struct{ name, ca, want string }{
 		{"missing", dir + "/absent.pem", "smb: client_ca_file"},
-		{"no certificate in it", empty, "smb: " + empty},
+		{"no certificate in it", empty, "smb: " + filepath.ToSlash(empty)},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			body := fmt.Sprintf(`user "alice" { password_file = %q }

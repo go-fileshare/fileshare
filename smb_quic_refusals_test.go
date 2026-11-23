@@ -16,7 +16,12 @@ import (
 // SMB over QUIC binds UDP itself, so the two ways of serving that hand a child
 // a TCP socket refuse it, and say so, rather than serve TCP in its place.
 func TestQUICIsRefusedWhereTCPSocketsAreHandedOver(t *testing.T) {
-	cfg := &config{Serves: []serveBlock{{Protocol: "smb", Addr: "127.0.0.1:0", TLS: true, Transport: "quic"}}}
+	// An identity block, so that a refusal that went missing falls through to the
+	// root check and fails the assertion below instead of a nil dereference.
+	cfg := &config{
+		Identity: &identityBlock{ServiceUser: "fs"},
+		Serves:   []serveBlock{{Protocol: "smb", Addr: "127.0.0.1:0", TLS: true, Transport: "quic"}},
+	}
 
 	t.Run("identity = system", func(t *testing.T) {
 		// Before the check for root, so it holds for every uid.

@@ -210,7 +210,7 @@ func (s *server) startGeneration(n uint64, feeds []*feed, failures chan<- error)
 		// generation still closes every connection under the TLS. NFS starts
 		// TLS inside its own protocol (RFC 9289), so it is not wrapped.
 		var ln net.Listener = l
-		if c := s.tlsConfigs[f.proto]; c != nil && f.proto != "nfs" {
+		if c := s.tlsConfigs[f.proto]; c != nil && f.proto != "nfs" && !s.quicProtos[f.proto] {
 			ln = tls.NewListener(l, c)
 		}
 		g.wg.Add(1)

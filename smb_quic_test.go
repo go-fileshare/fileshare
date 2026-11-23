@@ -73,12 +73,12 @@ serve "smb" {
 		d := &smb2.Dialer{Initiator: &smb2.NTLMInitiator{User: "alice", Password: "hunter2"}}
 		s, err := d.DialConn(ctx, nc, addr)
 		if err != nil {
-			return err
+			return fmt.Errorf("session setup: %w", err)
 		}
 		defer s.Logoff()
 		sh, err := s.Mount("d")
 		if err != nil {
-			return err
+			return fmt.Errorf("tree connect: %w", err)
 		}
 		defer sh.Umount()
 		got, err := sh.ReadFile("hello.txt")

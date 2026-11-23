@@ -152,7 +152,8 @@ func runServer(t *testing.T, body string) (*server, map[string]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := open(cfg, &safeBuffer{})
+	logs := &safeBuffer{}
+	srv, err := open(cfg, logs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +161,9 @@ func runServer(t *testing.T, body string) (*server, map[string]string) {
 	done := make(chan error, 1)
 	go func() { done <- srv.run(ctx, cfg) }()
 	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("server output:\n%s", logs.String())
+		}
 		cancel()
 		<-done
 		srv.Close()

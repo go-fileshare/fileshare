@@ -1,4 +1,4 @@
-//go:build !nosftp
+//go:build !nosftp && !wasip1
 
 package main
 

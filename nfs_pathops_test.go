@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
-//go:build !nonfs && !nowebdav && !nosmb && !nosftp
+//go:build !nonfs && !nowebdav && !nosmb && !nosftp && !wasip1
 
 package main
 

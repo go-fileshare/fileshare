@@ -10,68 +10,68 @@ go 1.27.4
 
 require (
 	connectrpc.com/connect/v2 v2.0.2
-	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.1
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.115.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0
+	github.com/aws/aws-sdk-go-v2 v1.48.2
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.5
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.116.2
+	github.com/aws/aws-sdk-go-v2/service/sts v1.53.2
 	github.com/cloudsoda/go-smb2 v0.0.0-20261105190815-95be04a983b8
-	github.com/go-authn/directory v0.23.0
-	github.com/go-authn/krb5 v0.3.4
+	github.com/go-authn/directory v0.27.0
+	github.com/go-authn/krb5 v0.5.0
 	github.com/go-authn/krl v0.6.1
-	github.com/go-authn/oidc v0.7.0
-	github.com/go-authn/revocation v0.7.0
-	github.com/go-authn/servercert v0.7.0
+	github.com/go-authn/oidc v0.8.1
+	github.com/go-authn/revocation v0.8.0
+	github.com/go-authn/servercert v0.7.1
 	github.com/go-authn/sshcert v0.1.10
-	github.com/go-filesystems/apfs v0.6.0
-	github.com/go-filesystems/btrfs v0.5.0
-	github.com/go-filesystems/detect v0.5.1
-	github.com/go-filesystems/exfat v0.6.0
-	github.com/go-filesystems/ext4 v0.5.0
-	github.com/go-filesystems/fat32 v0.13.0
-	github.com/go-filesystems/hfsplus v0.12.1
+	github.com/go-filesystems/apfs v0.7.1
+	github.com/go-filesystems/btrfs v0.7.1
+	github.com/go-filesystems/detect v0.6.0
+	github.com/go-filesystems/exfat v0.7.1
+	github.com/go-filesystems/ext4 v0.7.4
+	github.com/go-filesystems/fat32 v0.13.1
+	github.com/go-filesystems/hfsplus v0.20.1
 	github.com/go-filesystems/interface v0.6.0
-	github.com/go-filesystems/iso9660 v0.5.0
-	github.com/go-filesystems/nfs v0.14.0
+	github.com/go-filesystems/iso9660 v0.5.2
+	github.com/go-filesystems/nfs v0.16.0
 	github.com/go-filesystems/ntfs v0.5.0
 	github.com/go-filesystems/osfs v0.4.0
-	github.com/go-filesystems/remote v0.2.0
-	github.com/go-filesystems/s3 v0.5.0
-	github.com/go-filesystems/sftp v0.15.0
-	github.com/go-filesystems/smb v0.18.1
-	github.com/go-filesystems/squashfs v0.6.0
+	github.com/go-filesystems/remote v0.4.1
+	github.com/go-filesystems/s3 v0.6.0
+	github.com/go-filesystems/sftp v0.16.0
+	github.com/go-filesystems/smb v0.20.1
+	github.com/go-filesystems/squashfs v0.9.3
 	github.com/go-filesystems/ssh v0.1.0
 	github.com/go-filesystems/ufs v0.5.0
-	github.com/go-filesystems/webdav v0.7.0
-	github.com/go-filesystems/xfs v0.5.0
-	github.com/go-filesystems/zfs v0.5.0
+	github.com/go-filesystems/webdav v0.9.0
+	github.com/go-filesystems/xfs v0.5.2
+	github.com/go-filesystems/zfs v0.8.5
 	github.com/go-fsctl/btrfs v0.1.1
 	github.com/go-fsctl/projquota v0.1.0
 	github.com/go-fsctl/zfs v0.1.1
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-net-health/endpoint v0.1.0
-	github.com/go-sql-driver/mysql v1.10.1
+	github.com/go-sql-driver/mysql v1.11.0
 	github.com/go-volumes/gpt v0.3.0
 	github.com/go-volumes/s3 v0.2.2
 	github.com/grpc-transports/control v0.1.1
 	github.com/hashicorp/hcl/v2 v2.25.0
 	github.com/hiddeco/sshsig v0.2.0
 	github.com/hstern/go-ssf v0.1.2-0.20260809201236-e03a65c1fba0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/jcmturner/gofork v1.7.6
 	github.com/jcmturner/gokrb5/v8 v8.4.4
-	github.com/lestrrat-go/jwx/v3 v3.4.0
-	github.com/openpubkey/openpubkey v0.30.0
-	github.com/pkg/sftp v1.13.12
-	github.com/quic-go/quic-go v0.64.1
+	github.com/lestrrat-go/jwx/v3 v3.5.0
+	github.com/openpubkey/openpubkey v0.30.1
+	github.com/pkg/sftp v1.13.13
+	github.com/quic-go/quic-go v0.66.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/stealthrocket/net v0.2.1
-	golang.org/x/crypto v0.58.1-0.20261109165751-4e10f38b063d
+	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sys v0.50.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
@@ -79,42 +79,56 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Azure/go-ntlmssp v0.1.1 // indirect
 	github.com/agext/levenshtein v1.2.1 // indirect
-	github.com/anchore/go-lzo v0.1.1 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
 	github.com/awnumar/memcall v0.4.0 // indirect
 	github.com/awnumar/memguard v0.23.0 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.27 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.12 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.25 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.13 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.12 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.12 // indirect
-	github.com/aws/smithy-go v1.28.9 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.29 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.14 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.14 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.14 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.27 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.15 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.14 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.14 // indirect
+	github.com/aws/smithy-go v1.28.11 // indirect
 	github.com/bits-and-blooms/bitset v1.24.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudsoda/sddl v0.0.0-20261105185302-1c8f96799263 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/glauth/ldap v0.0.0-20260718202943-34c5f9b3cbf1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
-	github.com/go-authn/ldap v0.13.0 // indirect
+	github.com/go-authn/harden v0.2.0 // indirect
+	github.com/go-authn/ldap v0.15.0 // indirect
+	github.com/go-authn/secretsource v0.9.0 // indirect
+	github.com/go-compressions/blake3 v0.7.2 // indirect
+	github.com/go-compressions/deflate v0.3.0 // indirect
+	github.com/go-compressions/edonr v0.3.2 // indirect
+	github.com/go-compressions/lz4 v0.5.1 // indirect
 	github.com/go-compressions/lzfse v0.6.0 // indirect
+	github.com/go-compressions/lzo v0.4.1 // indirect
+	github.com/go-compressions/skein v0.1.0 // indirect
 	github.com/go-compressions/xz v0.1.0 // indirect
-	github.com/go-encryptions/ccm v0.0.0-20261101000501-f1aae5a045b6 // indirect
-	github.com/go-encryptions/xts v0.1.0 // indirect
-	github.com/go-encryptions/zfscrypt v0.0.0-20261102192741-5b96965ca160 // indirect
-	github.com/go-fde/apfs v0.3.0 // indirect
+	github.com/go-encryptions/ccm v0.1.1 // indirect
+	github.com/go-encryptions/xts v0.3.1 // indirect
+	github.com/go-encryptions/zfscrypt v0.1.0 // indirect
+	github.com/go-fde/apfs v0.3.1 // indirect
 	github.com/go-filesystems/hostcopy v0.1.0 // indirect
-	github.com/go-filesystems/inflight v0.6.0 // indirect
+	github.com/go-filesystems/inflight v0.7.0 // indirect
+	github.com/go-freedesktop/secretservice v0.4.0 // indirect
 	github.com/go-ldap/ldap/v3 v3.4.15 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/go-volumes/safeio v0.0.0-20261101001828-0e1734761f39 // indirect
-	github.com/goccy/go-json v0.11.2 // indirect
+	github.com/go-macos/keychain v0.3.1 // indirect
+	github.com/go-macos/objc v0.11.2 // indirect
+	github.com/go-simd/adler32 v0.3.0 // indirect
+	github.com/go-simd/matchlen v0.5.0 // indirect
+	github.com/go-volumes/safeio v0.1.0 // indirect
+	github.com/goccy/go-json v0.12.0 // indirect
+	github.com/godbus/dbus/v5 v5.2.4 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
@@ -128,7 +142,7 @@ require (
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
 	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.4.0 // indirect
@@ -140,7 +154,6 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
-	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
